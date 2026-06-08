@@ -94,6 +94,25 @@ export function setTaskDone(taskId: string, done: boolean): Promise<Task> {
   });
 }
 
+export interface TaskDetail extends Task {
+  messages: ChatMessage[];
+  summary: string;
+}
+
+export function getTask(taskId: string): Promise<TaskDetail> {
+  return request<TaskDetail>(`/api/app/tasks/${taskId}`);
+}
+
+export function sendTaskMessage(
+  taskId: string,
+  text: string,
+): Promise<{ reply: ChatMessage; summary: string }> {
+  return request(`/api/app/tasks/${taskId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
 export function getFeatureStates(projectId = PROJECT_ID): Promise<Record<string, string>> {
   return request<Record<string, string>>(`/api/control-plane/features/${encodeURIComponent(projectId)}`);
 }

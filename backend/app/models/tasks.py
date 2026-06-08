@@ -24,6 +24,10 @@ class TaskUpdate(BaseModel):
     due_date: str | None = None
 
 
+class TaskMessageIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class Task(BaseModel):
     task_id: str
     project_id: str

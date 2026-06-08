@@ -15,7 +15,9 @@ from fastapi import APIRouter, HTTPException
 
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
-from app.models.tasks import Task, TaskIn, TaskUpdate
+from app.generated_app import task_worker
+from app.models.reception import ChatMessage
+from app.models.tasks import Task, TaskIn, TaskMessageIn, TaskUpdate
 
 router = APIRouter(prefix="/api/app/tasks", tags=["generated-app:task"])
 
@@ -43,6 +45,47 @@ def create_task(body: TaskIn) -> Task:
     task = Task(task_id=task_id, project_id=body.project_id, title=body.title, due_date=body.due_date)
     get_db().collection(_COLLECTION).document(task_id).set(task.model_dump(mode="json"))
     return task
+
+
+@router.get("/{task_id}")
+def get_task(task_id: str) -> dict:
+    snap = get_db().collection(_COLLECTION).document(task_id).get()
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="task が見つかりません")
+    data = snap.to_dict()
+    require_feature_active(data["project_id"], _FEATURE)
+    data.setdefault("messages", [])
+    data.setdefault("summary", "")
+    return data
+
+
+@router.post("/{task_id}/messages")
+def post_task_message(task_id: str, body: TaskMessageIn) -> dict:
+    """Chat with the task's worker agent; it replies and re-organizes the summary."""
+    ref = get_db().collection(_COLLECTION).document(task_id)
+    snap = ref.get()
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="task が見つかりません")
+    data = snap.to_dict()
+    require_feature_active(data["project_id"], _FEATURE)
+
+    user_msg = ChatMessage(role="user", text=body.text)
+    reply_text, summary = task_worker.respond(data, body.text)
+    assistant_msg = ChatMessage(role="assistant", text=reply_text)
+
+    from google.cloud import firestore  # local import keeps module import cheap
+
+    ref.set(
+        {
+            "messages": firestore.ArrayUnion(
+                [user_msg.model_dump(mode="json"), assistant_msg.model_dump(mode="json")]
+            ),
+            "summary": summary,
+            "updated_at": _now_iso(),
+        },
+        merge=True,
+    )
+    return {"reply": assistant_msg.model_dump(mode="json"), "summary": summary}
 
 
 @router.patch("/{task_id}")

@@ -21,3 +21,5 @@ def test_expected_routes_registered():
     assert "/api/control-plane/approvals/{approval_id}/approve" in paths
     assert "/api/control-plane/features/{project_id}/{feature}/disable" in paths
     assert "/api/app/tasks" in paths
+    assert "/api/app/tasks/{task_id}" in paths
+    assert "/api/app/tasks/{task_id}/messages" in paths
