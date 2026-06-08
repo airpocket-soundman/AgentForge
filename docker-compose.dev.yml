@@ -35,11 +35,19 @@ services:
       GOOGLE_CLOUD_REGION: asia-northeast1
       FIRESTORE_EMULATOR_HOST: firestore:8080
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      # LLM Provider Gateway (§2.6): local default = claude-cli (saves Gemini cost).
+      # Needs the host bridge running:  python scripts/claude_bridge.py
+      # Force another provider here if needed: LLM_PROVIDER=stub | gemini
+      APP_ENV: local
+      CLAUDE_BRIDGE_URL: http://host.docker.internal:8765/generate
+      # LLM_PROVIDER: stub   # uncomment to run fully offline without the bridge
     # Optional: drop GEMINI_API_KEY=... into backend/.env (gitignored) to test
-    # real Gemini locally. Absent -> the GeminiClient returns deterministic stubs.
+    # real Gemini locally. Absent -> deterministic stub when provider can't reach LLM.
     env_file:
       - path: ./backend/.env
         required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # reach the host claude bridge (Linux parity)
     volumes:
       - ./backend/app:/app/app:cached # live reload on host edits
     depends_on:

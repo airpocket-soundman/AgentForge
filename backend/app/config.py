@@ -26,6 +26,19 @@ class Settings(BaseSettings):
     gemini_flash_model: str = "gemini-flash-latest"
     gemini_pro_model: str = "gemini-pro-latest"
 
+    # --- LLM Provider Gateway (IMPLEMENTATION_GUIDE.md §2.6) ---
+    # app_env: "prod" (default) | "local". docker-compose.dev sets "local".
+    app_env: str = "prod"
+    # llm_provider: "" = auto by env (local->claude-cli, else gemini).
+    # Or force one of: "gemini" | "claude-cli" | "stub".
+    llm_provider: str = ""
+    # claude-cli talks to a host bridge wrapping `claude -p` (LOCAL only; saves
+    # Gemini cost). Not reachable on Cloud Run. See scripts/claude_bridge.py.
+    claude_bridge_url: str = "http://host.docker.internal:8765/generate"
+    claude_flash_model: str = ""  # "" = bridge/session default
+    claude_pro_model: str = ""    # "" = bridge/session default
+    llm_timeout_seconds: int = 180
+
     # --- HTTP / CORS ---
     # Comma-separated list of allowed origins for the browser SPA. Includes the
     # Firebase Hosting domains so the deployed app can call the API directly if

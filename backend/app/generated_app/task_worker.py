@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from app import agents
-from app.llm.gemini import ModelTier, get_gemini
+from app.llm.gateway import ModelTier, get_llm
 
 _PROMPT = """あなたはタスク管理アプリの「ワーカーエージェント」です。
 1つのタスクについてユーザーと対話し、内容を整理します。
@@ -32,7 +32,7 @@ _PROMPT = """あなたはタスク管理アプリの「ワーカーエージェ�
 def respond(task: dict, user_text: str) -> tuple[str, str]:
     """Return (reply_text, organized_summary)."""
     current_summary = task.get("summary") or ""
-    gemini = get_gemini()
+    gemini = get_llm()
 
     if not gemini.enabled:
         reply = f"（ワーカーエージェント・スタブ）「{task['title']}」について承りました。"

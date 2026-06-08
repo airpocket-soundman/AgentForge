@@ -11,7 +11,7 @@ import json
 import uuid
 
 from app.control_plane import registry
-from app.llm.gemini import ModelTier, get_gemini
+from app.llm.gateway import ModelTier, get_llm
 from app.models.orchestrator import (
     PlannedApi,
     PlannedView,
@@ -128,7 +128,7 @@ def _build_plan_prompt(goal: str) -> str:
 
 
 def _gemini_plan(task_id: str, req: PlanRequest) -> WorkPlan:
-    raw = get_gemini().generate(_build_plan_prompt(req.goal), tier=ModelTier.PRO)
+    raw = get_llm().generate(_build_plan_prompt(req.goal), tier=ModelTier.PRO)
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
@@ -159,7 +159,7 @@ def _wants_no_worker(goal: str) -> bool:
 def generate_plan(req: PlanRequest) -> WorkPlan:
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     feature = req.feature or infer_feature(req.goal)
-    if get_gemini().enabled:
+    if get_llm().enabled:
         try:
             plan = _gemini_plan(task_id, req)
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> deterministic plan

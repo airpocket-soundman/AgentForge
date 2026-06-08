@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException
 from app import agents
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
-from app.llm.gemini import ModelTier, get_gemini
+from app.llm.gateway import ModelTier, get_llm
 from app.models.reception import ChatMessage
 from app.models.tasks import FeatureWorkerIn, Task
 
@@ -92,7 +92,7 @@ def _create_tasks(project_id: str, titles: list[str]) -> list[dict]:
 
 
 def _respond(feature: str, project_id: str, text: str, history: list[dict]) -> tuple[str, list[dict]]:
-    gemini = get_gemini()
+    gemini = get_llm()
     base = agents.load("feature_worker")
 
     if feature == "task":
