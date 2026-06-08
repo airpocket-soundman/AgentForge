@@ -28,6 +28,15 @@ class TaskMessageIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
 
 
+class FeatureWorkerIn(BaseModel):
+    project_id: str = "default"
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class WorkerToggleIn(BaseModel):
+    enabled: bool
+
+
 class Task(BaseModel):
     task_id: str
     project_id: str

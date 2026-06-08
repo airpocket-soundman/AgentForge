@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createTask, listTasks, setTaskDone, type Task } from "../api";
+import { FeatureWorkerPanel } from "./FeatureWorkerPanel";
 
 export function TaskListView({ onOpenTask }: { onOpenTask: (taskId: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -45,6 +46,8 @@ export function TaskListView({ onOpenTask }: { onOpenTask: (taskId: string) => v
       <div className="view__head">
         <h2>タスク管理</h2>
       </div>
+
+      <FeatureWorkerPanel feature="task" onChanged={() => void refresh()} />
 
       <div className="task-add">
         <input

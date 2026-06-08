@@ -128,3 +128,34 @@ export function disableFeature(feature: string, projectId = PROJECT_ID): Promise
 export function resetAll(): Promise<{ status: string; deleted: Record<string, number> }> {
   return request("/api/control-plane/reset", { method: "POST", body: "{}" });
 }
+
+// --- Feature-level managing AI worker (standard: instruction area per feature) ---
+
+export function getFeatureWorker(
+  feature: string,
+  projectId = PROJECT_ID,
+): Promise<{ enabled: boolean; messages: ChatMessage[] }> {
+  return request(`/api/app/features/${feature}/worker?project_id=${encodeURIComponent(projectId)}`);
+}
+
+export function sendFeatureWorkerMessage(
+  feature: string,
+  text: string,
+  projectId = PROJECT_ID,
+): Promise<{ reply: ChatMessage; created: { task_id: string; title: string }[] }> {
+  return request(`/api/app/features/${feature}/worker/messages`, {
+    method: "POST",
+    body: JSON.stringify({ project_id: projectId, text }),
+  });
+}
+
+export function setFeatureWorker(
+  feature: string,
+  enabled: boolean,
+  projectId = PROJECT_ID,
+): Promise<{ worker_enabled: boolean }> {
+  return request(`/api/control-plane/features/${encodeURIComponent(projectId)}/${feature}/worker`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}

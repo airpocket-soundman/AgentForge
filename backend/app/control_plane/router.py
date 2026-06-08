@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from app.control_plane import approvals, registry
+from app.models.tasks import WorkerToggleIn
 
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
 
@@ -38,6 +39,12 @@ def feature_states(project_id: str) -> dict:
 def disable_feature(project_id: str, feature: str) -> dict:
     """Rollback: soft-disable (never delete) a feature."""
     return approvals.disable_feature(project_id, feature)
+
+
+@router.post("/features/{project_id}/{feature}/worker")
+def set_worker(project_id: str, feature: str, body: WorkerToggleIn) -> dict:
+    """Show/hide a feature's managing AI worker (instruction area)."""
+    return approvals.set_worker(project_id, feature, body.enabled)
 
 
 @router.post("/reset")

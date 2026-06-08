@@ -96,7 +96,18 @@ def approve(approval_id: str) -> dict:
         db.collection("task_runs").document(task_id).set(
             {"status": "active", "current_step": "active", "updated_at": _now_iso()}, merge=True
         )
-    _feature_state_ref(project_id).set({feature: "active", "updated_at": _now_iso()}, merge=True)
+
+    # Standard spec: feature gets a managing worker unless the plan opted out.
+    plan_snap = db.collection("work_plans").document(task_id).get()
+    has_worker = True
+    if plan_snap.exists:
+        views = plan_snap.to_dict().get("planned_views", [])
+        has_worker = any(v.get("has_worker", True) for v in views) if views else True
+
+    _feature_state_ref(project_id).set(
+        {feature: "active", f"{feature}_worker": has_worker, "updated_at": _now_iso()},
+        merge=True,
+    )
 
     appr_ref.set({"status": "approved", "decided_at": _now_iso()}, merge=True)
     _audit("approval.approved", approval_id, {"task_id": task_id, "feature": feature})
@@ -118,3 +129,12 @@ def disable_feature(project_id: str, feature: str) -> dict:
     _feature_state_ref(project_id).set({feature: "disabled", "updated_at": _now_iso()}, merge=True)
     _audit("feature.disabled", f"{project_id}:{feature}", {"reason": "user_rollback"})
     return {"project_id": project_id, "feature": feature, "status": "disabled"}
+
+
+def set_worker(project_id: str, feature: str, enabled: bool) -> dict:
+    """Turn a feature's managing AI worker on/off (instruction area show/hide)."""
+    _feature_state_ref(project_id).set(
+        {f"{feature}_worker": enabled, "updated_at": _now_iso()}, merge=True
+    )
+    _audit("feature.worker_toggled", f"{project_id}:{feature}", {"enabled": enabled})
+    return {"project_id": project_id, "feature": feature, "worker_enabled": enabled}
