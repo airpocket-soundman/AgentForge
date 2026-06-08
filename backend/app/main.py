@@ -8,8 +8,10 @@ from fastapi import FastAPI
 app = FastAPI(title="AgentForge Core API", version="0.0.1")
 
 
-@app.get("/healthz")
-def healthz():
+# NOTE: Cloud Run's Google Front End intercepts the "/healthz" path before it
+# reaches the container, so we expose the health check at "/health" instead.
+@app.get("/health")
+def health():
     return {"status": "ok", "service": "agentforge-core-api"}
 
 

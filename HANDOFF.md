@@ -61,8 +61,9 @@
   - `/` は 200 で `{"message":"AgentForge core API is running."}` を返す（＝公開URL稼働＝提出要件のデプロイURLを満たせる状態）
   - Cloud Shell の `~/af-smoke` から `gcloud run deploy --source` で作成（本物のコードは本リポジトリ。後でCI/CDに置換）
 
-### ⚠️ 既知の小問題（要再確認）
-- スモークの `/healthz` が 404（`/openapi.json` には `/healthz` が載っているのに）。使い捨て側の貼り付け起因の可能性。**本番デプロイ時に再確認**（ローカルDockerでは /healthz=200 確認済み）。
+### 既知事項（対応状況）
+- **【解決済】** スモークの `/healthz` 404 は、**Cloud Run（Google Front End）が `/healthz` パスを横取り**するのが原因（応答は Server 空＋Google の HTML 404 で、コンテナに届かない）。`/health` はアプリに到達する。→ バックエンドのヘルスを **`/health`** に変更済み（[backend/app/main.py](backend/app/main.py)）。教訓メモ: memory `cloud-run-reserved-healthz`。スモーク（`af-smoke`）は使い捨てなので未修正のまま放置でよい。
+- **【検証済】** `backend/requirements.txt` はクリーンな Python 3.12 でインストール成功（fastapi/uvicorn/pydantic/google-cloud-firestore/-storage/-tasks/google-genai、依存衝突なし）。
 - まだ未実施: サービスアカウント分離＋IAM、Firebase(Hosting/Auth)初期化、Gemini APIキーの Secret Manager 登録、GitHub→Cloud Build の正式CI/CD。
 
 ---
@@ -70,7 +71,7 @@
 ## 5. リポジトリ構成（現状）
 
 ```
-backend/                FastAPI 雛形（app/main.py=/healthz,/、Dockerfile=本番用、requirements.txt）
+backend/                FastAPI 雛形（app/main.py=/health,/、Dockerfile=本番用、requirements.txt）
 .devcontainer/          Dev Container 定義（devcontainer.json, postCreate.sh）
 docs/                   説明サイト（index.html + styles.css + pages/*.html、SVG図）
 IMPLEMENTATION_GUIDE.md 生きた仕様（§2.5 が実行時アーキ正準）
