@@ -95,8 +95,10 @@ Docker を使えないPCでも、以下のピン版を入れれば再現可能�
 
 | 項目 | 値 |
 |---|---|
-| Cloud Run サービス | `agentforge-core-api`（asia-northeast1, min=0, allow-unauthenticated） |
-| 公開URL | https://agentforge-core-api-217469091476.asia-northeast1.run.app |
+| **公開Webアプリ（提出URL）** | **https://agentforge-devops.web.app**（Firebase Hosting, site=`agentforge-devops`）。`/api/**` を rewrite で Cloud Run に転送 |
+| Cloud Run サービス（API） | `agentforge-core-api`（asia-northeast1, min=0, allow-unauthenticated） |
+| Cloud Run 直URL | https://agentforge-core-api-217469091476.asia-northeast1.run.app |
+| Hosting デプロイ | ホストで `npm run build`（frontend）→ `firebase deploy --only hosting`。設定は [firebase.json](firebase.json) |
 | 実行サービスアカウント | `217469091476-compute@developer.gserviceaccount.com`（既定）。付与: `secretmanager.secretAccessor`（gemini-api-key）, `datastore.user` |
 | Secret | `gemini-api-key`（Secret Manager）→ Cloud Run に `GEMINI_API_KEY` として注入 |
 | デプロイ方法 | Cloud Shell から `gcloud run deploy --source`（手順は [DEPLOY.md](DEPLOY.md)）。将来 Cloud Build CI/CD に置換 |
