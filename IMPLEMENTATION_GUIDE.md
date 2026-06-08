@@ -102,6 +102,36 @@
 - 安定・決定的→API化／自然言語I/O→境界LLM／継続的判断→専用ワーカー（非常駐）。
 - ビルド時ワーカー（UI Designer/Programmer等）は汎用・再利用、機能ごとに新規作成しない。
 
+## 2.6 追加確定機能（案1〜4 / 2026-06-09 決定）
+
+提出版(7/10)に **案1・案2・案3・案4 すべて含める**。
+
+### 案1：マルチユーザー隔離（ホワイトリスト＋ユーザーごと独立インスタンス）
+- ホワイトリスト（`ALLOWED_EMAILS`）内の任意Googleアカウントがログイン可。各ユーザーは**自分専用ワークスペース**（タスク・生成機能・registry・会話を `uid` で分離）を持つ。原構想「ユーザーごと隔離ワークスペース」の実装。
+- **実体は論理マルチテナント**：Firebase Auth `uid` をテナントキーに、Firestore を `users/{uid}/…` で分離（物理分離はしない）。
+- **必須：Firestore セキュリティルール厳格化**。ブラウザが Firestore を直接リアルタイム購読するため、ルールで「自分の `uid` のデータしか読めない」を強制しないと他人のデータが漏れる。dev/emulator の緩いルールを本番用に締める。
+
+### 案2＋案4：LLM Provider Gateway（プロバイダ抽象化＋切替）
+- 共通IF `LLMProvider.generate(messages, schema?, tier?)` に集約。登録プロバイダ：
+  - `gemini`（**本番既定**・アプリ鍵）
+  - `gemini-byok`（本番・ユーザー任意。ユーザーのGemini鍵を **Secret Manager/暗号化でサーバ側のみ**保持、クライアントに出さない＝案2）
+  - `claude-cli`（**ローカル既定**・host の `claude -p --output-format json` を呼ぶ＝Gemini課金節約。案4）
+  - `stub`（単体テスト・決定的）
+- **選択順**：①環境既定（local→`claude-cli` / prod→`gemini`）→ ②ユーザー設定(BYOK)→ ③リクエスト上書き。
+- **切替機構は本番にも実装**するが、**利用可能プロバイダは環境で変わる**（`claude-cli` はローカル限定。Cloud Run に claude CLI は無い）。
+- **多プロバイダBYOK（OpenAI等）は提出後ロードマップ**（Google中心の審査軸を維持）。Gateway がその土台。
+- 本番既定は Gemini を維持（必須要件②）。理解・整理は小型(Flash)、重い判断のみ上位＝モデルルーティングは Gateway 内で実施。
+
+### 案3：デフォルトCSS/テーマ＋緩い制約（生成UIが崩れない）
+- 生成UIは **manifest＋固定レンダラ（既知コンポーネント）** なので、LLMに生CSSを書かせず**コンポーネント＋テーマ指定**だけさせて一貫性を担保。
+- **テーマ・プリセットを2〜4種**用意（CSS変数セット）。manifest に `theme` を持たせ、未指定なら既定。ユーザー指示が曖昧なら**近いテーマを自動選択**、明示指示があれば優先（緩い制約）。
+- `backend/app/agents/ui_designer.md` に規約を追記：「標準コンポーネントを使う／曖昧なら近いテーマを選ぶ／生CSSは明示時のみ」。
+
+### テスト方針（案4）
+- 基本は **ローカル Docker（`docker-compose.dev.yml`）でテスト**。Firestore はエミュレータ、LLMは**指示なき限り `claude-cli`** を使い Gemini 課金を節約。
+- コンテナ→host の claude 呼び出しは **host側ブリッジ（`http://host.docker.internal:<port>`）** を推奨（host に Claude CLI ログイン済み前提）。代替：claude使用時のみ backend を host 直起動。
+- 本番Geminiでの検証は要所のみ（コスト節約）。pytest は `stub` provider で決定的に。
+
 ## 3. MVPスコープ（7/10までに「動く」もの）
 
 ### 必ず動かす（縦切り1本完走）
