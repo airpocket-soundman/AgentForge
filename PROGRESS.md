@@ -47,6 +47,7 @@
 - ✅ 承認API（[backend/app/control_plane/approvals.py](backend/app/control_plane/approvals.py)）: approve で api_registry/ui_view_registry を active化＋feature_states フラグ＋task_run active＋監査
 - ✅ Task API（[backend/app/generated_app/tasks.py](backend/app/generated_app/tasks.py)）: 一覧/追加/更新の決定的CRUD（Firestore `app_tasks`）。**feature が active でないと 409**（承認の意味付け）
 - ✅ E2E（emulator）: 承認前=409 → 承認 → 作成200 → 一覧 → done=true、全部確認。pytest 10件 green
+- ✅ **本番（公開URL / revision 00003）でもE2E実証**: 計画→承認前409→承認→作成200→一覧→done=true→rollback後409（PowerShell Invoke-RestMethod で確認）
 - ⬜ フロントに承認ボタン＋Task UI（次：UI連携）
 
 ## Phase 5: Rollback + Audit + SA分離 🚧
