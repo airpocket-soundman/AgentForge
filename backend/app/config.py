@@ -27,8 +27,13 @@ class Settings(BaseSettings):
     gemini_pro_model: str = "gemini-pro-latest"
 
     # --- HTTP / CORS ---
-    # Comma-separated list of allowed origins for the browser SPA.
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Comma-separated list of allowed origins for the browser SPA. Includes the
+    # Firebase Hosting domains so the deployed app can call the API directly if
+    # ever served cross-origin (the /api rewrite makes it same-origin in practice).
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "https://agentforge-498808.web.app,https://agentforge-498808.firebaseapp.com"
+    )
 
     @property
     def cors_origin_list(self) -> list[str]:
