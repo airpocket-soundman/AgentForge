@@ -17,6 +17,9 @@ service-account*.json
 *-key.json
 .gcloud/
 
+# Firebase deploy cache
+.firebase/
+
 # OS / editor
 .DS_Store
 Thumbs.db
