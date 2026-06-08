@@ -1,0 +1,6 @@
+# Dev/test only — not installed into the production Cloud Run image.
+-r requirements.txt
+
+pytest>=8.3,<9
+httpx>=0.27          # FastAPI TestClient transport
+ruff>=0.6            # lint + format

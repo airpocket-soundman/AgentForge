@@ -1,0 +1,12 @@
+# AgentForge frontend — LOCAL DEV image (Vite dev server with HMR).
+# Production is a static build served by Firebase Hosting (no container).
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+
+# Install deps first for layer caching. Source is bind-mounted by docker-compose.
+COPY package.json package-lock.json* ./
+RUN npm install
+
+EXPOSE 5173
+CMD ["npm", "run", "dev"]

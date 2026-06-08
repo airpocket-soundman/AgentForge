@@ -1,2 +1,82 @@
 # AgentForge
-AgentForge
+
+自然言語でアプリを育てると、裏で AI エージェント群が DevOps（設計→実装→デプロイ→承認→巻き戻し）を回す **DevOps AI Agent Workbench**。
+
+DevOps × AI Agent Hackathon 2026 提出作品（提出締切 **2026-07-10**）。
+
+- 目的・全体像: [HANDOFF.md](HANDOFF.md)
+- 生きた仕様（正準）: [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
+- 進捗: [PROGRESS.md](PROGRESS.md)
+- 開発環境の正式記録: [ENVIRONMENT.md](ENVIRONMENT.md)
+- 説明サイト（図解）: `docs/index.html` をブラウザで開く
+
+---
+
+## クイックスタート（ローカル Docker 開発環境）
+
+Docker Desktop さえあれば、GCP 認証なしで全スタックがローカルで動きます（Firestore はエミュレータ）。
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+起動するもの:
+
+| サービス | URL | 内容 |
+|---|---|---|
+| frontend | http://localhost:5173 | React + Vite チャットUI（HMR） |
+| backend  | http://localhost:8000 | FastAPI core API（hot reload） |
+| firestore | localhost:8081 | Firestore エミュレータ |
+
+動作確認:
+
+```bash
+curl http://localhost:8000/health
+# {"status":"ok","service":"agentforge-core-api"}
+
+# ブラウザ http://localhost:5173 を開き「タスク管理を追加して」と送信
+```
+
+停止: `docker compose -f docker-compose.dev.yml down`
+
+> backend のホストポートが 8000 なのは、ホストの 8080 を WSL relay が使用していたため。
+> コンテナ内部は 8080 のままで、frontend の `/api` プロキシはコンテナ間通信なので影響なし。
+
+### Dev Container（同一ツール環境）
+VS Code の「Reopen in Container」（`.devcontainer/`）で Python 3.12 / Node 24 / gcloud / firebase を揃えた開発シェルに入れます。上の compose はアプリ実行用、Dev Container はツール環境用で役割が異なります。
+
+---
+
+## テスト
+
+```bash
+# backend（dev イメージ内で実行）
+docker run --rm -v "$PWD/backend:/app" -w /app agentforge-backend:latest pytest -q
+
+# frontend 型チェック＋ビルド
+cd frontend && npm run build
+```
+
+---
+
+## リポジトリ構成
+
+```
+backend/        FastAPI core API（modular monolith）
+  app/
+    main.py         app factory（health + ルータ束ね）
+    config.py       環境変数ベース設定
+    firestore.py    Firestore クライアント（emulator 対応）
+    llm/            Gemini クライアント（モデルルーティング＋スタブfallback）
+    models/         Pydantic モデル
+    reception/      Phase 1: チャット即応モジュール
+    orchestrator/   Phase 2: 要求→作業計画JSON生成
+    control_plane/  Phase 2: registry（api/ui/approval/audit を pending登録）
+  tests/        pytest
+  Dockerfile        本番（Cloud Run）
+  Dockerfile.dev    ローカル開発（reload）
+frontend/       React + Vite + TypeScript（Firebase Hosting 配信予定）
+.devcontainer/  Dev Container 定義
+docs/           説明サイト（SVG 図解）
+docker-compose.dev.yml   ローカル開発スタック
+```

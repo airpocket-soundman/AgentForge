@@ -71,16 +71,26 @@
 ## 5. リポジトリ構成（現状）
 
 ```
-backend/                FastAPI 雛形（app/main.py=/health,/、Dockerfile=本番用、requirements.txt）
+backend/                FastAPI core API（modular monolith）
+  app/main.py             app factory（/health,/ ＋ ルータ束ね）
+  app/config.py           環境変数ベース設定（pydantic-settings）
+  app/firestore.py        Firestore クライアント（emulator 対応）
+  app/models/             Pydantic モデル
+  app/reception/          Phase 1: チャット即応モジュール（router/service）
+  tests/                  pytest（4件 green）
+  Dockerfile / Dockerfile.dev  本番(Cloud Run) / 開発(reload)
+frontend/               React+Vite+TS（チャットUI、/api プロキシ、Firebase stub）
 .devcontainer/          Dev Container 定義（devcontainer.json, postCreate.sh）
 docs/                   説明サイト（index.html + styles.css + pages/*.html、SVG図）
+docker-compose.dev.yml  ローカル開発スタック（backend + Firestore emulator + frontend）
 IMPLEMENTATION_GUIDE.md 生きた仕様（§2.5 が実行時アーキ正準）
 ENVIRONMENT.md          開発環境＋GCP資源の正式記録
+PROGRESS.md             Phase 別進捗トラッキング
 agentforge_*.md / self_evolving_*.md / hackathon_*.md  仕様・要綱・公式記録
 HANDOFF.md              このファイル
 ```
 
-> frontend/ は未作成（Phase 1 で React+Vite を追加予定）。
+> ローカル開発は `docker compose -f docker-compose.dev.yml up --build`（GCP認証不要・Firestoreはemulator）。詳細は [README.md](README.md) / [PROGRESS.md](PROGRESS.md)。
 
 ---
 
@@ -88,11 +98,14 @@ HANDOFF.md              このファイル
 
 実装は Phase 制（[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) §4 / docs「実装フェーズ」）。
 
-1. **GitHub→Cloud Build の正式CI/CD**を設定（push で Cloud Run 自動デプロイ）。本リポジトリ（airpocket-soundman/AgentForge）を使う。
-2. **Phase 1**: frontend（React+Vite, Firebase Hosting）＋ Firebase Auth ＋ reception モジュール（チャット即応・Firestore保存）。
-3. **Phase 2**: Orchestrator（ADK+Gemini）で作業計画JSON → Control Plane registry 登録（ここで必須要件＝Cloud Run＋Gemini を満たす）。
+- **【済】Phase 1 の足場**: ローカル Docker 開発環境、frontend スキャフォールド（チャットUI）、reception REST（`POST /api/reception/messages`・Firestore永続化・即応）、pytest。E2E検証済み。
+1. **Phase 1 残り**: Firebase Auth（Googleログイン）連携＋ブラウザの Firestore リアルタイム購読を frontend に実装（現状は REST応答を表示するのみ）。Reception を Gemini Flash ルーティングに（現状は決定的テンプレ）。
+2. **Phase 2**: Orchestrator（ADK+Gemini）で作業計画JSON → Control Plane registry 登録（ここで必須要件＝Cloud Run＋Gemini を満たす）。
+3. **GitHub→Cloud Build の正式CI/CD**を設定（push で Cloud Run 自動デプロイ）。本リポジトリ（airpocket-soundman/AgentForge）を使う。
 4. サービスアカウント分離＋IAM、Gemini APIキーを Secret Manager 登録、Firebase 初期化。
 5. Phase 3〜7（Worker/Cloud Tasks/生成UI manifest → 承認→active→Task API → Rollback/Audit → CI/CD仕上げ → 提出物）。
+
+> 詳細な現在地チェックリストは [PROGRESS.md](PROGRESS.md)。
 
 ### 役割分担
 - **人間（ユーザー）**: GCP/Firebaseコンソール操作・課金、認証同意、GitHub操作、デモ動画/ProtoPedia提出。

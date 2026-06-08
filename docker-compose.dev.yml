@@ -1,0 +1,62 @@
+# AgentForge — local development stack.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Brings up:
+#   - firestore : Firestore emulator (no GCP credentials / billing needed)
+#   - backend   : FastAPI core API with hot reload, wired to the emulator
+#   - frontend  : React + Vite dev server, proxying /api -> backend
+#
+# This complements the Dev Container (.devcontainer/): the Dev Container gives you
+# an identical *tooling* shell; this compose stack runs the whole *app* locally.
+services:
+  firestore:
+    image: google/cloud-sdk:emulators
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8080
+      --project=agentforge-498808
+    ports:
+      - "8081:8080" # host 8081 -> emulator 8080 (keeps host 8080 free for backend)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8080" # host 8000 -> container 8080 (host 8080 is taken by WSL relay)
+    environment:
+      GOOGLE_CLOUD_PROJECT: agentforge-498808
+      GOOGLE_CLOUD_REGION: asia-northeast1
+      FIRESTORE_EMULATOR_HOST: firestore:8080
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    # Optional: drop GEMINI_API_KEY=... into backend/.env (gitignored) to test
+    # real Gemini locally. Absent -> the GeminiClient returns deterministic stubs.
+    env_file:
+      - path: ./backend/.env
+        required: false
+    volumes:
+      - ./backend/app:/app/app:cached # live reload on host edits
+    depends_on:
+      firestore:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      # Vite dev server proxies /api to the backend service (see vite.config.ts).
+      VITE_API_PROXY_TARGET: http://backend:8080
+    volumes:
+      - ./frontend:/app:cached
+      - /app/node_modules # keep container-installed deps, don't shadow with host
+    depends_on:
+      - backend

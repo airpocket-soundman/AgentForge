@@ -14,6 +14,19 @@
 
 ## 2. 別PCでの再現手順（これだけ）
 
+開発環境は2系統。用途が異なるので両方ある。
+
+### (A) アプリをローカルで動かす：Docker Compose 開発スタック（GCP認証不要）
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+- frontend http://localhost:5173 / backend http://localhost:8000 / Firestore emulator localhost:8081
+- Firestore はエミュレータなので課金・認証なしで CRUD まで動く
+- ホスト編集が hot reload（backend=uvicorn --reload, frontend=Vite HMR）
+- 停止: `docker compose -f docker-compose.dev.yml down`
+- backend ホストポートが 8000 なのは、ホスト 8080 が WSL relay 使用中だったため（コンテナ内部は 8080 のまま）
+
+### (B) ツール環境を揃える：Dev Container
 1. そのPCに **Docker Desktop** をインストール（Windowsは WSL2 バックエンド有効化。要管理者権限・1回のみ）
 2. `git clone <このリポジトリ>`
 3. VS Code で開き **「Reopen in Container」**（Dev Containers拡張）を実行
@@ -41,12 +54,12 @@
 
 | ツール | ホスト実測 |
 |---|---|
-| node / npm | v24.11.1 / 11.6.2（あり） |
+| node / npm | ホスト実測 v22.17.0 / 10.9.2（※基準は24系。標準作業はコンテナ内なので問題なし） |
 | git | 2.51.2.windows.1（あり） |
 | python | 3.12.7（本記録時にユーザースコープで導入） |
 | gcloud | ホスト未導入（コンテナ内で利用） |
 | firebase | npm global で導入済み |
-| docker | ホスト未導入（Dev Container利用には Docker Desktop が必要） |
+| docker | **導入済み** Docker 28.0.4 / Compose v2.34.0（compose 開発スタック検証済み） |
 
 > 注: ホストのPython/firebaseはフォールバック用。標準作業は Dev Container 内で行う。
 

@@ -1,0 +1,148 @@
+:root {
+  font-family: system-ui, "Segoe UI", "Hiragino Sans", Meiryo, sans-serif;
+  color: #1a1a2e;
+  background: #f4f5fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+}
+
+.app__header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.app__header h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.app__tag {
+  font-size: 12px;
+  color: #6b6b8a;
+}
+
+.app--center {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.app__spacer {
+  flex: 1;
+}
+
+.app__user {
+  font-size: 12px;
+  color: #6b6b8a;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login {
+  margin-top: 16px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  background: #4a4ae0;
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.logout {
+  padding: 4px 10px;
+  border: 1px solid #c9cae0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e3e4f0;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bubble--user {
+  align-self: flex-end;
+  background: #4a4ae0;
+  color: #fff;
+}
+
+.bubble--assistant {
+  align-self: flex-start;
+  background: #ecedf7;
+}
+
+.bubble--pending {
+  opacity: 0.6;
+}
+
+.error {
+  color: #b00020;
+  font-size: 13px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #c9cae0;
+  font: inherit;
+}
+
+.composer button {
+  padding: 0 20px;
+  border: none;
+  border-radius: 10px;
+  background: #4a4ae0;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.composer button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
