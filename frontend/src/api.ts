@@ -55,7 +55,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(detail);
+    throw Object.assign(new Error(detail), { status: res.status });
   }
   return res.json() as Promise<T>;
 }

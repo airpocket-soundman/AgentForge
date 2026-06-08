@@ -41,9 +41,12 @@ gcloud run deploy agentforge-core-api \
   --region=$REGION \
   --allow-unauthenticated \
   --min-instances=0 \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_REGION=$REGION" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_REGION=$REGION,ALLOWED_EMAILS=yamashita.3154@gmail.com" \
   --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
 ```
+- `ALLOWED_EMAILS`：このメール**以外はログインしてもアプリを使えない**（API 403／UIはアクセス拒否画面）。
+  複数許可する場合は **`;`（セミコロン）区切り**：`ALLOWED_EMAILS=a@x.com;b@y.com`（カンマは gcloud と衝突するので不可）。
+  空または未設定なら制限なし（誰でも利用可）。
 - 初回ビルドで「`cloud-run-source-deploy` リポジトリを作成しますか？」と聞かれたら **y**
 - `--min-instances=0` ＝ scale-to-zero（アイドル≈¥0）
 - Firestore は本番（`(default)` / asia-northeast1）を使用（エミュレータではない）

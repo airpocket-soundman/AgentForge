@@ -4,9 +4,10 @@ Modular monolith: reception / orchestrator / control-plane / tool-gateway are
 separate packages mounted onto one FastAPI app (one Cloud Run service), per
 IMPLEMENTATION_GUIDE.md §2. Later phases add more routers here.
 """
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth import require_allowed_user
 from app.config import get_settings
 from app.control_plane.router import router as control_plane_router
 from app.generated_app.features import router as feature_worker_router
@@ -37,11 +38,14 @@ def create_app() -> FastAPI:
     def root() -> dict:
         return {"message": "AgentForge core API is running."}
 
-    app.include_router(reception_router)
-    app.include_router(orchestrator_router)
-    app.include_router(control_plane_router)
-    app.include_router(task_router)
-    app.include_router(feature_worker_router)
+    # All app/data routers require an allowlisted user (no-op when ALLOWED_EMAILS
+    # is empty). /health and / stay open for Cloud Run probes.
+    guard = [Depends(require_allowed_user)]
+    app.include_router(reception_router, dependencies=guard)
+    app.include_router(orchestrator_router, dependencies=guard)
+    app.include_router(control_plane_router, dependencies=guard)
+    app.include_router(task_router, dependencies=guard)
+    app.include_router(feature_worker_router, dependencies=guard)
     return app
 
 

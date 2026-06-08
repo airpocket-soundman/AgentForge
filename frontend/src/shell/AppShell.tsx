@@ -11,12 +11,26 @@ type View = { kind: "chat" } | { kind: "tasks" } | { kind: "task"; id: string };
 export function AppShell({ user }: { user: User | null }) {
   const [taskActive, setTaskActive] = useState(false);
   const [view, setView] = useState<View>({ kind: "chat" });
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
     void getFeatureStates()
       .then((s) => setTaskActive(s.task === "active"))
-      .catch(() => {});
+      .catch((e: unknown) => {
+        const status = (e as { status?: number })?.status;
+        if (status === 401 || status === 403) setDenied(true);
+      });
   }, []);
+
+  if (denied) {
+    return (
+      <div className="centered">
+        <h1>アクセス権限がありません</h1>
+        <p className="muted">{user?.email ?? ""} はこのアプリの利用を許可されていません。</p>
+        <button className="login" onClick={() => void signOutUser()}>別のアカウントでログアウト</button>
+      </div>
+    );
+  }
 
   function onFeatureActivated(feature: string) {
     if (feature === "task") {

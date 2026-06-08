@@ -35,9 +35,21 @@ class Settings(BaseSettings):
         "https://agentforge-498808.web.app,https://agentforge-498808.firebaseapp.com"
     )
 
+    # --- Access control ---
+    # Allowlist of permitted login emails. EMPTY = enforcement OFF (open, e.g. local
+    # dev). Set in prod (ALLOWED_EMAILS) to restrict who can use the app. Separate
+    # multiple with ';' or space (NOT comma — gcloud --set-env-vars uses comma).
+    allowed_emails: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def allowed_email_list(self) -> list[str]:
+        import re
+
+        return [e.strip().lower() for e in re.split(r"[;,\s]+", self.allowed_emails) if e.strip()]
 
 
 @lru_cache
