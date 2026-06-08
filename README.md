@@ -71,7 +71,8 @@ backend/        FastAPI core API（modular monolith）
     models/         Pydantic モデル
     reception/      Phase 1: チャット即応モジュール
     orchestrator/   Phase 2: 要求→作業計画JSON生成
-    control_plane/  Phase 2: registry（api/ui/approval/audit を pending登録）
+    control_plane/  Phase 2/4/5: registry（pending登録）＋承認/active化/rollback＋audit
+    generated_app/  Phase 4: 生成機能の実体（Task API の決定的CRUD）
   tests/        pytest
   Dockerfile        本番（Cloud Run）
   Dockerfile.dev    ローカル開発（reload）
