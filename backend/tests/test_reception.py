@@ -30,3 +30,12 @@ def test_detect_intent_none_without_build_keyword():
 def test_compose_reply_mentions_feature_label():
     reply = service.compose_reply("タスク管理を追加して", "build_feature:task")
     assert "タスク管理" in reply
+
+
+def test_classify_conversational_control():
+    assert service.classify("反映して") == "approve"
+    assert service.classify("承認します") == "approve"
+    assert service.classify("戻して") == "rollback"
+    assert service.classify("ロールバックして") == "rollback"
+    assert service.classify("タスク管理を追加して") == "build_feature:task"
+    assert service.classify("こんにちは") == "chat"

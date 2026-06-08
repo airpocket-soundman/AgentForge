@@ -44,6 +44,27 @@ def list_pending(project_id: str | None = None) -> list[dict]:
     return [d.to_dict() for d in query.stream()]
 
 
+def find_latest_pending(project_id: str) -> dict | None:
+    """Newest pending approval for a project (for conversational 「反映して」)."""
+    pending = list_pending(project_id)
+    if not pending:
+        return None
+    return max(pending, key=lambda d: d.get("created_at", ""))
+
+
+def disable_active_features(project_id: str) -> list[str]:
+    """Soft-disable every active feature of a project (conversational 「戻して」)."""
+    snap = _feature_state_ref(project_id).get()
+    if not snap.exists:
+        return []
+    disabled: list[str] = []
+    for key, value in snap.to_dict().items():
+        if value == "active":
+            disable_feature(project_id, key)
+            disabled.append(key)
+    return disabled
+
+
 def _set_registry_status(collection: str, ids: list[str], status: str) -> None:
     col = get_db().collection(collection)
     for doc_id in ids:

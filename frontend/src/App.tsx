@@ -50,6 +50,12 @@ export function App() {
       if (res.approval_id && res.detected_intent?.startsWith("build_feature")) {
         setPendingApprovalId(res.approval_id);
       }
+      // Conversational control ("反映して" / "戻して") changed feature state.
+      if (res.activated_feature === "task") {
+        setTaskActive(true);
+        setPendingApprovalId(null);
+      }
+      if (res.disabled_feature) setTaskActive(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

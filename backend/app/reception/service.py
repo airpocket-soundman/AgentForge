@@ -14,6 +14,24 @@ _FEATURE_KEYWORDS = {
     "task": ("タスク", "todo", "task"),
     "pdf_memo": ("pdf", "メモ", "memo", "要約"),
 }
+# Conversational control commands (the spec's demo: 「反映して」承認 / 「戻して」rollback).
+_APPROVE_KEYWORDS = ("反映", "承認", "approve", "apply")
+_ROLLBACK_KEYWORDS = ("戻し", "戻す", "ロールバック", "rollback", "取り消", "無効化")
+
+_FEATURE_LABELS = {"task": "タスク管理", "pdf_memo": "PDFメモ", "unknown": "ご要望の機能"}
+
+
+def feature_label(feature: str) -> str:
+    return _FEATURE_LABELS.get(feature, feature)
+
+
+def classify(text: str) -> str:
+    """Coarse intent for Reception routing: approve / rollback / build_feature:* / chat."""
+    if any(k in text for k in _APPROVE_KEYWORDS):
+        return "approve"
+    if any(k in text for k in _ROLLBACK_KEYWORDS):
+        return "rollback"
+    return detect_intent(text) or "chat"
 
 
 def conversation_id_for(project_id: str) -> str:

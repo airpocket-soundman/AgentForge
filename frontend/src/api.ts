@@ -4,6 +4,15 @@ import { getIdToken } from "./firebase";
 
 export const PROJECT_ID = "default";
 
+// When VITE_API_BASE is set (e.g. the Cloud Run URL), call the deployed API
+// directly (real Gemini / real Firestore). Otherwise use relative paths that the
+// Vite dev proxy forwards to the local backend.
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+
+function url(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   text: string;
@@ -16,6 +25,8 @@ export interface ReceptionReply {
   detected_intent: string | null;
   task_id: string | null;
   approval_id: string | null;
+  activated_feature: string | null;
+  disabled_feature: string | null;
 }
 
 export interface Task {
@@ -35,7 +46,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   const token = await getIdToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(url(path), { ...init, headers });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
     try {

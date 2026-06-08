@@ -38,3 +38,6 @@ class ReceptionReply(BaseModel):
     detected_intent: str | None = None
     task_id: str | None = None
     approval_id: str | None = None
+    # Set when a conversational command changed feature state, so the UI can react.
+    activated_feature: str | None = None
+    disabled_feature: str | None = None
