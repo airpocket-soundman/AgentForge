@@ -59,10 +59,14 @@
 
 ---
 
-## 直近の次アクション
-1. **人間**: Phase 4 を本番に反映するため core-api を**再デプロイ**（[DEPLOY.md](DEPLOY.md) の手順3を再実行）。`git pull` 後に `gcloud run deploy --source`。
-2. **Claude**: フロントに「作業計画→承認ボタン→Task UI（一覧/追加/完了）→戻す」を実装し、デモ縦切りを画面で通す。
-3. **Claude**: Firestore リアルタイム購読（task_runs / app_tasks）で進捗・一覧をライブ表示。
-4. **後続**: Phase 3（Cloud Tasks 非同期 + view_manifest 生成）, Phase 6（CI/CD）, Phase 7（提出物）。
+## 直近の次アクション（新セッションはここから）
+1. **⚠️最優先・人間**: **バックエンド再デプロイ**。Hosting(フロント)は最新だが Cloud Run は古い(rev.00003)。
+   未反映＝agents/ポリシー読込・タスク詳細/ワーカー・初期化(reset)・会話承認・機能ワーカーAPI。
+   `cd ~/AgentForge && git pull && cd backend` → [DEPLOY.md](DEPLOY.md) §3 の `gcloud run deploy --source`。
+2. **人間**: Firebase Auth 承認済みドメインに `agentforge-devops.web.app` を追加（未だと本番ログイン不可）。
+3. **確認**: 再デプロイ後 https://agentforge-devops.web.app をハード更新し、
+   ログイン→「タスク管理を追加して」→「反映して」→ 機能AIワーカーに「買い物を3つ追加して」→ 巻き戻し→ 初期化、を一連確認。
+4. **Claude（次の加点）**: Firestore リアルタイム購読（task_runs/app_tasks の進捗ライブ表示）、
+   または ProtoPedia 用のアーキ図・ストーリー草案。後続で Phase 3（Cloud Tasks 非同期 + view_manifest）, Phase 6（CI/CD）。
 
-> 完了済み: ① Geminiキー登録 ② Firebase一式（Auth実ログイン確認済） ③ Cloud Run デプロイ（必須要件クリア）。
+> 完了済み: ① Geminiキー登録 ② Firebase一式（Auth実ログイン確認済） ③ Cloud Run デプロイ（必須要件クリア） ④ Hosting 公開（agentforge-devops.web.app） ⑤ Phase 4/5・UI刷新・機能AIワーカー・agentsポリシー外部ファイル化。

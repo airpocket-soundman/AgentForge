@@ -27,6 +27,43 @@
 
 ---
 
+## 1.5 現在地スナップショット（2026-06-08 セッション終了時点・新セッション必読）
+
+### 実装済み（main = `airpocket-soundman/AgentForge`）
+- **ローカル開発**: `docker compose -f docker-compose.dev.yml up`（FastAPI reload + Firestore emulator + Vite）。詳細 [README.md](README.md)
+- **Phase 1**: Firebase Google ログイン（実機確認済）→ チャット → Firestore 永続化
+- **Phase 2**: Orchestrator（要求→作業計画JSON, 実Gemini）→ Control Plane が api/ui/approval を **pending 登録** ＋ 監査
+- **Phase 4/5**: 承認→active化→**Task API（決定的CRUD）**／soft-disable ロールバック／audit。会話でも「反映して」「戻して」可
+- **UI**: トップバー＋左ナビ（機能の目次）＋右メイン切替。タスクは表→行クリックで詳細（上=整理内容/下=タスクのワーカー会話）。トップバーに**巻き戻し**と**初期化(dev)**ボタン（人間専用）
+- **機能AIワーカー（標準仕様）**: 各機能画面に運用指示チャット（`FeatureWorkerPanel`）。`has_worker` で ON/OFF。タスクは指示でタスク生成可
+- **組み込みワーカーの指示＝リポジトリ管理ファイル**: `backend/app/agents/*.md`（policy/orchestrator/reception/ui_designer/feature_worker）をローダーが実行時に読み込みプロンプト注入。**プロンプト＝設定**
+- backend pytest 11件 green
+
+### デプロイURL
+- **公開Webアプリ（提出URL候補）**: https://agentforge-devops.web.app （Firebase Hosting, site=`agentforge-devops`, `/api/**`→Cloud Run rewrite）
+- **Cloud Run API**: https://agentforge-core-api-217469091476.asia-northeast1.run.app （実Gemini接続済）
+
+### ⚠️ 最重要：本番バックエンドが main より古い（要再デプロイ）
+- **Hosting（フロント）は最新**だが、**Cloud Run（バックエンド）は revision 00003（Phase 4世代）のまま**。
+- 未反映の backend 機能：**agents/ポリシー読込・タスク詳細/ワーカー・初期化(reset)・会話承認・機能ワーカーAPI**。
+- → これらは**ハードコード前提でフロントから呼ぶと 404**。**次の最初の作業＝バックエンド再デプロイ**（手順 [DEPLOY.md](DEPLOY.md) §3 / 下記）。
+  ```bash
+  cd ~/AgentForge && git pull && cd backend
+  gcloud run deploy agentforge-core-api --source . --region=asia-northeast1 \
+    --allow-unauthenticated --min-instances=0 \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1" \
+    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
+  ```
+- **未確認の人間作業**: Firebase Auth 承認済みドメインに `agentforge-devops.web.app` を追加（未だと本番でログイン不可 `auth/unauthorized-domain`）。
+
+### 環境メモ（ハマりどころ）
+- backend ローカルは host 8000（host 8080 は WSL relay 占有）。frontend `.env.local` は gitignore（Firebase web config）。
+- 本番検証は **PowerShell `Invoke-RestMethod`** が確実（Git Bash の curl は一部不安定／日本語表示が cp932 で化けるが実データは正常）。
+- Cloud Run の GFE は **空POSTでも Content-Length 必須**（curl は `--data ''`。ブラウザ fetch は自動付与）。
+- firebase CLI は host に導入済・ログイン済（`firebase deploy --only hosting` で公開）。gcloud は host 未導入＝Cloud Shell 使用。
+
+---
+
 ## 2. 確定した重要設計（要点）
 
 - **通信**: ブラウザ↔Reception は REST/HTTPS（Firebase Auth ID token）。**MCPは不採用**。進捗はブラウザが **Firestore をリアルタイム購読**。
