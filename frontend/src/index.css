@@ -2,7 +2,53 @@
   font-family: system-ui, "Segoe UI", "Hiragino Sans", Meiryo, sans-serif;
   color: #1a1a2e;
   background: #eef0f7;
+
+  /* ---- Generated-view design tokens (idea 3 / IMPLEMENTATION_GUIDE §2.6) ----
+     The fixed app shell (topbar/sidebar) stays branded; only GENERATED feature
+     views are themed, by setting data-theme on their container. Default theme
+     keeps the original look. Alternate presets override a handful of tokens. */
+  --gv-accent: #4a4ae0;
+  --gv-accent-contrast: #ffffff;
+  --gv-surface: #ffffff;
+  --gv-surface-alt: #f6f7fc;
+  --gv-border: #e3e4f0;
+  --gv-border-strong: #c9cae0;
+  --gv-border-soft: #eef0f7;
+  --gv-text: #1a1a2e;
+  --gv-muted: #6b6b8a;
+  --gv-muted-2: #9a9ab0;
+  --gv-worker-bg: #f3f1fb;
+  --gv-worker-border: #d8d2f0;
+  --gv-worker-accent: #5a3fb0;
 }
+
+/* Alternate presets — the UI Designer picks the nearest one (or default) from a
+   vague style request; raw CSS is never emitted (loose, prompt-based constraint). */
+[data-theme="warm"] {
+  --gv-accent: #e8730c;
+  --gv-surface-alt: #fdf3e9;
+  --gv-border: #f0e0cf;
+  --gv-worker-bg: #fbeede;
+  --gv-worker-border: #f0d6b8;
+  --gv-worker-accent: #b5560a;
+}
+[data-theme="forest"] {
+  --gv-accent: #2f8f5b;
+  --gv-surface-alt: #eef6f0;
+  --gv-border: #dcebe1;
+  --gv-worker-bg: #e9f4ec;
+  --gv-worker-border: #cfe6d6;
+  --gv-worker-accent: #256b46;
+}
+[data-theme="ocean"] {
+  --gv-accent: #0e7c9b;
+  --gv-surface-alt: #eaf4f8;
+  --gv-border: #d2e6ee;
+  --gv-worker-bg: #e6f2f7;
+  --gv-worker-border: #c4dfe9;
+  --gv-worker-accent: #0b5e76;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; }
 h2 { font-size: 18px; margin: 0; }
@@ -31,7 +77,7 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   cursor: pointer;
 }
 
-/* ---- App shell ---- */
+/* ---- App shell (fixed chrome — intentionally not themed) ---- */
 .shell { height: 100vh; display: flex; flex-direction: column; }
 .topbar {
   display: flex;
@@ -80,7 +126,7 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 
 .body { flex: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
 
-/* ---- Sidebar ---- */
+/* ---- Sidebar (fixed chrome) ---- */
 .sidebar {
   background: #f6f7fc;
   border-right: 1px solid #e1e2ee;
@@ -104,16 +150,16 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .navitem--active { background: #4a4ae0; color: #fff; }
 .sidebar__hint { margin-top: 12px; padding: 10px; font-size: 12px; color: #8a8aa0; line-height: 1.6; }
 
-/* ---- Main area ---- */
+/* ---- Main area (carries data-theme; descendants below use --gv-* tokens) ---- */
 .main { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .view { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .view__head { display: flex; align-items: center; gap: 12px; }
 .view__head h2 { flex: 1; }
-.back { padding: 6px 12px; border: 1px solid #c9cae0; background: #fff; border-radius: 8px; cursor: pointer; }
+.back { padding: 6px 12px; border: 1px solid var(--gv-border-strong); background: var(--gv-surface); border-radius: 8px; cursor: pointer; }
 .rollback { font-size: 12px; padding: 6px 12px; border: 1px solid #e3a3a3; background: #fff; color: #b00020; border-radius: 8px; cursor: pointer; }
-.hint { color: #9a9ab0; font-size: 13px; }
+.hint { color: var(--gv-muted-2); font-size: 13px; }
 
-/* ---- Chat (main + mini) ---- */
+/* ---- Chat (main chat uses default theme; feature worker chat inherits feature theme) ---- */
 .chatview { display: flex; flex-direction: column; height: 100%; padding: 16px; gap: 10px; min-height: 0; }
 .chat {
   flex: 1;
@@ -122,15 +168,15 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: #fff;
-  border: 1px solid #e3e4f0;
+  background: var(--gv-surface);
+  border: 1px solid var(--gv-border);
   border-radius: 12px;
   min-height: 0;
 }
 .chat--mini { flex: none; height: 200px; }
 .bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.bubble--user { align-self: flex-end; background: #4a4ae0; color: #fff; }
-.bubble--assistant { align-self: flex-start; background: #ecedf7; }
+.bubble--user { align-self: flex-end; background: var(--gv-accent); color: var(--gv-accent-contrast); }
+.bubble--assistant { align-self: flex-start; background: var(--gv-surface-alt); }
 .bubble--pending { opacity: 0.6; }
 
 .approval {
@@ -140,37 +186,37 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .approval button { margin-left: auto; padding: 8px 16px; border: none; border-radius: 8px; background: #e08a00; color: #fff; font-weight: 600; cursor: pointer; white-space: nowrap; }
 
 .composer { display: flex; gap: 8px; }
-.composer textarea { flex: 1; resize: none; padding: 10px; border-radius: 10px; border: 1px solid #c9cae0; font: inherit; }
-.composer button { padding: 0 20px; border: none; border-radius: 10px; background: #4a4ae0; color: #fff; font-weight: 600; cursor: pointer; }
+.composer textarea { flex: 1; resize: none; padding: 10px; border-radius: 10px; border: 1px solid var(--gv-border-strong); font: inherit; }
+.composer button { padding: 0 20px; border: none; border-radius: 10px; background: var(--gv-accent); color: var(--gv-accent-contrast); font-weight: 600; cursor: pointer; }
 .composer button:disabled { opacity: 0.5; cursor: default; }
 .error { color: #b00020; font-size: 13px; }
 
-/* ---- Task table ---- */
+/* ---- Task table (generated view — themed) ---- */
 .task-add { display: flex; gap: 8px; }
-.task-add input { flex: 1; padding: 8px; border: 1px solid #c9cae0; border-radius: 8px; font: inherit; }
-.task-add button { padding: 0 16px; border: none; border-radius: 8px; background: #4a4ae0; color: #fff; font-weight: 600; cursor: pointer; }
-.table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e3e4f0; border-radius: 10px; overflow: hidden; }
-.table th { text-align: left; font-size: 12px; color: #6b6b8a; padding: 10px 12px; background: #f6f7fc; border-bottom: 1px solid #e3e4f0; }
-.table td { padding: 10px 12px; border-bottom: 1px solid #eef0f7; }
+.task-add input { flex: 1; padding: 8px; border: 1px solid var(--gv-border-strong); border-radius: 8px; font: inherit; }
+.task-add button { padding: 0 16px; border: none; border-radius: 8px; background: var(--gv-accent); color: var(--gv-accent-contrast); font-weight: 600; cursor: pointer; }
+.table { width: 100%; border-collapse: collapse; background: var(--gv-surface); border: 1px solid var(--gv-border); border-radius: 10px; overflow: hidden; }
+.table th { text-align: left; font-size: 12px; color: var(--gv-muted); padding: 10px 12px; background: var(--gv-surface-alt); border-bottom: 1px solid var(--gv-border); }
+.table td { padding: 10px 12px; border-bottom: 1px solid var(--gv-border-soft); }
 .table__row { cursor: pointer; }
-.table__row:hover { background: #f6f7fc; }
-.table__title--done { text-decoration: line-through; color: #9a9ab0; }
-.table__due { color: #8a8aa0; font-size: 13px; }
-.table__empty { text-align: center; color: #9a9ab0; padding: 18px; }
+.table__row:hover { background: var(--gv-surface-alt); }
+.table__title--done { text-decoration: line-through; color: var(--gv-muted-2); }
+.table__due { color: var(--gv-muted-2); font-size: 13px; }
+.table__empty { text-align: center; color: var(--gv-muted-2); padding: 18px; }
 
-/* ---- Task detail (split) ---- */
+/* ---- Task detail (generated view — themed) ---- */
 .detail { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.detail__top { padding: 18px 20px; border-bottom: 2px solid #e1e2ee; overflow-y: auto; flex: 1; }
-.detail__meta { display: flex; gap: 18px; color: #6b6b8a; font-size: 13px; margin: 8px 0 14px; }
-.done-toggle { font-size: 13px; color: #44456a; display: flex; align-items: center; gap: 4px; }
-.detail__summary pre { background: #f6f7fc; border: 1px solid #e3e4f0; border-radius: 8px; padding: 12px; white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.6; margin: 0; }
+.detail__top { padding: 18px 20px; border-bottom: 2px solid var(--gv-border); overflow-y: auto; flex: 1; }
+.detail__meta { display: flex; gap: 18px; color: var(--gv-muted); font-size: 13px; margin: 8px 0 14px; }
+.done-toggle { font-size: 13px; color: var(--gv-muted); display: flex; align-items: center; gap: 4px; }
+.detail__summary pre { background: var(--gv-surface-alt); border: 1px solid var(--gv-border); border-radius: 8px; padding: 12px; white-space: pre-wrap; font: inherit; font-size: 13px; line-height: 1.6; margin: 0; }
 .detail__bottom { padding: 14px 20px; display: flex; flex-direction: column; gap: 8px; }
 
-/* ---- Feature worker panel ---- */
-.worker { background: #f3f1fb; border: 1px solid #d8d2f0; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+/* ---- Feature worker panel (generated view — themed) ---- */
+.worker { background: var(--gv-worker-bg); border: 1px solid var(--gv-worker-border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
 .worker__head { display: flex; align-items: center; gap: 8px; }
-.worker__head h3 { flex: 1; margin: 0; color: #5a3fb0; }
-.worker__off { font-size: 11px; padding: 3px 8px; border: 1px solid #c9bdf0; background: #fff; color: #6a5aa0; border-radius: 7px; cursor: pointer; }
-.worker--off { flex-direction: row; align-items: center; justify-content: space-between; color: #8a8aa0; font-size: 13px; }
-.worker--off button { font-size: 12px; padding: 6px 12px; border: none; border-radius: 8px; background: #6a5aa0; color: #fff; cursor: pointer; }
-.worker .chat--mini { height: 150px; background: #fff; }
+.worker__head h3 { flex: 1; margin: 0; color: var(--gv-worker-accent); }
+.worker__off { font-size: 11px; padding: 3px 8px; border: 1px solid var(--gv-worker-border); background: var(--gv-surface); color: var(--gv-worker-accent); border-radius: 7px; cursor: pointer; }
+.worker--off { flex-direction: row; align-items: center; justify-content: space-between; color: var(--gv-muted-2); font-size: 13px; }
+.worker--off button { font-size: 12px; padding: 6px 12px; border: none; border-radius: 8px; background: var(--gv-worker-accent); color: #fff; cursor: pointer; }
+.worker .chat--mini { height: 150px; background: var(--gv-surface); }

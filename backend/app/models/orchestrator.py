@@ -9,6 +9,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 SideEffectLevel = Literal["read", "low", "medium", "high"]
+# Default look presets for generated views (idea 3 / IMPLEMENTATION_GUIDE §2.6).
+# The UI Designer picks the nearest one from a vague style request, else "default".
+ThemeName = Literal["default", "warm", "forest", "ocean"]
 
 
 def _now() -> datetime:
@@ -41,6 +44,9 @@ class PlannedView(BaseModel):
     # Standard spec: every generated feature screen gets a managing AI worker with
     # an instruction area, unless the request explicitly asks for none.
     has_worker: bool = True
+    # Loose visual constraint: follow a default theme so generated pages never look
+    # broken; pick the nearest preset for a vague request, "default" otherwise.
+    theme: ThemeName = "default"
 
 
 class WorkPlan(BaseModel):

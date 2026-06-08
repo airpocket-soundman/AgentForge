@@ -98,14 +98,23 @@ def approve(approval_id: str) -> dict:
         )
 
     # Standard spec: feature gets a managing worker unless the plan opted out.
+    # Also carry the view's chosen theme so the frontend renders it (idea 3 §2.6).
     plan_snap = db.collection("work_plans").document(task_id).get()
     has_worker = True
+    theme = "default"
     if plan_snap.exists:
         views = plan_snap.to_dict().get("planned_views", [])
-        has_worker = any(v.get("has_worker", True) for v in views) if views else True
+        if views:
+            has_worker = any(v.get("has_worker", True) for v in views)
+            theme = views[0].get("theme", "default") or "default"
 
     _feature_state_ref(project_id).set(
-        {feature: "active", f"{feature}_worker": has_worker, "updated_at": _now_iso()},
+        {
+            feature: "active",
+            f"{feature}_worker": has_worker,
+            f"{feature}_theme": theme,
+            "updated_at": _now_iso(),
+        },
         merge=True,
     )
 

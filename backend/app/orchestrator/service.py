@@ -114,8 +114,11 @@ _SCHEMA = """出力スキーマ:
   "feature": "task | pdf_memo | unknown",
   "plan": [{"step": 1, "worker": "ui_designer|api_designer|programmer|test_agent|devops_agent", "instruction": "<日本語>"}],
   "planned_apis": [{"api_id": "<snake_case>", "path": "/api/app/...", "method": "GET|POST|PATCH|DELETE", "side_effect_level": "read|low|medium|high"}],
-  "planned_views": [{"view_id": "<snake_case>", "route": "/app/...", "title": "<日本語>", "required_apis": ["<api_id>"], "has_worker": true}]
-}"""
+  "planned_views": [{"view_id": "<snake_case>", "route": "/app/...", "title": "<日本語>", "required_apis": ["<api_id>"], "has_worker": true, "theme": "default"}]
+}
+
+見た目テーマ: theme は default / warm / forest / ocean から選ぶ。ユーザーの見た目指示が
+曖昧なら内容に最も近いものを、指定が無ければ default。生のCSS/HTMLは出力しない。"""
 
 
 def _build_plan_prompt(goal: str) -> str:

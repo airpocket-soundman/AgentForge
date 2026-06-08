@@ -10,16 +10,24 @@ type View = { kind: "chat" } | { kind: "tasks" } | { kind: "task"; id: string };
 
 export function AppShell({ user }: { user: User | null }) {
   const [taskActive, setTaskActive] = useState(false);
+  const [taskTheme, setTaskTheme] = useState("default");
   const [view, setView] = useState<View>({ kind: "chat" });
   const [denied, setDenied] = useState(false);
 
-  useEffect(() => {
-    void getFeatureStates()
-      .then((s) => setTaskActive(s.task === "active"))
+  function loadStates() {
+    return getFeatureStates()
+      .then((s) => {
+        setTaskActive(s.task === "active");
+        setTaskTheme(s.task_theme || "default"); // generated-view theme (idea 3 §2.6)
+      })
       .catch((e: unknown) => {
         const status = (e as { status?: number })?.status;
         if (status === 401 || status === 403) setDenied(true);
       });
+  }
+
+  useEffect(() => {
+    void loadStates();
   }, []);
 
   if (denied) {
@@ -36,6 +44,7 @@ export function AppShell({ user }: { user: User | null }) {
     if (feature === "task") {
       setTaskActive(true);
       setView({ kind: "tasks" });
+      void loadStates(); // pick up the feature's chosen theme
     }
   }
   function onFeatureDisabled(feature: string) {
@@ -126,7 +135,7 @@ export function AppShell({ user }: { user: User | null }) {
           )}
         </nav>
 
-        <main className="main">
+        <main className="main" data-theme={view.kind === "chat" ? "default" : taskTheme}>
           {view.kind === "chat" && (
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
           )}
