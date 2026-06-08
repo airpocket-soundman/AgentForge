@@ -108,24 +108,27 @@ def _stub_plan(task_id: str, req: PlanRequest, feature: str) -> WorkPlan:
 
 # --- Gemini-generated plan (when a key is reachable) -------------------------
 
-_PLAN_PROMPT = """あなたは社内ツール生成システムのオーケストレーターです。
-ユーザー要求から、機能追加の作業計画を JSON のみで出力してください（前後に説明文やコードフェンスを付けない）。
-
-ユーザー要求: {goal}
-
-出力スキーマ:
-{{
+_SCHEMA = """出力スキーマ:
+{
   "goal": "<一文の目標>",
   "feature": "task | pdf_memo | unknown",
-  "plan": [{{"step": 1, "worker": "ui_designer|api_designer|programmer|test_agent|devops_agent", "instruction": "<日本語>"}}],
-  "planned_apis": [{{"api_id": "<snake_case>", "path": "/api/app/...", "method": "GET|POST|PATCH|DELETE", "side_effect_level": "read|low|medium|high"}}],
-  "planned_views": [{{"view_id": "<snake_case>", "route": "/app/...", "title": "<日本語>", "required_apis": ["<api_id>"]}}]
-}}
-"""
+  "plan": [{"step": 1, "worker": "ui_designer|api_designer|programmer|test_agent|devops_agent", "instruction": "<日本語>"}],
+  "planned_apis": [{"api_id": "<snake_case>", "path": "/api/app/...", "method": "GET|POST|PATCH|DELETE", "side_effect_level": "read|low|medium|high"}],
+  "planned_views": [{"view_id": "<snake_case>", "route": "/app/...", "title": "<日本語>", "required_apis": ["<api_id>"], "has_worker": true}]
+}"""
+
+
+def _build_plan_prompt(goal: str) -> str:
+    """Assemble the Orchestrator prompt from repo-managed instruction files."""
+    from app import agents
+
+    return "\n\n".join(
+        [agents.load("orchestrator"), agents.policy(), f"ユーザー要求: {goal}", _SCHEMA]
+    )
 
 
 def _gemini_plan(task_id: str, req: PlanRequest) -> WorkPlan:
-    raw = get_gemini().generate(_PLAN_PROMPT.format(goal=req.goal), tier=ModelTier.PRO)
+    raw = get_gemini().generate(_build_plan_prompt(req.goal), tier=ModelTier.PRO)
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
@@ -144,15 +147,31 @@ def _gemini_plan(task_id: str, req: PlanRequest) -> WorkPlan:
 
 # --- Public entrypoint -------------------------------------------------------
 
+# If the request explicitly opts out of a managing worker.
+_NO_WORKER_KEYWORDS = ("ワーカー不要", "ワーカーなし", "ワーカー無し", "ワーカーいらない", "no worker", "without worker")
+
+
+def _wants_no_worker(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(k.lower() in lowered for k in _NO_WORKER_KEYWORDS)
+
+
 def generate_plan(req: PlanRequest) -> WorkPlan:
     task_id = f"task_{uuid.uuid4().hex[:12]}"
     feature = req.feature or infer_feature(req.goal)
     if get_gemini().enabled:
         try:
-            return _gemini_plan(task_id, req)
+            plan = _gemini_plan(task_id, req)
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> deterministic plan
-            pass
-    return _stub_plan(task_id, req, feature)
+            plan = _stub_plan(task_id, req, feature)
+    else:
+        plan = _stub_plan(task_id, req, feature)
+
+    # Standard spec: feature screens get a managing AI worker unless opted out.
+    if _wants_no_worker(req.goal):
+        for view in plan.planned_views:
+            view.has_worker = False
+    return plan
 
 
 def _summarize(plan: WorkPlan) -> str:

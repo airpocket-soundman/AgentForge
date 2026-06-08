@@ -38,6 +38,9 @@ class PlannedView(BaseModel):
     route: str
     title: str
     required_apis: list[str] = Field(default_factory=list)
+    # Standard spec: every generated feature screen gets a managing AI worker with
+    # an instruction area, unless the request explicitly asks for none.
+    has_worker: bool = True
 
 
 class WorkPlan(BaseModel):

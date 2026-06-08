@@ -67,6 +67,9 @@ backend/        FastAPI core API（modular monolith）
     main.py         app factory（health + ルータ束ね）
     config.py       環境変数ベース設定
     firestore.py    Firestore クライアント（emulator 対応）
+    agents/         組み込みAIワーカーの基本指示（*.md・リポジトリ管理）＋ローダー
+                    policy.md / orchestrator.md / reception.md / ui_designer.md / feature_worker.md
+                    → 実行時に読み込みプロンプトへ注入（プロンプト＝設定）
     llm/            Gemini クライアント（モデルルーティング＋スタブfallback）
     models/         Pydantic モデル
     reception/      Phase 1: チャット即応モジュール

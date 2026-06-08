@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 
+from app import agents
 from app.llm.gemini import ModelTier, get_gemini
 
 _PROMPT = """あなたはタスク管理アプリの「ワーカーエージェント」です。
@@ -41,7 +42,8 @@ def respond(task: dict, user_text: str) -> tuple[str, str]:
     history_lines = "\n".join(
         f"{m.get('role')}: {m.get('text')}" for m in task.get("messages", [])[-8:]
     )
-    prompt = _PROMPT.format(
+    base = agents.load("feature_worker")  # repo-managed worker instruction
+    prompt = (base + "\n\n" if base else "") + _PROMPT.format(
         title=task.get("title", ""),
         summary=current_summary or "(なし)",
         history=history_lines or "(なし)",

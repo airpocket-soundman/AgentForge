@@ -84,6 +84,14 @@
 - **UI＝動的manifest**：「締切順で見やすく」等の自然言語で UI Designer が `view_manifest` を再生成。
 - **節約**：UIを変えない時は manifest 再生成せず **API直叩き**。LLM不要な操作はLLMに通さない。
 
+### 生成機能の標準仕様：機能管理AIワーカー（UIワーカー規約）
+**新しい機能を追加したら、その機能を管理する「機能AIワーカー」を既定で設定する。**
+- 各機能の画面には、その**機能AIワーカーへの指示入力エリア**（チャット）を標準で設ける。ユーザーは自然言語でその機能の運用・整理・設定変更をワーカーに指示できる。
+- ワーカー有無は **`view.has_worker`（既定 true）** で表現し、`ui_view_registry` と `feature_states.<feature>_worker` に保持する。
+- **AIワーカーが不要なページは、その旨の指示を受けて `has_worker=false` にできる**（指示エリアを出さない）。Orchestrator は要求文に「ワーカー不要／なし」等があれば false で計画する。画面のトグルでも切替可能。
+- 粒度は2層：①**機能AIワーカー**（機能全体の管理・指示＝機能画面のエリア）／②必要なら**項目単位のワーカー**（例：タスク詳細のワーカー会話）。
+- これは全生成機能に適用する既定。例外（ワーカー無し）は明示指示があるときのみ。
+
 ### ワーカー非常駐＋コンテキスト永続化
 - ワーカーは機能使用時のみ起動、他は休止。
 - 短命のため文脈はワーカー内に持たせず、**Firestore（Context DB）に永続化**：`context_chunks`（+Vector Search）/ `worker_registry` / `worker_definitions` / `worker_runs` / `conversations`、大物は Cloud Storage。
