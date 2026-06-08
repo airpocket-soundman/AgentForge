@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>開発環境</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>10. 開発環境</h1>
+  <p class="lead">別 PC でも同一環境を再現できるよう、開発環境はすべてコードとして記録。開発＝Dev Container、本番＝Cloud Run コンテナで統一し、parity を担保します。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 760 200" width="760" height="200" role="img" aria-label="dev=prod 同一コンテナ">
+      <defs>
+        <marker id="ea" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+      </defs>
+      <rect x="20" y="60" width="200" height="84" rx="10" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5" />
+      <text x="120" y="92" text-anchor="middle" fill="#1456b8" style="font:700 13px sans-serif">どの PC でも</text>
+      <text x="120" y="114" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">Docker Desktop + clone</text>
+      <text x="120" y="132" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">→ Reopen in Container</text>
+
+      <rect x="280" y="60" width="200" height="84" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5" />
+      <text x="380" y="92" text-anchor="middle" fill="#1e7e34" style="font:700 13px sans-serif">Dev Container</text>
+      <text x="380" y="114" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">Python3.12 / Node24</text>
+      <text x="380" y="132" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">gcloud / firebase</text>
+
+      <rect x="540" y="60" width="200" height="84" rx="10" fill="#fff8e6" stroke="#f9ab00" stroke-width="1.5" />
+      <text x="640" y="92" text-anchor="middle" fill="#9a6a00" style="font:700 13px sans-serif">Cloud Run（本番）</text>
+      <text x="640" y="114" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">同じ Dockerfile</text>
+      <text x="640" y="132" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">で build & deploy</text>
+
+      <line x1="220" y1="102" x2="280" y2="102" stroke="#5f6368" stroke-width="2" marker-end="url(#ea)" />
+      <line x1="480" y1="102" x2="540" y2="102" stroke="#5f6368" stroke-width="2" marker-end="url(#ea)" />
+      <text x="380" y="36" text-anchor="middle" fill="#5f6368" style="font:600 12px sans-serif">環境はリポジトリに記録 → どこでも同一再現</text>
+    </svg>
+    <div class="fig-cap">図 10-1. dev=prod。開発も本番もコンテナで統一。</div>
+  </div>
+
+  <h2>採用バージョン（ピン留め）</h2>
+  <table class="tbl">
+    <tr><th>ツール</th><th>バージョン</th><th>定義場所</th></tr>
+    <tr><td>Python</td><td>3.12.x</td><td>Dev Container / backend Dockerfile</td></tr>
+    <tr><td>Node.js</td><td>24.x</td><td><code>.nvmrc</code> / devcontainer feature</td></tr>
+    <tr><td>gcloud / firebase</td><td>latest</td><td>devcontainer feature / postCreate</td></tr>
+    <tr><td>Python 依存</td><td>固定</td><td><code>backend/requirements.txt</code></td></tr>
+  </table>
+
+  <h2>別 PC での再現（これだけ）</h2>
+  <ol>
+    <li>Docker Desktop をインストール（PC ごとに 1 回）</li>
+    <li><code>git clone</code></li>
+    <li>VS Code で「Dev Containers: Reopen in Container」</li>
+    <li>初回ビルドで依存まで自動構築 → 完了</li>
+  </ol>
+
+  <div class="callout good">
+    本番（Cloud Run）はコンテナ実行。開発もコンテナに揃えることで「ローカルで動いたのに本番で壊れる」を避け、別 PC への移行も容易。
+  </div>
+
+  <p class="lead">詳細な正式記録はリポジトリの <code>ENVIRONMENT.md</code> を参照。</p>
+</body>
+</html>

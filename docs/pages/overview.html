@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>概要</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>1. 概要</h1>
+  <p class="lead">AgentForge は、自然言語でアプリを育てると、裏側で AI エージェント群が DevOps を回す「DevOps AI Agent Workbench」です。</p>
+
+  <h2>一言で言うと</h2>
+  <p>ユーザーがチャットで「タスク管理を追加して」と言うだけで、AI が <strong>設計 → 実装 → テスト → デプロイ → 承認 → 巻き戻し</strong> までを代行し、アプリ自身が機能を増やしていきます。</p>
+
+  <div class="callout">
+    <strong>評価してほしいのは「機能の完成度」ではなく「機能が追加されるプロセスそのもの」。</strong>
+    生成されるタスク管理画面は、AgentForge の自己拡張能力を示すための題材です。
+  </div>
+
+  <h2>二層の建て付け</h2>
+  <div class="grid2">
+    <div class="card-box">
+      <h3>最大ターゲット（背景）</h3>
+      <p>自己拡張型スーパーアプリ基盤 ＝ <strong>DevOps の民主化</strong>。非エンジニアでも言葉でアプリを育て続けられる世界。</p>
+    </div>
+    <div class="card-box">
+      <h3>提出版フォーカス（今回作る）</h3>
+      <p>1 機能（タスク管理）で「チャット→計画→生成→preview→承認→active→rollback」を<strong>1 サイクル完走</strong>させる。</p>
+    </div>
+  </div>
+
+  <h2>提供価値の三角形</h2>
+  <table class="tbl">
+    <tr><th>観点</th><th>内容</th></tr>
+    <tr><td>ユーザー体験</td><td>自然言語でアプリを育てる</td></tr>
+    <tr><td>技術的価値</td><td>AI エージェントが DevOps サイクルを代行する</td></tr>
+    <tr><td>主張</td><td>AI が価値の中心であり、判断・分解・委任・デプロイ・運用まで一貫制御する</td></tr>
+  </table>
+
+  <h2>対象ユーザーと課題</h2>
+  <ul>
+    <li><strong>ペルソナ：</strong>社内の非エンジニア業務担当者</li>
+    <li><strong>課題：</strong>簡単な社内ツールを自分で作れず、毎回エンジニアへの開発依頼で待たされる</li>
+    <li><strong>価値：</strong>言葉で頼むだけで機能が増え、要らなければ安全に戻せる</li>
+  </ul>
+
+  <h2>“AI エージェントである必然性”</h2>
+  <div class="callout good">
+    決め打ちの CI/CD 自動化と違い、<strong>曖昧な自然言語要求から「何を作り・どう分解し・どのワーカーに振るか」を非決定的に判断</strong>する必要がある。だからこれは単なる自動化ではなく <em>エージェント</em> である。
+  </div>
+</body>
+</html>

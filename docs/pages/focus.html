@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>コンテストの狙い</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>2. コンテストの狙い</h1>
+  <p class="lead">DevOps × AI Agent Hackathon 2026（主催 Findy／メインスポンサー Google Cloud Japan）への提出を前提に設計しています。</p>
+
+  <h2>3 つのコンセプトへの対応</h2>
+  <table class="tbl">
+    <tr><th>コンセプト</th><th>内容</th><th>AgentForge の対応</th></tr>
+    <tr><td><span class="pill blue">つくる</span></td><td>Google Cloud の AI を中核に独創的な AI エージェントを実装</td><td>Reception / Orchestrator / Worker 群（Gemini + ADK）</td></tr>
+    <tr><td><span class="pill green">まわす</span></td><td>GitHub 連携・CI/CD で継続的に改善</td><td>GitHub → Cloud Build → Cloud Run の自動デプロイ</td></tr>
+    <tr><td><span class="pill yellow">とどける</span></td><td>Cloud Run で本番品質をユーザーへ</td><td>preview → 承認 → active の安全配信</td></tr>
+  </table>
+
+  <h2>必須要件の充足</h2>
+  <ul>
+    <li><strong>① アプリ実行プロダクト：</strong>Cloud Run ✅</li>
+    <li><strong>② Google Cloud AI 技術：</strong>Gemini API ＋ ADK ✅</li>
+    <li><strong>③ 任意：</strong>Firebase（Hosting / Auth）、（加点候補）Elasticsearch</li>
+  </ul>
+
+  <h2>審査 5 基準とのマッピング</h2>
+  <table class="tbl">
+    <tr><th>基準</th><th>AgentForge の刺さり方</th></tr>
+    <tr><td>1. AI エージェントが価値の中心か</td><td><span class="pill green">強</span> マルチエージェントが自律的に判断・委任。必然性も明示</td></tr>
+    <tr><td>2. 課題へのアプローチ力</td><td><span class="pill yellow">要注意</span> 対象ユーザー1人・課題1つに絞って一貫性を担保</td></tr>
+    <tr><td>3. ユーザビリティ</td><td><span class="pill green">良</span> チャット入口＋生成画面で直感的</td></tr>
+    <tr><td>4. 実用性・体験価値</td><td><span class="pill blue">機会</span> preview→承認→rollback の体験が“突き抜け”候補</td></tr>
+    <tr><td>5. 実装力</td><td><span class="pill green">強</span> Control Plane / 権限分離 / Audit / Rollback で実運用配慮</td></tr>
+  </table>
+
+  <h2>審査員の重心</h2>
+  <table class="tbl">
+    <tr><th>審査員</th><th>立場</th><th>重視軸</th></tr>
+    <tr><td>ばんくし王</td><td>エムスリー VPoE / ML</td><td>実装力・技術構成の納得度</td></tr>
+    <tr><td>佐藤一憲 (Kaz Sato)</td><td>Google Developer Advocate</td><td>Google Cloud AI 活用の見せ方</td></tr>
+    <tr><td>宮田大督</td><td>エクスプラザ CPO / PdM</td><td>課題設定・プロダクトストーリー</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <strong>締切 2026/7/10。</strong> フル構成は 1 ヶ月で不可能。1 機能の 1 サイクル完走を最優先し、対象ユーザー・課題を 1 つに絞る。
+  </div>
+</body>
+</html>

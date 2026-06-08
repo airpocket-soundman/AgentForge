@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>データ設計</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>7. データ設計</h1>
+  <p class="lead">Firestore（native mode）が Control Plane の DB。状態・registry・監査・文脈をドキュメントで管理し、ファイル実体は Cloud Storage に逃がします。</p>
+
+  <h2>主要コレクション</h2>
+  <table class="tbl">
+    <tr><th>コレクション</th><th>役割</th></tr>
+    <tr><td><code>users</code> / <code>projects</code> / <code>conversations</code></td><td>ユーザー・プロジェクト・会話</td></tr>
+    <tr><td><code>task_runs</code></td><td>実行中タスクの状態・進捗・cancel フラグ</td></tr>
+    <tr><td><code>worker_runs</code></td><td>各ワーカー実行の入出力・トークン・要約</td></tr>
+    <tr><td><code>service_registry</code> / <code>api_registry</code> / <code>ui_view_registry</code></td><td>生成サービス / API / UI の登録</td></tr>
+    <tr><td><code>deployment_registry</code> / <code>route_registry</code></td><td>デプロイ状態・ルート（preview/active）</td></tr>
+    <tr><td><code>approval_registry</code></td><td>承認が必要な操作</td></tr>
+    <tr><td><code>audit_logs</code></td><td>全操作の監査ログ（説明責任）</td></tr>
+    <tr><td><code>context_chunks</code></td><td>文脈・埋め込み（Vector Search）</td></tr>
+  </table>
+
+  <h2>task_runs の例</h2>
+  <pre style="background:#f1f3f5;padding:14px;border-radius:8px;overflow-x:auto;font-size:12.5px;line-height:1.5;"><code>{
+  "task_id": "task_123",
+  "project_id": "project_001",
+  "goal": "タスク管理機能を追加する",
+  "status": "running",
+  "current_step": "programmer_agent",
+  "cancel_requested": false,
+  "approval_required": false,
+  "progress_message": "Task API を実装中です"
+}</code></pre>
+
+  <h2>ui_view_registry の例</h2>
+  <pre style="background:#f1f3f5;padding:14px;border-radius:8px;overflow-x:auto;font-size:12.5px;line-height:1.5;"><code>{
+  "view_id": "task_list_view",
+  "route": "/app/tasks",
+  "manifest_uri": "gs://agentforge-artifacts/views/task_list_view_v1.json",
+  "required_apis": ["task_list_api", "task_create_api"],
+  "status": "active"
+}</code></pre>
+
+  <h2>永続化 API（機能ごとに増える）</h2>
+  <p>動的 UI に置いた<strong>編集可能な要素（チェックボックス・テキストメモ欄・入力フォーム等）は、表示しただけでは保存されない</strong>。ユーザーが書き換えた状態をサーバに残すには、その要素に対応する<strong>永続化 API（読み書きエンドポイント）</strong>が必要になる。</p>
+  <p>したがって、機能を<strong>追加・拡張するたびに、その機能のデータモデルに対応する API 群（作成・取得・更新・部分更新・削除）を設計・生成・登録していく</strong>。UI が複雑になり編集要素が増えるほど、API も機能ごとに増えていく。これらは決定的 API（LLM 不使用・高速・確実）で、<code>api_registry</code> に登録し、<code>generated-app-api</code> が Firestore を読み書きして提供する。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 760 210" width="760" height="210" role="img" aria-label="編集可能なUIと永続化API">
+      <defs>
+        <marker id="da" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+      </defs>
+      <rect x="20" y="50" width="200" height="110" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5" />
+      <text x="120" y="74" text-anchor="middle" fill="#1e7e34" style="font:700 13px sans-serif">編集可能な UI 要素</text>
+      <text x="120" y="100" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">☑ チェックボックス</text>
+      <text x="120" y="122" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">▭ テキストメモ欄</text>
+      <text x="120" y="144" text-anchor="middle" fill="#202124" style="font:400 12px sans-serif">▤ 入力フォーム</text>
+
+      <rect x="300" y="50" width="200" height="110" rx="10" fill="#1a73e8" />
+      <text x="400" y="74" text-anchor="middle" fill="#fff" style="font:700 13px sans-serif">永続化 API（決定的）</text>
+      <text x="400" y="100" text-anchor="middle" fill="#dbe7ff" style="font:400 11.5px sans-serif">PATCH /tasks/{id} {done}</text>
+      <text x="400" y="122" text-anchor="middle" fill="#dbe7ff" style="font:400 11.5px sans-serif">PUT /notes/{id} {body}</text>
+      <text x="400" y="144" text-anchor="middle" fill="#dbe7ff" style="font:400 11.5px sans-serif">POST /tasks / GET /tasks</text>
+
+      <rect x="580" y="50" width="160" height="110" rx="10" fill="#f1f3f5" stroke="#5f6368" stroke-width="1.5" />
+      <text x="660" y="100" text-anchor="middle" fill="#202124" style="font:700 13px sans-serif">Firestore</text>
+      <text x="660" y="122" text-anchor="middle" fill="#5f6368" style="font:400 11px sans-serif">永続化</text>
+
+      <line x1="220" y1="92" x2="300" y2="92" stroke="#5f6368" stroke-width="2" marker-end="url(#da)" />
+      <text x="224" y="84" fill="#5f6368" style="font:400 10.5px sans-serif">編集</text>
+      <line x1="500" y1="92" x2="580" y2="92" stroke="#5f6368" stroke-width="2" marker-end="url(#da)" />
+      <text x="512" y="84" fill="#5f6368" style="font:400 10.5px sans-serif">保存</text>
+      <line x1="580" y1="128" x2="500" y2="128" stroke="#5f6368" stroke-width="2" marker-end="url(#da)" />
+      <text x="512" y="146" fill="#5f6368" style="font:400 10.5px sans-serif">取得</text>
+    </svg>
+    <div class="fig-cap">図 7-1. 編集可能な UI 要素 → 永続化 API → Firestore。要素が増えるほど機能ごとに API が増える。</div>
+  </div>
+
+  <h3>UI manifest は API にバインドする</h3>
+  <p>UI の各コンポーネントは、どの API のどのフィールドを読み書きするかを <code>view_manifest</code> で宣言的に結びつける。</p>
+  <pre style="background:#f1f3f5;padding:14px;border-radius:8px;overflow-x:auto;font-size:12.5px;line-height:1.5;"><code>{
+  "type": "checkbox", "label": "完了",
+  "api": "task_update_api", "field": "done"
+},
+{
+  "type": "textarea", "label": "メモ",
+  "api": "note_update_api", "field": "body"
+}</code></pre>
+
+  <h3>API 増殖を管理可能に保つ戦略</h3>
+  <p>毎回ゼロから手書きせず、ハイブリッドにする。</p>
+  <ul>
+    <li><strong>① 汎用 CRUD エンジン</strong>：entity（collection）とスキーマをパラメータ化した共通エンドポイントを基盤にし、新機能の単純な読み書きはこれで賄う（毎回 API を書かない）</li>
+    <li><strong>② 機能特化 API</strong>：特別なバリデーション・集計・副作用が要る所だけ、API Designer / Programmer ワーカーが専用 API を生成</li>
+    <li>いずれも <code>api_registry</code> に登録。要否（汎用で足りるか専用が要るか）は <strong>Orchestrator が判断</strong></li>
+  </ul>
+
+  <h2>Cloud Storage の使い分け</h2>
+  <table class="tbl">
+    <tr><th>バケット</th><th>用途</th></tr>
+    <tr><td><code>agentforge-artifacts</code></td><td>view_manifest・生成物</td></tr>
+    <tr><td><code>agentforge-uploads</code></td><td>PDF・画像などアップロード</td></tr>
+    <tr><td><code>agentforge-snapshots</code></td><td>Rollback 用 checkpoint（AI から削除不可）</td></tr>
+    <tr><td><code>agentforge-build-source</code></td><td>Cloud Build へ渡す source bundle</td></tr>
+  </table>
+</body>
+</html>

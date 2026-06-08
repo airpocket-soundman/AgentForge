@@ -1,0 +1,24 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.env.local
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Google Cloud / secrets
+service-account*.json
+*-key.json
+.gcloud/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

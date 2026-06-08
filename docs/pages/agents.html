@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>エージェント構成</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>5. エージェント構成</h1>
+  <p class="lead">オーケストレーターは“現場監督”。コードは書かず、判断・分解・委任・統合に徹します。実装は専門ワーカーが担当します。</p>
+
+  <h2>常駐エージェント（core-api）</h2>
+  <table class="tbl">
+    <tr><th>エージェント</th><th>責務</th><th>モデル</th></tr>
+    <tr><td><span class="pill blue">Reception</span></td><td>ユーザー即応、進捗説明、中止・変更・承認の受付、取り次ぎ</td><td>軽量 Gemini ＋ 定型</td></tr>
+    <tr><td><span class="pill blue">Orchestrator</span></td><td>要求理解、タスク分解、API/UI 要否判断、ワーカー選定、作業計画生成、結果統合</td><td>Gemini（判断時）</td></tr>
+  </table>
+
+  <div class="callout">
+    Orchestrator が作るのは<strong>コードではなく作業命令書（JSON）</strong>。「誰が・何を・どの順で」を決め、Control Plane に申請する。
+  </div>
+
+  <h2>専門ワーカー（機能を“作る”・ビルド時／必要時起動）</h2>
+  <p class="lead">下記は機能を<strong>作る</strong>ための汎用ワーカー。機能ごとに新規作成せず再利用する。完成後は停止。</p>
+  <table class="tbl">
+    <tr><th>ワーカー</th><th>役割</th><th>出力</th></tr>
+    <tr><td>UI Designer</td><td>画面構成・情報設計</td><td><code>view_manifest.json</code></td></tr>
+    <tr><td>API Designer</td><td>API 仕様・データ構造設計</td><td><code>api_spec</code></td></tr>
+    <tr><td>Programmer</td><td>API / UI 実装、テスト生成</td><td>source bundle</td></tr>
+    <tr><td>Test</td><td>軽量検証</td><td>test result</td></tr>
+    <tr><td>DevOps</td><td>Cloud Build 起動申請、ログ要約、Rollback 候補提示</td><td>deploy plan</td></tr>
+    <tr><td>Review / Safety</td><td>差分の危険度評価、権限・秘密参照検査</td><td>review report</td></tr>
+  </table>
+
+  <h2>役割分担の原則</h2>
+  <ul>
+    <li>Orchestrator は<strong>自分でデプロイしない・IAM を触らない・Secret を読まない</strong></li>
+    <li>ワーカーは<strong>非常駐</strong>。呼ばれた時だけ起動し、必要な文脈だけを受け取って結果を書き戻す</li>
+    <li>ワーカーは<strong>自分の権限を増やせない・別ワーカーを勝手に作れない</strong></li>
+    <li>副作用操作はすべて <strong>Tool Gateway 経由</strong>、出力はスキーマ検証</li>
+  </ul>
+
+  <h2>生成機能の実行モデル（“生きた機能”）</h2>
+  <p class="lead">生成された機能は静的なフォームではない。骨格は決定的な API、入出力の境界では小型 LLM が自然言語を扱い、UI も自然言語で作り替えられる。動いていない間は停止（非常駐）。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 760 300" width="760" height="300" role="img" aria-label="生成機能の内部構成">
+      <defs>
+        <marker id="ga" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+        <marker id="gb" markerWidth="10" markerHeight="8" refX="2" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M8,0 L0,3 L8,6 Z" fill="#5f6368" />
+        </marker>
+      </defs>
+
+      <rect x="20" y="40" width="500" height="172" rx="12" fill="#f8fafc" stroke="#1a73e8" stroke-width="1.5" stroke-dasharray="4,3" />
+      <text x="36" y="64" fill="#1456b8" style="font:700 13px sans-serif">生成機能（例：タスク管理）／ 非常駐：使用時のみ起動</text>
+
+      <rect x="34" y="80" width="150" height="104" rx="9" fill="#f9ab00" />
+      <text x="109" y="106" text-anchor="middle" fill="#202124" style="font:700 12.5px sans-serif">境界 LLM（小型）</text>
+      <text x="109" y="130" text-anchor="middle" fill="#5a3d00" style="font:400 11px sans-serif">自然言語入力</text>
+      <text x="109" y="146" text-anchor="middle" fill="#5a3d00" style="font:400 11px sans-serif">→ タスク情報に構造化</text>
+      <text x="109" y="166" text-anchor="middle" fill="#5a3d00" style="font:400 11px sans-serif">出力は任意の形式</text>
+
+      <rect x="196" y="80" width="150" height="104" rx="9" fill="#1a73e8" />
+      <text x="271" y="106" text-anchor="middle" fill="#fff" style="font:700 12.5px sans-serif">Task API（決定的）</text>
+      <text x="271" y="130" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">追加 / 一覧 / 完了</text>
+      <text x="271" y="146" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">CRUD on Firestore</text>
+      <text x="271" y="166" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">LLM 不使用・高速</text>
+
+      <rect x="358" y="80" width="150" height="104" rx="9" fill="#34a853" />
+      <text x="433" y="106" text-anchor="middle" fill="#fff" style="font:700 12.5px sans-serif">動的 UI manifest</text>
+      <text x="433" y="130" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">「締切順で見やすく」</text>
+      <text x="433" y="146" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">→ UI Designer が</text>
+      <text x="433" y="166" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">manifest 再生成</text>
+
+      <!-- context db -->
+      <rect x="150" y="244" width="240" height="48" rx="9" fill="#5f6368" />
+      <text x="270" y="266" text-anchor="middle" fill="#fff" style="font:700 12px sans-serif">Context DB（Firestore）</text>
+      <text x="270" y="283" text-anchor="middle" fill="#e8eaed" style="font:400 10.5px sans-serif">文脈・定義・履歴を永続化</text>
+      <line x1="270" y1="212" x2="270" y2="244" stroke="#5f6368" stroke-width="2" marker-end="url(#ga)" marker-start="url(#gb)" />
+      <text x="282" y="232" fill="#5f6368" style="font:400 10.5px sans-serif">保存 / rehydrate</text>
+
+      <!-- cost note -->
+      <rect x="540" y="40" width="200" height="172" rx="10" fill="#eef4ff" stroke="#1a73e8" stroke-width="1.2" />
+      <text x="640" y="64" text-anchor="middle" fill="#1456b8" style="font:700 12.5px sans-serif">コスト分岐</text>
+      <g fill="#202124" style="font:400 11.5px sans-serif">
+        <text x="556" y="90">・理解 = 小型 Flash</text>
+        <text x="556" y="114">・重い判断 = 上位モデル</text>
+        <text x="556" y="138">・UI 不変 → API 直叩き</text>
+        <text x="556" y="162">・使用時のみ起動</text>
+        <text x="556" y="186">・アイドル = ¥0</text>
+      </g>
+    </svg>
+    <div class="fig-cap">図 5-1. 生成機能の三点セット＝境界 LLM（小型）＋決定的 API ＋動的 UI。文脈は Context DB に永続化。</div>
+  </div>
+
+  <p>編集可能な UI 要素（チェックボックス・メモ欄など）は、すべて対応する<strong>永続化 API</strong>に紐づく。機能を追加・拡張するたびに、これらの API を機能ごとに設計・生成・登録していく（詳細は「データ設計」章を参照）。</p>
+
+  <h2>コンテキストの永続化</h2>
+  <p>ワーカーは短命なので、文脈をワーカー内に持たせない。<strong>Firestore（Context DB）に保存し、起動のたびに最小限を読み直す（rehydrate）</strong>ことで、非常駐でも継続性を持たせる。</p>
+  <table class="tbl">
+    <tr><th>保存先</th><th>中身</th></tr>
+    <tr><td><code>context_chunks</code>（＋Vector Search）</td><td>文脈・判断ログ・ユーザー設定・好み</td></tr>
+    <tr><td><code>worker_registry</code> / <code>worker_definitions</code></td><td>ワーカー定義（目的・許可ツール・I/O スキーマ）</td></tr>
+    <tr><td><code>worker_runs</code></td><td>各実行の入出力・要約・トークン</td></tr>
+    <tr><td><code>conversations</code></td><td>機能ごとの対話状態</td></tr>
+    <tr><td>Cloud Storage</td><td>大きな生成物・添付（参照だけ Firestore に）</td></tr>
+  </table>
+  <p>ワーカーには毎回 <code>context_refs</code>（最小ポインタ）だけ渡し、本体は Firestore から取得する。</p>
+
+  <h2>API化 か ワーカー化 かは Orchestrator が判断</h2>
+  <div class="callout good">
+    「この要求は<strong>新しい API で足りるのか／LLM ワーカーが要るのか</strong>」を Orchestrator が判断する。決め打ち自動化にはできないこの判断こそ、<strong>“AI エージェントである必然性”</strong>（審査基準1）の見せ場。
+  </div>
+  <table class="tbl">
+    <tr><th>処理の性質</th><th>選択</th></tr>
+    <tr><td>安定・反復・決定的（保存/一覧/完了/並び替え）</td><td>API 化（LLM 不使用）</td></tr>
+    <tr><td>自然言語の理解・整理・任意出力</td><td>境界 LLM（小型・必要時）</td></tr>
+    <tr><td>継続的な判断が要る（要約・推薦）</td><td>専用ワーカー（非常駐・Context DB 連携）</td></tr>
+  </table>
+
+  <h2>ADK の使いどころ</h2>
+  <p>Orchestrator とワーカーを ADK（Agents Development Kit）で構成し、Gemini の function calling / structured output で作業計画・UI 仕様・API 仕様を JSON 化します。これが必須要件「Google Cloud AI 技術の利用」を満たす中核です。</p>
+</body>
+</html>

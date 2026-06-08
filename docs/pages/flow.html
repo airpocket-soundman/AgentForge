@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自己拡張フロー</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>4. 自己拡張フロー</h1>
+  <p class="lead">「タスク管理を追加して」の一言から、AI が計画し、ワーカーに委任し、Cloud Run に preview し、承認後に反映、要らなければ巻き戻すまでの 1 サイクル。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 780 752" width="780" height="752" role="img" aria-label="自己拡張サイクル フロー図">
+      <defs>
+        <marker id="fa" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+        <marker id="far" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#ea4335" />
+        </marker>
+      </defs>
+
+      <!-- connectors -->
+      <g stroke="#5f6368" stroke-width="2">
+        <line x1="330" y1="82" x2="330" y2="104" marker-end="url(#fa)" />
+        <line x1="330" y1="150" x2="330" y2="172" marker-end="url(#fa)" />
+        <line x1="330" y1="218" x2="330" y2="240" marker-end="url(#fa)" />
+        <line x1="330" y1="286" x2="330" y2="308" marker-end="url(#fa)" />
+        <line x1="330" y1="354" x2="330" y2="376" marker-end="url(#fa)" />
+        <line x1="330" y1="422" x2="330" y2="444" marker-end="url(#fa)" />
+        <line x1="330" y1="490" x2="330" y2="512" marker-end="url(#fa)" />
+        <line x1="330" y1="558" x2="330" y2="580" marker-end="url(#fa)" />
+        <line x1="330" y1="626" x2="330" y2="648" marker-end="url(#fa)" />
+      </g>
+
+      <!-- steps -->
+      <g style="font:600 13px sans-serif">
+        <!-- 1 -->
+        <rect x="150" y="36" width="360" height="46" rx="8" fill="#202124" />
+        <circle cx="126" cy="59" r="15" fill="#fff" stroke="#202124" stroke-width="2" /><text x="126" y="64" text-anchor="middle" fill="#202124">1</text>
+        <text x="170" y="64" fill="#fff">ユーザー：「タスク管理を追加して」</text>
+        <!-- 2 -->
+        <rect x="150" y="104" width="360" height="46" rx="8" fill="#1a73e8" />
+        <circle cx="126" cy="127" r="15" fill="#fff" stroke="#1a73e8" stroke-width="2" /><text x="126" y="132" text-anchor="middle" fill="#1a73e8">2</text>
+        <text x="170" y="132" fill="#fff">Reception が即応（受付・進捗説明）</text>
+        <!-- 3 -->
+        <rect x="150" y="172" width="360" height="46" rx="8" fill="#1a73e8" />
+        <circle cx="126" cy="195" r="15" fill="#fff" stroke="#1a73e8" stroke-width="2" /><text x="126" y="200" text-anchor="middle" fill="#1a73e8">3</text>
+        <text x="170" y="200" fill="#fff">Orchestrator が作業計画(JSON)を生成</text>
+        <!-- 4 -->
+        <rect x="150" y="240" width="360" height="46" rx="8" fill="#1456b8" />
+        <circle cx="126" cy="263" r="15" fill="#fff" stroke="#1456b8" stroke-width="2" /><text x="126" y="268" text-anchor="middle" fill="#1456b8">4</text>
+        <text x="170" y="268" fill="#fff">Control Plane が registry に pending 登録</text>
+        <!-- 5 -->
+        <rect x="150" y="308" width="360" height="46" rx="8" fill="#5f6368" />
+        <circle cx="126" cy="331" r="15" fill="#fff" stroke="#5f6368" stroke-width="2" /><text x="126" y="336" text-anchor="middle" fill="#5f6368">5</text>
+        <text x="170" y="336" fill="#fff">Cloud Tasks 経由で Worker を起動</text>
+        <!-- 6 -->
+        <rect x="150" y="376" width="360" height="46" rx="8" fill="#34a853" />
+        <circle cx="126" cy="399" r="15" fill="#fff" stroke="#34a853" stroke-width="2" /><text x="126" y="404" text-anchor="middle" fill="#34a853">6</text>
+        <text x="170" y="404" fill="#fff">Worker が view_manifest / コード生成</text>
+        <!-- 7 -->
+        <rect x="150" y="444" width="360" height="46" rx="8" fill="#f9ab00" />
+        <circle cx="126" cy="467" r="15" fill="#fff" stroke="#f9ab00" stroke-width="2" /><text x="126" y="472" text-anchor="middle" fill="#f9ab00">7</text>
+        <text x="170" y="472" fill="#202124">Cloud Build → Cloud Run preview に反映</text>
+        <!-- 8 -->
+        <rect x="150" y="512" width="360" height="46" rx="8" fill="#5f6368" />
+        <circle cx="126" cy="535" r="15" fill="#fff" stroke="#5f6368" stroke-width="2" /><text x="126" y="540" text-anchor="middle" fill="#5f6368">8</text>
+        <text x="170" y="540" fill="#fff">Review / Test が preview を検証</text>
+        <!-- 9 -->
+        <rect x="150" y="580" width="360" height="46" rx="8" fill="#202124" />
+        <circle cx="126" cy="603" r="15" fill="#fff" stroke="#202124" stroke-width="2" /><text x="126" y="608" text-anchor="middle" fill="#202124">9</text>
+        <text x="170" y="608" fill="#fff">ユーザーが「反映して」承認</text>
+        <!-- 10 -->
+        <rect x="150" y="648" width="360" height="46" rx="8" fill="#34a853" />
+        <circle cx="126" cy="671" r="15" fill="#fff" stroke="#34a853" stroke-width="2" /><text x="126" y="676" text-anchor="middle" fill="#34a853">10</text>
+        <text x="170" y="676" fill="#fff">active 化（本番反映・本タブに常設）</text>
+      </g>
+
+      <!-- rollback -->
+      <rect x="560" y="300" width="200" height="118" rx="10" fill="#fdecea" stroke="#ea4335" stroke-width="1.5" />
+      <text x="660" y="324" text-anchor="middle" fill="#c5221f" style="font:700 13px sans-serif">ロールバック</text>
+      <text x="572" y="348" fill="#202124" style="font:400 11.5px sans-serif">・active → disable</text>
+      <text x="572" y="368" fill="#202124" style="font:400 11.5px sans-serif">・route を前checkpointへ</text>
+      <text x="572" y="388" fill="#202124" style="font:400 11.5px sans-serif">・Audit Log に記録</text>
+      <text x="572" y="408" fill="#202124" style="font:400 11.5px sans-serif">・Cloud Run delete は禁止</text>
+
+      <!-- 10 -> rollback -->
+      <path d="M510,671 C560,671 640,520 660,420" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#far)" />
+      <text x="568" y="470" fill="#ea4335" style="font:600 11px sans-serif">「戻して」</text>
+      <!-- rollback -> step4 (registry) -->
+      <path d="M660,300 C660,210 560,250 512,260" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#far)" />
+    </svg>
+    <div class="fig-cap">図 4-1. 自己拡張サイクル。すべての操作は Audit Log に残り、preview と active を分離。</div>
+  </div>
+
+  <h2>進捗はいつでも即答</h2>
+  <p>長時間処理は Cloud Tasks に切り出すため、作業中でも Reception が Firestore の <code>task_runs</code> を読んで即答します。「進捗どう？」→「Programmer が Task API を実装中、次は preview です」。</p>
+
+  <h2>中止も安全に</h2>
+  <p>「中止して」で <code>cancel_requested=true</code> を立て、未実行タスクは Control Plane が削除、実行中 Worker は協調停止。<code>queue purge</code> のような広範囲操作は AI に許可しません。</p>
+</body>
+</html>

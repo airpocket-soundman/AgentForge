@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ロードマップ</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>12. ロードマップ</h1>
+  <p class="lead">コンテスト版は Google Cloud / Gemini 中心性を崩さない。モデル自由度や外部連携はコンテスト後に拡張する。</p>
+
+  <h2>提出版に入れないもの（意図的に後回し）</h2>
+  <p>BYOK / BYOM / BYOLLM・他社 AI API・ローカル LLM・本格 Marketplace・本格課金・本格 SNS・OS 連携・IoT/マイコン書き込み。<br>
+  → 審査軸（Google Cloud AI 活用）をぼかさないため。</p>
+
+  <h2>コンテスト後の拡張</h2>
+  <table class="tbl">
+    <tr><th>Phase</th><th>内容</th></tr>
+    <tr><td>A</td><td>Model Gateway 抽象化（内部だけ他モデル対応の余地）</td></tr>
+    <tr><td>B</td><td>BYOK / 他社 AI API 接続</td></tr>
+    <tr><td>C</td><td>BYOLLM / ローカル LLM / 社内 LLM（機密データ向け）</td></tr>
+    <tr><td>D</td><td>Marketplace（サブシステム販売・Safety Review・手数料）</td></tr>
+    <tr><td>E</td><td>本格課金 / 使用量管理</td></tr>
+    <tr><td>F</td><td>本格 SNS / Social Data Layer 拡張</td></tr>
+    <tr><td>G</td><td>Device / IoT Gateway（MQTT・Raspberry Pi・M5Stack 等）</td></tr>
+  </table>
+
+  <h2>最大ターゲットへの接続</h2>
+  <div class="callout">
+    提出版（DevOps AI Agent Workbench）は、最大ターゲット「自己拡張型スーパーアプリ基盤」の<strong>中核エンジン</strong>。ここで実証した「安全に自己拡張する仕組み」の上に、機能・モデル・流通を積み増していく。
+  </div>
+</body>
+</html>

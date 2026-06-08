@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>安全設計</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>6. 安全設計</h1>
+  <p class="lead">この作品の差別化点。<strong>AI に Google Cloud の強権限を直接渡しません。</strong>AI は判断・申請のみ、実行は限定権限のゲートが行います。</p>
+
+  <div class="svg-wrap">
+    <svg viewBox="0 0 820 420" width="820" height="420" role="img" aria-label="権限分離の層構造">
+      <defs>
+        <marker id="sa" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+      </defs>
+
+      <!-- layers -->
+      <rect x="40" y="30" width="480" height="72" rx="10" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5" />
+      <text x="60" y="58" fill="#1456b8" style="font:700 14px sans-serif">① AI エージェント</text>
+      <text x="60" y="82" fill="#202124" style="font:400 12px sans-serif">判断・計画・申請・進捗説明（実行権限なし）</text>
+
+      <rect x="40" y="126" width="480" height="72" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5" />
+      <text x="60" y="154" fill="#1e7e34" style="font:700 14px sans-serif">② Control Plane</text>
+      <text x="60" y="178" fill="#202124" style="font:400 12px sans-serif">権限確認・registry・lifecycle・承認ゲート</text>
+
+      <rect x="40" y="222" width="480" height="72" rx="10" fill="#fff8e6" stroke="#f9ab00" stroke-width="1.5" />
+      <text x="60" y="250" fill="#9a6a00" style="font:700 14px sans-serif">③ Tool Gateway（限定 Service Account）</text>
+      <text x="60" y="274" fill="#202124" style="font:400 12px sans-serif">ここだけが Build / Deploy / Storage を実行。Secret も内部のみ</text>
+
+      <rect x="40" y="318" width="480" height="64" rx="10" fill="#f1f3f5" stroke="#5f6368" stroke-width="1.5" />
+      <text x="60" y="346" fill="#202124" style="font:700 14px sans-serif">④ Google Cloud</text>
+      <text x="60" y="368" fill="#5f6368" style="font:400 12px sans-serif">Cloud Run / Build / Artifact Registry / Firestore / Storage</text>
+
+      <!-- arrows down -->
+      <g stroke="#5f6368" stroke-width="2">
+        <line x1="280" y1="102" x2="280" y2="126" marker-end="url(#sa)" />
+        <line x1="280" y1="198" x2="280" y2="222" marker-end="url(#sa)" />
+        <line x1="280" y1="294" x2="280" y2="318" marker-end="url(#sa)" />
+      </g>
+      <text x="292" y="118" fill="#5f6368" style="font:400 11px sans-serif">申請</text>
+      <text x="292" y="214" fill="#5f6368" style="font:400 11px sans-serif">許可された操作のみ委譲</text>
+      <text x="292" y="310" fill="#5f6368" style="font:400 11px sans-serif">限定SAで実行</text>
+
+      <!-- prohibited box -->
+      <rect x="560" y="30" width="230" height="352" rx="10" fill="#fdecea" stroke="#ea4335" stroke-width="1.5" />
+      <text x="675" y="56" text-anchor="middle" fill="#c5221f" style="font:700 13px sans-serif">AI が直接できないこと</text>
+      <g fill="#202124" style="font:400 12px sans-serif">
+        <text x="578" y="84">✕ IAM 変更</text>
+        <text x="578" y="110">✕ Service Account 作成</text>
+        <text x="578" y="136">✕ Secret の直接読み取り</text>
+        <text x="578" y="162">✕ Cloud Run service delete</text>
+        <text x="578" y="188">✕ core service の停止</text>
+        <text x="578" y="214">✕ Cloud Tasks queue purge</text>
+        <text x="578" y="240">✕ 課金設定の変更</text>
+        <text x="578" y="266">✕ Rollback Store の削除</text>
+        <text x="578" y="292">✕ 承認なしの本番反映</text>
+        <text x="578" y="318">✕ 外部公開 API の一般開放</text>
+      </g>
+      <text x="675" y="352" text-anchor="middle" fill="#c5221f" style="font:600 11px sans-serif">disable 優先・delete 禁止</text>
+    </svg>
+    <div class="fig-cap">図 6-1. 4 層の権限分離。誤操作は「絶対に起こさない」ではなく「復旧不能を許さない」設計。</div>
+  </div>
+
+  <h2>サービスアカウント分離</h2>
+  <table class="tbl">
+    <tr><th>SA</th><th>主な権限</th></tr>
+    <tr><td>core（reception/orchestrator/control-plane）</td><td>Firestore read/write、Cloud Tasks enqueue、Tool Gateway invoke</td></tr>
+    <tr><td>tool-gateway</td><td>Cloud Build 起動、Artifact Registry 書込、Cloud Run preview 更新、Storage 操作</td></tr>
+    <tr><td>worker</td><td>task state 更新、workspace read/write、Tool Gateway invoke</td></tr>
+    <tr><td>generated-runtime</td><td>生成 API 実行に必要な最小権限のみ</td></tr>
+  </table>
+
+  <h2>巻き戻しの隔離</h2>
+  <p>Snapshot / Rollback 領域は AI から分離。AI は巻き戻しを<strong>提案</strong>できても、Snapshot Store を削除・改変できません。破壊的操作の前には自動 checkpoint を作成します。</p>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgentForge — システム説明</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">⚒️</span>
+      <div>
+        <div class="brand-title">AgentForge</div>
+        <div class="brand-sub">DevOps AI Agent Workbench — システム説明</div>
+      </div>
+    </div>
+    <div class="topbar-meta">DevOps × AI Agent Hackathon 2026</div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar">
+      <div class="nav-group">
+        <div class="nav-group-title">はじめに</div>
+        <a class="nav-link" data-page="overview.html">1. 概要</a>
+        <a class="nav-link" data-page="focus.html">2. コンテストの狙い</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-title">設計</div>
+        <a class="nav-link" data-page="architecture.html">3. システム構成図</a>
+        <a class="nav-link" data-page="flow.html">4. 自己拡張フロー</a>
+        <a class="nav-link" data-page="agents.html">5. エージェント構成</a>
+        <a class="nav-link" data-page="security.html">6. 安全設計</a>
+        <a class="nav-link" data-page="data.html">7. データ設計</a>
+        <a class="nav-link" data-page="resume.html">8. 永続化と再開</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-group-title">開発・運用</div>
+        <a class="nav-link" data-page="devops.html">9. DevOps / CI-CD</a>
+        <a class="nav-link" data-page="environment.html">10. 開発環境</a>
+        <a class="nav-link" data-page="plan.html">11. 実装フェーズ</a>
+        <a class="nav-link" data-page="roadmap.html">12. ロードマップ</a>
+      </div>
+    </nav>
+
+    <main class="content">
+      <iframe id="content-frame" name="content-frame" title="content" src="pages/overview.html"></iframe>
+    </main>
+  </div>
+
+  <script>
+    const frame = document.getElementById('content-frame');
+    const links = Array.from(document.querySelectorAll('.nav-link'));
+
+    function activate(page) {
+      frame.src = 'pages/' + page;
+      links.forEach(l => l.classList.toggle('active', l.dataset.page === page));
+      if (location.hash.slice(1) !== page) {
+        history.replaceState(null, '', '#' + page);
+      }
+    }
+
+    links.forEach(l => l.addEventListener('click', () => activate(l.dataset.page)));
+
+    // deep link support: #architecture.html
+    const initial = location.hash.slice(1);
+    if (initial && links.some(l => l.dataset.page === initial)) {
+      activate(initial);
+    } else {
+      links[0].classList.add('active');
+    }
+  </script>
+</body>
+</html>

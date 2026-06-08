@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>実装フェーズ</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>11. 実装フェーズ</h1>
+  <p class="lead">各フェーズは「何が動けば次へ進めるか」で区切る。Phase 2 で必須要件（Cloud Run＋Gemini＋デプロイ URL）を満たし、一度“提出可能な最小形”に到達する。</p>
+
+  <table class="tbl">
+    <tr><th>Phase</th><th>内容</th><th>ゴール</th><th>状態</th></tr>
+    <tr><td>0</td><td>GCP/Firebase 基盤セットアップ</td><td><code>gcloud run deploy</code> が通る空サービス</td><td><span class="pill yellow">進行中</span></td></tr>
+    <tr><td>1</td><td>Web Shell + Reception</td><td>ログイン → チャット → 即応</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>2</td><td>Orchestrator + Gemini + Control Plane</td><td>作業計画生成 → registry pending（<strong>最小提出可能</strong>）</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>3</td><td>Worker + Cloud Tasks + 生成UI manifest</td><td>チャットから画面が preview 表示</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>4</td><td>承認 → active 化 → Task API</td><td>タスクの追加/一覧/完了が動く</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>5</td><td>Rollback + Audit + 権限分離</td><td>「戻して」で消え、ログが残る</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>6</td><td>CI/CD + 仕上げ</td><td>push で本番更新</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>7</td><td>提出物</td><td>デモ動画・ProtoPedia・提出</td><td><span class="pill gray">予定</span></td></tr>
+  </table>
+
+  <h2>役割分担</h2>
+  <div class="grid2">
+    <div class="card-box">
+      <h3>🧑 あなた（人間にしかできない操作）</h3>
+      <ul>
+        <li>GCP / Firebase コンソール操作・課金</li>
+        <li>認証ログインの承認</li>
+        <li>GitHub 公開リポジトリ作成</li>
+        <li>デモ動画撮影・ProtoPedia 登録・提出</li>
+      </ul>
+    </div>
+    <div class="card-box">
+      <h3>🤖 Claude（それ以外すべて）</h3>
+      <ul>
+        <li>全コード（フロント / バックエンド / エージェント）</li>
+        <li>Dockerfile / CI-CD / インフラ設定</li>
+        <li>gcloud / firebase コマンドの用意</li>
+        <li>デモ台本・図・ストーリー草案</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>MVP の縦切り 1 本</h2>
+  <p>ログイン →「タスク管理を追加して」→ 計画 → manifest 生成 → preview 表示 → 承認 → active → タスク CRUD → 「進捗どう？」即答 → 「戻して」で rollback → Audit Log。これが 1 周動けば提出の核は完成。</p>
+</body>
+</html>
