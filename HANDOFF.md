@@ -56,10 +56,12 @@
   - Firestore Native（asia-northeast1, default, 無料枠）
   - Storage バケット: `agentforge-498808-{artifacts,uploads,snapshots,build-source}`
   - Artifact Registry: `agentforge`（docker）／ Cloud Tasks: `worker-queue`
-- **スモークデプロイ済み（使い捨て）**: Cloud Run `agentforge-core-api`
+- **本番デプロイ済み（Phase 2 / 2026-06-08）**: Cloud Run `agentforge-core-api`
   - URL: https://agentforge-core-api-217469091476.asia-northeast1.run.app
-  - `/` は 200 で `{"message":"AgentForge core API is running."}` を返す（＝公開URL稼働＝提出要件のデプロイURLを満たせる状態）
-  - Cloud Shell の `~/af-smoke` から `gcloud run deploy --source` で作成（本物のコードは本リポジトリ。後でCI/CDに置換）
+  - **本リポジトリのコード**を Cloud Shell から `gcloud run deploy --source` で配置（手順 [DEPLOY.md](DEPLOY.md)）
+  - `gemini-api-key`（Secret Manager）を `GEMINI_API_KEY` として注入。実行SAに `secretAccessor` / `datastore.user` 付与
+  - 確認済: `/health`=200、`/api/orchestrator/plan` で `generated_by="gemini"`（実Gemini接続）
+  - **🎯 必須要件（Cloud Run＋Gemini）＋公開デプロイURL を充足＝提出可能ライン到達**。後でGitHub→Cloud Build CI/CDに置換（Phase 6）
 
 ### 既知事項（対応状況）
 - **【解決済】** スモークの `/healthz` 404 は、**Cloud Run（Google Front End）が `/healthz` パスを横取り**するのが原因（応答は Server 空＋Google の HTML 404 で、コンテナに届かない）。`/health` はアプリに到達する。→ バックエンドのヘルスを **`/health`** に変更済み（[backend/app/main.py](backend/app/main.py)）。教訓メモ: memory `cloud-run-reserved-healthz`。スモーク（`af-smoke`）は使い捨てなので未修正のまま放置でよい。

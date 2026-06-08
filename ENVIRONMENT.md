@@ -91,4 +91,15 @@ Docker を使えないPCでも、以下のピン版を入れれば再現可能�
 - Cloud Tasks キュー：`worker-queue`（asia-northeast1）
 - 課金：有効（無料トライアル／無料枠）
 
-> サービスアカウント名・Cloud Run サービス URL・Secret 名は、作成しだいこの節へ追記する。
+### デプロイ済みサービス / Secret（Phase 2 / 2026-06-08）
+
+| 項目 | 値 |
+|---|---|
+| Cloud Run サービス | `agentforge-core-api`（asia-northeast1, min=0, allow-unauthenticated） |
+| 公開URL | https://agentforge-core-api-217469091476.asia-northeast1.run.app |
+| 実行サービスアカウント | `217469091476-compute@developer.gserviceaccount.com`（既定）。付与: `secretmanager.secretAccessor`（gemini-api-key）, `datastore.user` |
+| Secret | `gemini-api-key`（Secret Manager）→ Cloud Run に `GEMINI_API_KEY` として注入 |
+| デプロイ方法 | Cloud Shell から `gcloud run deploy --source`（手順は [DEPLOY.md](DEPLOY.md)）。将来 Cloud Build CI/CD に置換 |
+
+> 動作確認: `/health`=200、`/api/orchestrator/plan` で `generated_by="gemini"`（実Gemini接続）を確認済み。
+> 提出に使う公開URLはこのサービスのURL。審査期間（〜7/24）は停止しない。

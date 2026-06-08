@@ -35,8 +35,9 @@
 - ✅ 計画と生成予定 API/View を **pending 登録** ＋ 承認リクエスト（pending_user_approval）＋ 全操作を audit_logs に記録
 - ✅ reception が build intent を検出→Orchestrator へ連携→計画サマリを返信
 - ✅ E2E検証（emulator）：「タスク管理を追加して」→ task_run/work_plan/api×3 pending/view pending/approval/audit 14件。pytest 8件 green
-- ⬜ 実 Gemini 接続確認（ローカルは stub。Secret Manager 経由は Cloud Run デプロイ時）
-- ⬜ Cloud Run へデプロイ＝**必須要件（Cloud Run＋Gemini）クリア＝提出可能状態**（次の大目標）
+- ✅ **Cloud Run へデプロイ完了（2026-06-08）**。公開URL: https://agentforge-core-api-217469091476.asia-northeast1.run.app
+- ✅ **実 Gemini 接続確認**：本番 `/api/orchestrator/plan` で `generated_by="gemini"`（Secret Manager の `gemini-api-key` を環境変数注入、SAに secretAccessor 付与）
+- ✅ **🎯 必須要件クリア（Cloud Run 実行 ＋ Gemini API 利用 ＋ 公開デプロイURL）＝最低限の提出可能状態に到達**
 - ⬜ ADK 採用（現状は google-genai 直叩き。ADK化は加点）
 
 ## Phase 3: Worker + Cloud Tasks + 生成UI manifest ⬜
