@@ -1,7 +1,7 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
 from fastapi import APIRouter
 
-from app.control_plane import approvals
+from app.control_plane import approvals, registry
 
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
 
@@ -38,3 +38,9 @@ def feature_states(project_id: str) -> dict:
 def disable_feature(project_id: str, feature: str) -> dict:
     """Rollback: soft-disable (never delete) a feature."""
     return approvals.disable_feature(project_id, feature)
+
+
+@router.post("/reset")
+def reset() -> dict:
+    """DEV ONLY: wipe all app data and return to the initial main-chat-only state."""
+    return registry.reset_all()

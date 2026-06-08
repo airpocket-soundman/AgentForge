@@ -123,3 +123,8 @@ export function disableFeature(feature: string, projectId = PROJECT_ID): Promise
     body: "{}",
   });
 }
+
+// DEV ONLY: wipe all data and return to the initial state.
+export function resetAll(): Promise<{ status: string; deleted: Record<string, number> }> {
+  return request("/api/control-plane/reset", { method: "POST", body: "{}" });
+}

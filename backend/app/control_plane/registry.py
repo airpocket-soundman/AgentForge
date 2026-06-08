@@ -114,6 +114,44 @@ def create_approval_request(plan: WorkPlan) -> str:
     return approval_id
 
 
+# Collections wiped by the dev "reset to initial state" action.
+_RESET_COLLECTIONS = [
+    "conversations",
+    "task_runs",
+    "work_plans",
+    "api_registry",
+    "ui_view_registry",
+    "approval_requests",
+    "audit_logs",
+    "app_tasks",
+    "feature_states",
+]
+
+
+def _wipe(collection: str) -> int:
+    db = get_db()
+    count = 0
+    while True:
+        docs = list(db.collection(collection).limit(400).stream())
+        if not docs:
+            break
+        batch = db.batch()
+        for doc in docs:
+            batch.delete(doc.reference)
+        batch.commit()
+        count += len(docs)
+        if len(docs) < 400:
+            break
+    return count
+
+
+def reset_all() -> dict:
+    """DEV ONLY: delete all app data and return to the initial (main-chat-only) state."""
+    deleted = {c: _wipe(c) for c in _RESET_COLLECTIONS}
+    _audit("system.reset", "all", {"deleted": deleted})  # one fresh trace entry
+    return {"status": "reset", "deleted": deleted}
+
+
 def register_plan(plan: WorkPlan) -> str:
     """Atomically-ish register a full plan as pending. Returns the approval_id."""
     save_work_plan(plan)

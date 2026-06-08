@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { disableFeature, getFeatureStates } from "../api";
+import { disableFeature, getFeatureStates, resetAll } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { TaskListView } from "../views/TaskListView";
@@ -44,6 +44,17 @@ export function AppShell({ user }: { user: User | null }) {
     }
   }
 
+  // DEV ONLY: wipe all data and reload to the initial main-chat-only state.
+  async function handleReset() {
+    if (!confirm("【開発用】完全に初期化します。タスク・会話・登録・監査ログなど全データを削除して、メインチャットだけの初期状態に戻します。よろしいですか？")) return;
+    try {
+      await resetAll();
+      window.location.reload();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const navItems = [
     { key: "chat", label: "💬 メインチャット", active: view.kind === "chat", go: () => setView({ kind: "chat" }) },
     ...(taskActive
@@ -66,6 +77,13 @@ export function AppShell({ user }: { user: User | null }) {
             ⟲ 機能を巻き戻す
           </button>
         )}
+        <button
+          className="reset-top"
+          title="【開発用】全データを削除して初期状態に戻す"
+          onClick={() => void handleReset()}
+        >
+          🗑 初期化
+        </button>
         {user && (
           <span className="topbar__user">
             {user.email}
