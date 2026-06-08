@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { getFeatureStates } from "../api";
+import { disableFeature, getFeatureStates } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { TaskListView } from "../views/TaskListView";
@@ -31,6 +31,19 @@ export function AppShell({ user }: { user: User | null }) {
     }
   }
 
+  // Rollback lives in the top bar = a human-only Control Plane action. The AI can
+  // register/activate features but cannot reach this control to undo a rollback.
+  async function handleRollback() {
+    if (!taskActive) return;
+    if (!confirm("AIが追加した機能を巻き戻しますか？（無効化のみ／データは保持されます）")) return;
+    try {
+      await disableFeature("task");
+      onFeatureDisabled("task");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const navItems = [
     { key: "chat", label: "💬 メインチャット", active: view.kind === "chat", go: () => setView({ kind: "chat" }) },
     ...(taskActive
@@ -44,6 +57,15 @@ export function AppShell({ user }: { user: User | null }) {
         <div className="topbar__brand">AgentForge</div>
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
         <span className="spacer" />
+        {taskActive && (
+          <button
+            className="rollback-top"
+            title="AIが行った機能変更を取り消す（人間専用のControl Plane操作）"
+            onClick={() => void handleRollback()}
+          >
+            ⟲ 機能を巻き戻す
+          </button>
+        )}
         {user && (
           <span className="topbar__user">
             {user.email}
@@ -77,10 +99,7 @@ export function AppShell({ user }: { user: User | null }) {
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
           )}
           {view.kind === "tasks" && (
-            <TaskListView
-              onOpenTask={(id) => setView({ kind: "task", id })}
-              onRollback={() => onFeatureDisabled("task")}
-            />
+            <TaskListView onOpenTask={(id) => setView({ kind: "task", id })} />
           )}
           {view.kind === "task" && (
             <TaskDetailView taskId={view.id} onBack={() => setView({ kind: "tasks" })} />

@@ -55,6 +55,17 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   cursor: pointer;
   font-size: 12px;
 }
+.rollback-top {
+  padding: 6px 12px;
+  border: 1px solid #e0a83a;
+  border-radius: 8px;
+  background: #2a2a44;
+  color: #ffcf6b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rollback-top:hover { background: #3a3a58; }
 
 .body { flex: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
 

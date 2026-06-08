@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
-import { createTask, disableFeature, listTasks, setTaskDone, type Task } from "../api";
+import { createTask, listTasks, setTaskDone, type Task } from "../api";
 
-export function TaskListView({
-  onOpenTask,
-  onRollback,
-}: {
-  onOpenTask: (taskId: string) => void;
-  onRollback: () => void;
-}) {
+export function TaskListView({ onOpenTask }: { onOpenTask: (taskId: string) => void }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,17 +40,10 @@ export function TaskListView({
     await refresh();
   }
 
-  async function handleRollback() {
-    if (!confirm("タスク管理機能を無効化（ロールバック）しますか？データは保持されます。")) return;
-    await disableFeature("task");
-    onRollback();
-  }
-
   return (
     <div className="view">
       <div className="view__head">
         <h2>タスク管理</h2>
-        <button className="rollback" onClick={() => void handleRollback()}>機能を戻す（無効化）</button>
       </div>
 
       <div className="task-add">
