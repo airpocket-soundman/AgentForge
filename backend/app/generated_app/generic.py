@@ -55,6 +55,12 @@ def edit_feature(feature: str, body: EditIn) -> dict:
     require_feature_active(body.project_id, feature)
     from app.reception import service as reception
 
+    # Same busy-guard the chat router applies: a background design/codegen/edit is
+    # already writing this conversation's flow/build state. Starting a second one
+    # would race and corrupt it, so refuse until the current one finishes.
+    if reception.current_build(body.project_id).get("status") == "designing":
+        return {"building": True, "feature": feature, "busy": True}
+
     extra_text, images = reception.split_attachments(body.attachments)
     reception.start_edit(body.project_id, feature, body.text + extra_text, images=images)
     return {"building": True, "feature": feature}

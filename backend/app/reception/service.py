@@ -16,6 +16,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.firestore import get_db
+from app.models.generated import DesignPlan
 from app.models.reception import ChatMessage
 
 # Conversation documents live under: conversations/{conversation_id}
@@ -121,20 +122,47 @@ _STAGE_BUILT = "built"
 
 # Short confirmations that approve the CURRENT proposal (kept short so a detailed
 # revision like "色を増やして作って" is treated as feedback, not approval).
-_PLAN_OK_KEYWORDS = (
-    "これで作", "これでお願い", "これでいい", "これで良", "これでok", "作成して",
-    "実装して", "承認", "公開して", "ok", "オーケー", "進めて", "go", "これでいこ",
+#
+# Bare ASCII tokens like "ok"/"go" are matched ONLY as the whole message — as a
+# substring they fire on unrelated words ("looks br-ok-en", "OK、でも色変えて"),
+# which at the built stage would publish without the user actually approving.
+_PLAN_OK_EXACT = {
+    "ok", "okです", "okお願い", "おk", "オーケー", "go", "ゴー",
+    "はい", "うん", "yes", "y", "了解", "りょうかい", "お願い", "おねがい",
+}
+# Unambiguous commit instructions, matched as a substring.
+_PLAN_OK_PHRASES = (
+    "これで作", "これでお願い", "これでいい", "これで良", "これでok", "これでオーケー",
+    "作成して", "実装して", "承認", "公開して", "進めて", "これでいこ", "これで進",
 )
-_CANCEL_KEYWORDS = ("キャンセル", "やめ", "中止", "破棄", "取りやめ")
+# Likewise: a standalone cancel vs. an instruction that merely contains "やめ" as a
+# substring (e.g. "やめ時がわかるタイマーを作って" must NOT abort the flow).
+_CANCEL_EXACT = {
+    "キャンセル", "やめる", "やめて", "やめます", "やめ", "中止", "中止して",
+    "破棄", "破棄して", "取りやめ", "cancel", "やっぱやめ", "やっぱりやめる",
+}
+_CANCEL_PHRASES = (
+    "キャンセル", "中止して", "中止に", "破棄して", "取りやめ", "やめたい",
+    "やめにして", "やめましょう", "やめよう", "やっぱりやめ",
+)
+
+
+def _normalize_short(text: str) -> str:
+    return text.strip().lower().rstrip("。．.!！?？、,　 ")
 
 
 def is_plan_ok(text: str) -> bool:
-    t = text.strip().lower()
-    return len(t) <= 20 and any(k in t for k in _PLAN_OK_KEYWORDS)
+    t = _normalize_short(text)
+    if t in _PLAN_OK_EXACT:
+        return True
+    return len(t) <= 20 and any(k in t for k in _PLAN_OK_PHRASES)
 
 
 def is_cancel(text: str) -> bool:
-    return any(k in text for k in _CANCEL_KEYWORDS)
+    t = _normalize_short(text)
+    if t in _CANCEL_EXACT:
+        return True
+    return len(t) <= 20 and any(k in t for k in _CANCEL_PHRASES)
 
 
 def get_flow(project_id: str) -> dict:
@@ -179,8 +207,14 @@ def _active_features(project_id: str) -> dict:
     return (snap.to_dict() or {}) if snap.exists else {}
 
 
-def resolve_feature(project_id: str, text: str) -> str | None:
-    """Find which ACTIVE feature a message refers to, by title or slug match."""
+def resolve_feature(project_id: str, text: str, *, allow_lone_fallback: bool = True) -> str | None:
+    """Find which ACTIVE feature a message refers to, by title or slug match.
+
+    `allow_lone_fallback`: when True and exactly one feature is active, an
+    unqualified edit phrase is assumed to target it. Callers that must not let a
+    NEW-feature build request hijack the only existing feature (it carries no
+    explicit reference) pass False.
+    """
     states = _active_features(project_id)
     actives = [
         k for k, v in states.items()
@@ -194,8 +228,10 @@ def resolve_feature(project_id: str, text: str) -> str | None:
     for f in actives:
         if f in text:
             return f
-    # Exactly one active feature → assume it's the target.
-    return actives[0] if len(actives) == 1 else None
+    # Exactly one active feature → assume it's the target (only when allowed).
+    if allow_lone_fallback:
+        return actives[0] if len(actives) == 1 else None
+    return None
 
 
 def start_edit(

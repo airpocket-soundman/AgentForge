@@ -95,11 +95,17 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 service.clear_flow(body.project_id)
                 reply_text = f"「{title}」を更新しました。"
             else:
-                res = approvals.approve(flow["approval_id"])
-                activated_feature = res["feature"]
-                approval_id = flow["approval_id"]
-                service.clear_flow(body.project_id)
-                reply_text = f"公開しました。「{service.feature_title(body.project_id, activated_feature)}」を左メニューに追加しました。"
+                approval_id = flow.get("approval_id")
+                if not approval_id:
+                    # No approval was registered for this candidate (e.g. an
+                    # errored/partial codegen) — don't call approve(None).
+                    service.clear_flow(body.project_id)
+                    reply_text = "公開対象が見つかりませんでした。お手数ですが、もう一度ご依頼ください。"
+                else:
+                    res = approvals.approve(approval_id)
+                    activated_feature = res["feature"]
+                    service.clear_flow(body.project_id)
+                    reply_text = f"公開しました。「{service.feature_title(body.project_id, activated_feature)}」を左メニューに追加しました。"
         elif service.is_cancel(body.text) or intent == "rollback":
             service.clear_flow(body.project_id)
             reply_text = "キャンセルしました（生成物は破棄しました）。"
@@ -126,20 +132,31 @@ def post_message(body: MessageIn) -> ReceptionReply:
         else:
             reply_text = "無効化できる有効な機能がありません。"
 
-    elif service.is_edit_request(body.text) and service.resolve_feature(body.project_id, body.text):
-        # Edit an EXISTING feature by name (e.g. 「電卓を修正して…」). Regenerate its
-        # code with the change applied, then preview + publish (replace).
-        feat = service.resolve_feature(body.project_id, body.text)
+    elif service.is_edit_request(body.text) and service.resolve_feature(
+        body.project_id, body.text, allow_lone_fallback=False
+    ):
+        # Edit an EXISTING feature EXPLICITLY named (e.g. 「電卓を修正して…」). An explicit
+        # reference wins even over a build keyword, so 「電卓に履歴を追加して」 edits the
+        # calculator rather than creating a new feature.
+        feat = service.resolve_feature(body.project_id, body.text, allow_lone_fallback=False)
         service.start_edit(body.project_id, feat, goal_text, images=images)
         building = True
         reply_text = f"「{service.feature_title(body.project_id, feat)}」の修正版を作成しています…（数十秒）"
 
     elif intent.startswith("build_feature:"):
-        # Phase 1: produce a design PROPOSAL (fast) for the user to review. No code
-        # is written yet. Runs in the background; the chat polls /state for it.
+        # A build request creates a NEW feature (design PROPOSAL first; no code yet).
+        # This runs BEFORE the lone-feature edit fallback so 「カウンターも増やして作って」
+        # builds a new feature instead of silently overwriting the only existing one.
         service.start_plan(body.project_id, goal_text, images=images)
         building = True
         reply_text = "設計案を作成しています…（数秒）。少しお待ちください。"
+
+    elif service.is_edit_request(body.text) and service.resolve_feature(body.project_id, body.text):
+        # Edit phrasing with no explicit target but exactly one active feature → it.
+        feat = service.resolve_feature(body.project_id, body.text)
+        service.start_edit(body.project_id, feat, goal_text, images=images)
+        building = True
+        reply_text = f"「{service.feature_title(body.project_id, feat)}」の修正版を作成しています…（数十秒）"
 
     else:
         reply_text = service.compose_reply(body.text, None)

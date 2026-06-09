@@ -12,7 +12,7 @@ const AF_PRELUDE = `<script>
   function req(op,payload){return new Promise(function(res){var id=++seq;pending[id]=res;parent.postMessage({__af:true,id:id,op:op,payload:payload},'*');});}
   window.AF={load:function(){return req('load');},save:function(s){return req('save',s);}};
   window.addEventListener('message',function(e){var d=e.data;if(!d||!d.__af_reply)return;var cb=pending[d.id];if(cb){delete pending[d.id];cb(d.result);}});
-  try{window.localStorage.getItem('__af_probe');}catch(_){var m={};try{Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;},get length(){return Object.keys(m).length;}}});}catch(__){}}
+  try{var __ls=window.localStorage;__ls.setItem('__af_probe','1');__ls.removeItem('__af_probe');}catch(_){var m={};try{Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;},get length(){return Object.keys(m).length;}}});}catch(__){}}
 })();
 <\/script>`;
 
@@ -66,7 +66,7 @@ export function AppFrame({
       ref={frameRef}
       className="gen-app-frame"
       title={title ?? feature}
-      sandbox="allow-scripts allow-downloads"
+      sandbox="allow-scripts"
       srcDoc={html ? withPrelude(html) : ""}
     />
   );

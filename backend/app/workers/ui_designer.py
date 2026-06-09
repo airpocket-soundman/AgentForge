@@ -69,6 +69,22 @@ def _slug(goal: str) -> str:
     return "gen_" + hashlib.sha1(goal.encode("utf-8")).hexdigest()[:8]
 
 
+# A real generated app is an HTML document, not an apology/explanation string the
+# LLM sometimes returns in the `html` field. Require a structural tag + a closing
+# tag so prose like "申し訳ありません… <略>" doesn't get published as the live app.
+_HTML_TAG_RE = re.compile(
+    r"<(?:html|body|div|canvas|svg|button|form|table|main|section|header|h[1-6]|ul|ol|input|p)\b",
+    re.I,
+)
+
+
+def _is_valid_app_html(html: object) -> bool:
+    if not isinstance(html, str):
+        return False
+    s = html.strip()
+    return len(s) > 80 and "</" in s and bool(_HTML_TAG_RE.search(s))
+
+
 def _fallback_html(goal: str) -> str:
     g = _html.escape(goal[:120])
     return (
@@ -185,7 +201,7 @@ def design(
                 raw = raw.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
             data = json.loads(raw)
             html = data.get("html")
-            if isinstance(html, str) and "<" in html and len(html.strip()) > 80:
+            if _is_valid_app_html(html):
                 # When an approved plan exists, keep its slug/title/theme so the
                 # generated feature matches exactly what the user signed off on.
                 feature = re.sub(r"[^a-z0-9_]+", "", str((plan or {}).get("feature") or data.get("feature", "")).lower()) or _slug(goal)
