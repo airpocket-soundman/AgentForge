@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
-from app.models.generated import EditIn, EntityIn, EntityUpdate, StateIn
+from app.models.generated import EntityIn, EntityUpdate, StateIn
 
 router = APIRouter(prefix="/api/app", tags=["generated-app:generic"])
 
@@ -46,24 +46,6 @@ def get_view(feature: str, project_id: str = "default") -> dict:
     if not snap.exists:
         raise HTTPException(status_code=404, detail="この機能の view manifest が見つかりません")
     return snap.to_dict()
-
-
-@router.post("/features/{feature}/edit")
-def edit_feature(feature: str, body: EditIn) -> dict:
-    """Edit THIS feature from its own worker chat (scoped to one feature). Kicks off
-    a background regeneration; the preview + 「反映して」 happen in the main chat."""
-    require_feature_active(body.project_id, feature)
-    from app.reception import service as reception
-
-    # Same busy-guard the chat router applies: a background design/codegen/edit is
-    # already writing this conversation's flow/build state. Starting a second one
-    # would race and corrupt it, so refuse until the current one finishes.
-    if reception.current_build(body.project_id).get("status") == "designing":
-        return {"building": True, "feature": feature, "busy": True}
-
-    extra_text, images = reception.split_attachments(body.attachments)
-    reception.start_edit(body.project_id, feature, body.text + extra_text, images=images)
-    return {"building": True, "feature": feature}
 
 
 @router.get("/preview/{feature}")

@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from app.models.reception import Attachment
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -31,6 +33,7 @@ class TaskMessageIn(BaseModel):
 class FeatureWorkerIn(BaseModel):
     project_id: str = "default"
     text: str = Field(min_length=1, max_length=2000)
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class WorkerToggleIn(BaseModel):
