@@ -85,6 +85,11 @@ class ViewManifest(BaseModel):
     gantt: GanttSpec | None = None
     calendar: CalendarSpec | None = None
     html: str = ""               # kind="app": self-contained HTML for the sandboxed iframe
+    # kind="app": agent-callable content operations the generated app implements via
+    # window.applyAgentCommand(name, args). The feature worker maps a natural-language
+    # instruction to one of these and the RUNNING app executes it (e.g. clear the
+    # canvas, add an item, set a color) — so the worker edits content, not code.
+    commands: list[dict] = Field(default_factory=list)  # [{name, description, params}]
     generated_by: str = "stub"   # gemini | claude-cli | stub
 
 

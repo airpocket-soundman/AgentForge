@@ -14,9 +14,12 @@ import {
 export function FeatureWorkerPanel({
   feature,
   onChanged,
+  onCommand,
 }: {
   feature: string;
   onChanged?: () => void;
+  // mini-app: an MCP-style tool call the running app should execute (e.g. clear canvas)
+  onCommand?: (cmd: { name: string; arguments?: Record<string, unknown> }) => void;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -41,7 +44,8 @@ export function FeatureWorkerPanel({
     try {
       const res = await sendFeatureWorkerMessage(feature, text);
       setMessages((m) => [...m, res.reply]);
-      if (res.created && res.created.length > 0) onChanged?.();
+      if (res.command) onCommand?.(res.command); // app-kind: run it in the live app
+      if ((res.created && res.created.length > 0) || res.data_changed) onChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

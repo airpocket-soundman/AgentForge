@@ -10,7 +10,7 @@ import {
   type FeatureWorkerState,
   type ViewManifest,
 } from "../api";
-import { AppFrame } from "./AppFrame";
+import { AppFrame, type AgentCommand } from "./AppFrame";
 import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
 
 // Generated View Renderer: every feature is a COMPLETE self-contained HTML app the
@@ -38,6 +38,9 @@ export function GeneratedView({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [acting, setActing] = useState(false);
+  // app-kind: a content command from the worker for the running app to execute.
+  const [command, setCommand] = useState<AgentCommand | null>(null);
+  const cmdNonce = useRef(0);
   const threadRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
 
@@ -137,7 +140,11 @@ export function GeneratedView({
     att.clear();
     scrollDown();
     try {
-      await sendFeatureWorkerMessage(feature, text, files);
+      const res = await sendFeatureWorkerMessage(feature, text, files);
+      // mini-app: dispatch the specialist worker's MCP-style tool call to the app.
+      if (res.command?.name) {
+        setCommand({ name: res.command.name, args: res.command.arguments, nonce: ++cmdNonce.current });
+      }
       await loadAll();
     } catch (e) {
       setError(msg(e));
@@ -207,7 +214,7 @@ export function GeneratedView({
 
       {worker && !worker.enabled ? (
         <>
-          <AppFrame html={manifest.html} feature={feature} title={manifest.title} live />
+          <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} />
           <div className="hint feature-worker__off">この機能のAIワーカーは無効です。</div>
         </>
       ) : (
@@ -215,7 +222,7 @@ export function GeneratedView({
         // drag fully to either end to show only one side (re-draggable back).
         <div className="gv-split" ref={splitRef}>
           <div className="gv-pane gv-pane--app" style={{ flexBasis: `${appRatio * 100}%` }}>
-            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live />
+            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} />
           </div>
 
           <div

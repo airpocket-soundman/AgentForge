@@ -82,7 +82,7 @@ export function ChatView({
   // Poll while a background step runs, and keep polling until the built-stage
   // preview has actually loaded (so a slow/again-null candidate still appears).
   useEffect(() => {
-    if (!building && !(stage === "built" && !preview?.html)) return;
+    if (!building && !(stage === "built" && !preview)) return;
     const id = setInterval(() => void loadState(), 2500);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -137,12 +137,40 @@ export function ChatView({
           <div key={i} className={`bubble bubble--${m.role}`}>{m.text}</div>
         ))}
 
-        {stage === "built" && preview?.html && (
+        {stage === "built" && preview && (
           <div className="chat-preview">
             <div className="chat-preview__label">
               {mode === "edit" ? "プレビュー（修正版・未反映）" : "プレビュー（未公開）"}
             </div>
-            <AppFrame html={preview.html} feature={pendingFeature ?? "preview"} title={preview.title} live={false} />
+            {preview.html ? (
+              <AppFrame html={preview.html} feature={pendingFeature ?? "preview"} title={preview.title} live={false} />
+            ) : (
+              <div className="chat-preview__data">
+                <div className="chat-preview__title">{preview.title}</div>
+                {preview.description && <p className="chat-preview__desc">{preview.description}</p>}
+                {preview.list_columns?.length > 0 && (
+                  <table className="table">
+                    <thead>
+                      <tr>{preview.list_columns.map((c) => <th key={c}>{c}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td colSpan={preview.list_columns.length} className="table__empty">
+                          公開後にデータを追加できます
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+                <div className="chat-preview__meta">
+                  {preview.fields?.length > 0 && <span>入力項目 {preview.fields.length}</span>}
+                  {preview.stats?.length ? <span>📊 指標 {preview.stats.length}</span> : null}
+                  {preview.charts?.length ? <span>📈 グラフ {preview.charts.length}</span> : null}
+                  {preview.gantt ? <span>📅 ガント</span> : null}
+                  {preview.calendar ? <span>🗓 カレンダー</span> : null}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

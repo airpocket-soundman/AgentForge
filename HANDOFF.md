@@ -65,6 +65,36 @@
 
 ---
 
+## 1.6 コーディングパイプライン現状 ＋ 次タスク（2026-06-09 記録）
+
+### 用語（確定）
+- **ミニアプリ**＝ユーザー要求で生成される個々の機能（kind=app の生成HTML、または kind=data）。
+- **専門ワーカー**＝ミニアプリごとの管理ワーカー。**メインの生成パイプラインから切り離し済み**。中身（描画/テキスト/データ）の編集だけ担当。構造変更は「メインチャットへ」と誘導。
+
+### 現状のパイプライン（コード実測）
+```
+Reception(受付) → Orchestrator(判定) → UI Designer(設計案→コード生成) → Control Plane(承認→公開)
+                                                       ＋ 実行時：専門ワーカー(中身編集・MCP形式ツール)
+```
+- **Reception**（reception/service.py）＝ほぼ**配管**：キーワードで粗く意図判定（LLMでない）＋フロー管理(plan→built)＋進捗/チェック/エラーのチャット報告＋承認/戻す/中止＋スタック復旧。LLM使用は building_status_reply の1箇所。
+- **Orchestrator**（orchestrator/service.py）＝**実LLM判定が主脳**：`classify_request` が create/edit/chat を判定＋指示語解決。**ただし `generate_plan` が作る作業計画のワーカー羅列（api_designer/programmer/test_agent/devops_agent）は“飾り”で実行されない**。
+- **UI Designer**（workers/ui_designer.py）＝**実働の主役**：`plan_feature`(設計案/Flash)→`design`(HTML生成/Pro)。生成HTMLに MCP形式の `applyAgentCommand` ＋ `commands` を埋め込む（専門ワーカー用ツール契約）。
+- **Control Plane**＝承認→active化・監査（LLMでない統制）。
+
+### このセッションで入れた変更（未整理・要レビュー）
+- 専門ワーカーをメインパイプラインから**分離**（構造変更はメイン、専門ワーカーは中身のみ）。
+- **MCP形式のツール契約**（ミニアプリが `name/description/inputSchema` を宣言＝`commands`、呼び出しは `{name, arguments}`、トランスポートは manifest＋postMessage で常駐接続なし）。
+- ローカルLLM速度：codegen=Sonnet / 軽処理=Haiku（CLI既定のOpusは遅いため。docker-compose.dev.yml）。
+- 生成中の**進捗・チェック・エラーをチャットに随時報告**（reception の _progress/_check_report、role=system）。
+
+### 次タスク：パイプラインの整理し直し
+1. **判定をOrchestratorに一本化**（Receptionの二重キーワード判定を“制御語の即時ゲート＋配管”に縮小）。
+2. **飾りワーカー（api_designer/programmer/test_agent/devops_agent）を撤去**し、作業計画を実態（UI Designerが設計＋実装）に合わせる。
+3. ↑を IMPLEMENTATION_GUIDE §2.5/2.6 と agents/*.md にも反映して整合。
+4. （任意）エラー→Orchestrator自動リトライの軽量ループ、Test/Review相当の検証ステップ。
+
+---
+
 ## 2. 確定した重要設計（要点）
 
 - **通信**: ブラウザ↔Reception は REST/HTTPS（Firebase Auth ID token）。**MCPは不採用**。進捗はブラウザが **Firestore をリアルタイム購読**。

@@ -20,6 +20,9 @@ service-account*.json
 # Firebase deploy cache
 .firebase/
 
+# Local Claude Code settings (personal: permissions etc.)
+.claude/settings.local.json
+
 # OS / editor
 .DS_Store
 Thumbs.db

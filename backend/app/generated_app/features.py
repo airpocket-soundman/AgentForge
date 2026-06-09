@@ -1,12 +1,13 @@
 """Feature-level managing AI worker (standard spec).
 
-Every generated feature gets a managing worker exposed as an instruction chat on
-the feature screen. The chat is GENERAL purpose (not fix-only): the worker either
-answers conversationally OR — when the user asks to change the feature — forwards
-the request into the SAME app-design pipeline the main chat uses. The Orchestrator
-(not this module) decides create-vs-edit; the user's text flows through verbatim,
-so intent is preserved. The resulting preview + 反映 surface from the shared
-pipeline state (conversation flow), shown in place on the feature screen.
+DECOUPLED from the main build pipeline (decision 2026-06-09): a feature's worker
+operates ONLY on that feature's CONTENT — the data/objects it holds (tasks, records,
+the entities behind the view). It does NOT create or restructure features.
+
+Changing the feature itself (its UI, fields, layout, code) is the MAIN chat's job
+(the Orchestrator pipeline). If the user asks the feature worker for a structural
+change, it declines and points them to the main chat — so a feature can never
+accidentally spawn/duplicate or surface a build preview from its own panel.
 
 Conversation is stored in feature_chats/{project}_{feature}. The worker can be
 turned off per feature (feature_states.{feature}_worker = false).
@@ -78,61 +79,31 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
     if not _worker_enabled(body.project_id, feature):
         raise HTTPException(status_code=409, detail="この機能のAIワーカーは無効です")
 
-    from app.reception import service as reception
-
     snap = _chat_ref(body.project_id, feature).get()
     history = snap.to_dict().get("messages", []) if snap.exists else []
     user_msg = ChatMessage(role="user", text=body.text)
 
-    # A build/design is already running on the shared pipeline → stay responsive.
-    if reception.current_build(body.project_id).get("status") == "designing":
-        busy = ChatMessage(
-            role="assistant",
-            text="ただいま前の指示を反映中です。完了するとプレビューが表示されます。少しお待ちください。",
-        )
-        _append(body.project_id, feature, user_msg, busy)
-        return {"reply": busy.model_dump(mode="json"), "building": True, "created": []}
-
-    # The `task` feature keeps its deterministic create-tasks operation.
+    command: dict | None = None
+    # The `task` feature keeps its deterministic create-tasks operation (content op).
     if feature == "task":
-        reply_text, created = _respond_task(body.project_id, body.text, history)
-        reply = ChatMessage(role="assistant", text=reply_text)
-        _append(body.project_id, feature, user_msg, reply)
-        return {"reply": reply.model_dump(mode="json"), "building": False, "created": created}
-
-    # Generated app feature: forward to the SHARED pipeline. The Orchestrator
-    # decides create-vs-edit-vs-chat; the user's text is passed through verbatim.
-    extra_text, images = reception.split_attachments(body.attachments)
-    res = reception.handle_request(
-        body.project_id, body.text + extra_text, images=images, hint_feature=feature
-    )
-    if res["action"] == "edit":
-        reply = ChatMessage(
-            role="assistant",
-            text="承知しました。変更版を作成しています。完了したら下のプレビューで確認し、「反映」できます。",
+        reply_text, changed = _respond_task(body.project_id, body.text, history)
+    else:
+        # Content-only: operate on this feature's data/objects. NEVER forwards to the
+        # design pipeline — structural changes are redirected to the main chat.
+        # For app-kind features, returns a `command` for the running app to execute.
+        reply_text, changed, command = _respond_content(
+            body.project_id, feature, body.text, history, _manifest(body.project_id, feature)
         )
-        _append(body.project_id, feature, user_msg, reply)
-        return {"reply": reply.model_dump(mode="json"), "building": True, "created": []}
-    if res["action"] == "create":
-        reply = ChatMessage(
-            role="assistant",
-            text="新しい機能の作成として受け付けました。メインチャットに設計案を表示します。",
-        )
-        _append(body.project_id, feature, user_msg, reply)
-        return {"reply": reply.model_dump(mode="json"), "building": True, "created": []}
 
-    if res["action"] == "rate_limited":
-        reply = ChatMessage(
-            role="assistant",
-            text="短時間に実行が集中しています。トークン保護のため一時停止しました。少し待ってからお試しください。",
-        )
-        _append(body.project_id, feature, user_msg, reply)
-        return {"reply": reply.model_dump(mode="json"), "building": False, "created": []}
-
-    # Conversational: answer with the feature worker's base prompt.
-    reply = ChatMessage(role="assistant", text=_chat_reply(feature, body.text, history, _manifest(body.project_id, feature)))
+    reply = ChatMessage(role="assistant", text=reply_text)
     _append(body.project_id, feature, user_msg, reply)
-    return {"reply": reply.model_dump(mode="json"), "building": False, "created": []}
+    return {
+        "reply": reply.model_dump(mode="json"),
+        "building": False,
+        "created": changed,
+        "data_changed": bool(changed),
+        "command": command,  # app-kind: {name, args} for the live app to apply
+    }
 
 
 # --- worker logic ------------------------------------------------------------
@@ -200,3 +171,149 @@ def _respond_task(project_id: str, text: str, history: list[dict]) -> tuple[str,
         return reply, created
     except Exception:  # noqa: BLE001
         return "（指示の処理中に問題が発生しました。言い換えてお試しください）", []
+
+
+_ENTITIES = "app_entities"
+
+
+def _apply_entity_ops(project_id: str, feature: str, ops: list[dict]) -> list[dict]:
+    """Apply create/update/delete to this feature's entities (content only)."""
+    db = get_db()
+    changed: list[dict] = []
+    for op in (ops or [])[:50]:
+        kind = op.get("op")
+        if kind == "create":
+            eid = f"e_{uuid.uuid4().hex[:12]}"
+            db.collection(_ENTITIES).document(eid).set(
+                {
+                    "entity_id": eid,
+                    "feature": feature,
+                    "project_id": project_id,
+                    "data": op.get("data") or {},
+                    "created_at": _now_iso(),
+                    "updated_at": _now_iso(),
+                }
+            )
+            changed.append({"entity_id": eid, "op": "create"})
+        elif kind in ("update", "delete") and op.get("entity_id"):
+            ref = db.collection(_ENTITIES).document(op["entity_id"])
+            snap = ref.get()
+            if not snap.exists or snap.to_dict().get("feature") != feature:
+                continue  # never touch another feature's data
+            if kind == "update":
+                merged = {**(snap.to_dict().get("data") or {}), **(op.get("data") or {})}
+                ref.set({"data": merged, "updated_at": _now_iso()}, merge=True)
+            else:
+                ref.delete()
+            changed.append({"entity_id": op["entity_id"], "op": kind})
+    return changed
+
+
+_STRUCTURE_REDIRECT = "「{title}」自体の変更（見た目・項目・機能の追加/削除など）はメインチャットからご依頼ください。ここでは、この機能の中身の操作を担当します。"
+
+
+def _respond_content(
+    project_id: str, feature: str, text: str, history: list[dict], manifest: dict
+) -> tuple[str, list[dict], dict | None]:
+    """Operate on the feature's CONTENT only. Returns (reply, changed_entities, command).
+
+    - data-kind: edits entities (changed list).
+    - app-kind: maps the instruction to one of the app's declared `commands`; the
+      returned `command` is dispatched to the RUNNING app by the frontend.
+    Structural change -> redirect to the main chat (no action here).
+    """
+    llm = get_llm()
+    base = agents.load("feature_worker")
+    title = manifest.get("title") or feature
+    kind = manifest.get("kind") or "data"
+
+    if not llm.enabled:
+        return f"（機能ワーカー・スタブ）承りました：{text}", [], None
+
+    # === mini-app (kind=app): map NL -> an MCP-style tool call ================
+    # The mini-app declares its content-edit tools (MCP shape: name/description/
+    # inputSchema). The specialist worker maps the instruction to ONE tool call
+    # {name, arguments}; the running app executes it via applyAgentCommand.
+    if kind == "app":
+        tools = manifest.get("commands") or []
+        tool_names = {t.get("name") for t in tools if isinstance(t, dict) and t.get("name")}
+        if not tool_names:
+            return (
+                "このミニアプリには編集ツールが定義されていません。中身はアプリ上の操作で、"
+                "アプリ自体の変更はメインチャットからお願いします。"
+            ), [], None
+        prompt = (
+            f"{base}\n\n"
+            f"対象ミニアプリ: {title}。あなたは専門ワーカーとして、宣言されたツールだけでこのアプリの中身を操作します。\n"
+            f"利用可能ツール(MCP形式 name/description/inputSchema): {json.dumps(tools, ensure_ascii=False)}\n"
+            f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
+            f"ユーザーの指示: {text}\n\n"
+            "判定して JSON のみで出力:\n"
+            '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
+            '"command":{"name":"<toolsのname>","arguments":{<inputSchemaに沿った引数>}}}\n'
+            "・中身の操作に対応するツールがある → category=content, command を埋める（nameは必ずtoolsの中から）\n"
+            "・アプリ自体（UI/機能）の変更要求 → category=structure（command不要）\n"
+            "・質問/相談や対応ツールが無い → category=chat（command不要）"
+        )
+        data = _safe_json(llm, prompt)
+        category = data.get("category", "chat")
+        reply = str(data.get("reply", "")).strip()
+        if category == "structure":
+            return reply or _STRUCTURE_REDIRECT.format(title=title), [], None
+        if category == "content":
+            cmd = data.get("command") or {}
+            name = cmd.get("name") if isinstance(cmd, dict) else None
+            if name in tool_names:  # never dispatch an undeclared tool
+                return (reply or "反映します。"), [], {"name": name, "arguments": cmd.get("arguments") or {}}
+        # No matching tool for a content-ish request → this needs a capability the
+        # app doesn't have yet. Adding it is a feature change = the main chat's job.
+        return (
+            reply
+            or f"このミニアプリには、その操作に対応するツールがありません（利用可能: {('、'.join(sorted(tool_names)))}）。"
+            "新しい操作を増やすには、メインチャットで「この機能に〜できるようにして」と依頼してください。"
+        ), [], None
+
+    # === data-kind: edit entities ============================================
+    entities = [
+        {"entity_id": d.id, **(d.to_dict().get("data") or {})}
+        for d in get_db()
+        .collection(_ENTITIES)
+        .where("project_id", "==", project_id)
+        .where("feature", "==", feature)
+        .stream()
+    ]
+    field_keys = [f.get("key") or f.get("name") for f in (manifest.get("fields") or [])]
+    prompt = (
+        f"{base}\n\n"
+        f"対象機能: {title}（データ系）。あなたはこの機能の『中身（データ）』だけを扱います。\n"
+        "機能そのものの変更（UI・項目・レイアウト・コードの追加/削除）は担当外です。\n"
+        f"データ項目: {json.dumps(field_keys, ensure_ascii=False)}\n"
+        f"現在のデータ({len(entities)}件・最大20): {json.dumps(entities[:20], ensure_ascii=False)}\n"
+        f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
+        f"ユーザーの指示: {text}\n\n"
+        "判定して JSON のみで出力:\n"
+        '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
+        '"ops":[{"op":"create|update|delete","entity_id":"<update/delete時>","data":{<項目に沿った値>}}]}'
+    )
+    data = _safe_json(llm, prompt)
+    category = data.get("category", "chat")
+    reply = str(data.get("reply", "")).strip()
+    if category == "structure":
+        return reply or _STRUCTURE_REDIRECT.format(title=title), [], None
+    if category == "content":
+        changed = _apply_entity_ops(project_id, feature, data.get("ops") or [])
+        if changed:
+            reply = (reply or "更新しました。") + f"（{len(changed)}件を反映しました）"
+        return reply or "承知しました。", changed, None
+    return reply or "承知しました。", [], None
+
+
+def _safe_json(llm, prompt: str) -> dict:
+    """Run the LLM and parse its JSON, tolerating a ```json fence. {} on failure."""
+    try:
+        raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        return json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return {}

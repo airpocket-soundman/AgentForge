@@ -213,7 +213,13 @@ export function sendFeatureWorkerMessage(
   text: string,
   attachments: Attachment[] = [],
   projectId = PROJECT_ID,
-): Promise<{ reply: ChatMessage; building: boolean; created: { task_id: string; title: string }[] }> {
+): Promise<{
+  reply: ChatMessage;
+  building: boolean;
+  created: { task_id: string; title: string }[];
+  data_changed?: boolean;
+  command?: { name: string; arguments?: Record<string, unknown> } | null; // MCP-style tool call
+}> {
   return request(`/api/app/features/${encodeURIComponent(feature)}/worker/messages`, {
     method: "POST",
     body: JSON.stringify({ project_id: projectId, text, attachments }),
@@ -315,6 +321,8 @@ export interface ViewManifest {
   gantt?: GanttSpec | null;
   calendar?: CalendarSpec | null;
   html?: string;
+  // MCP-style tool definitions the mini-app exposes for its specialist worker.
+  commands?: { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
   generated_by: string;
 }
 

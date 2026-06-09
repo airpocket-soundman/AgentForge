@@ -202,6 +202,8 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .bubble--user { align-self: flex-end; background: var(--gv-accent); color: var(--gv-accent-contrast); }
 .bubble--assistant { align-self: flex-start; background: var(--gv-surface-alt); }
 .bubble--pending { opacity: 0.6; }
+/* build progress / check lines (role=system): subtle, full-width, monospace-ish */
+.bubble--system { align-self: stretch; max-width: 100%; background: transparent; color: #6b6b8a; font-size: 12px; padding: 2px 6px; border-left: 3px solid #d8d2f0; border-radius: 0; }
 
 .approval {
   display: flex; align-items: center; gap: 12px;
@@ -360,6 +362,11 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .chat-preview { border: 1px solid var(--gv-border); border-radius: 10px; overflow: hidden; background: #fff; }
 .chat-preview__label { font-size: 12px; color: var(--gv-muted); background: var(--gv-surface); padding: 6px 10px; border-bottom: 1px solid var(--gv-border); }
 .chat-preview .gen-app-frame { height: 380px; border: 0; border-radius: 0; display: block; }
+.chat-preview__data { padding: 12px 14px; }
+.chat-preview__title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.chat-preview__desc { color: var(--gv-muted, #6b6b8a); font-size: 13px; margin: 0 0 10px; }
+.chat-preview__meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chat-preview__meta span { font-size: 11px; background: var(--gv-surface, #f0f1f8); border: 1px solid var(--gv-border, #e3e4f0); border-radius: 999px; padding: 3px 10px; color: #555; }
 
 /* KPI / metric tiles */
 .gen-stats { display: flex; flex-wrap: wrap; gap: 12px; }

@@ -13,8 +13,17 @@ const AF_PRELUDE = `<script>
   window.AF={load:function(){return req('load');},save:function(s){return req('save',s);}};
   window.addEventListener('message',function(e){var d=e.data;if(!d||!d.__af_reply)return;var cb=pending[d.id];if(cb){delete pending[d.id];cb(d.result);}});
   try{var __ls=window.localStorage;__ls.setItem('__af_probe','1');__ls.removeItem('__af_probe');}catch(_){var m={};try{Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;},get length(){return Object.keys(m).length;}}});}catch(__){}}
+  // Agent content command: the feature worker maps NL to a command; the parent
+  // posts it here and the app runs its own window.applyAgentCommand(name,args).
+  window.addEventListener('message',function(e){var d=e.data;if(!d||!d.__af_cmd)return;try{if(typeof window.applyAgentCommand==='function'){window.applyAgentCommand(d.name,d.args||{});}}catch(_){}});
 })();
 <\/script>`;
+
+export interface AgentCommand {
+  name: string;
+  args?: Record<string, unknown>;
+  nonce: number; // bump to re-dispatch the same command
+}
 
 export function withPrelude(html: string): string {
   const m = html.match(/<head[^>]*>/i);
@@ -30,13 +39,24 @@ export function AppFrame({
   feature,
   title,
   live = true,
+  command,
 }: {
   html: string;
   feature: string;
   title?: string;
   live?: boolean;
+  command?: AgentCommand | null;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Dispatch an agent content command into the running app.
+  useEffect(() => {
+    if (!command) return;
+    frameRef.current?.contentWindow?.postMessage(
+      { __af_cmd: true, name: command.name, args: command.args ?? {} },
+      "*",
+    );
+  }, [command]);
 
   useEffect(() => {
     function onMsg(e: MessageEvent) {

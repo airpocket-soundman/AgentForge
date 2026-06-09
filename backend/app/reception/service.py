@@ -252,6 +252,7 @@ def _run_edit(
     from app.workers import ui_designer
 
     try:
+        _progress(conversation_id, "✏️ 修正版を生成しています…（数十秒）")
         snap = get_db().collection("generated_views").document(f"{project_id}_{feature}").get()
         cur = (snap.to_dict() or {}) if snap.exists else {}
         plan = {
@@ -262,14 +263,16 @@ def _run_edit(
         manifest = ui_designer.design(
             instruction, plan=plan, current_html=cur.get("html") or None, images=images
         )
+        cand = manifest.model_dump(mode="json")
         _set_flow(
             conversation_id,
             stage=_STAGE_BUILT,
             mode="edit",
             goal=instruction,
             feature=feature,
-            candidate=manifest.model_dump(mode="json"),
+            candidate=cand,
         )
+        _progress(conversation_id, _check_report(cand))
         append_message(
             conversation_id,
             ChatMessage(
@@ -284,7 +287,7 @@ def _run_edit(
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text="修正版の作成中にエラーが発生しました。もう一度お試しください。"),
+            ChatMessage(role="assistant", text=f"❌ 修正版の作成中にエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
 
@@ -471,6 +474,30 @@ def _format_plan(plan: DesignPlan) -> str:
 
 # --- Stage 1: design proposal (fast) ----------------------------------------
 
+def _progress(conversation_id: str, text: str) -> None:
+    """Post a build progress/check line to the chat (role=system) so the user sees
+    what the worker is doing, in real time, not just a spinner."""
+    append_message(conversation_id, ChatMessage(role="system", text=text))
+
+
+def _check_report(candidate: dict | None) -> str:
+    """A short human-readable summary of automatic checks on a generated artifact."""
+    if not candidate:
+        return "🔍 チェック: 生成物が見つかりませんでした ⚠️"
+    parts: list[str] = []
+    gen = candidate.get("generated_by", "?")
+    if gen == "stub":
+        parts.append("LLM未到達で仮ページ ⚠️")
+    if (candidate.get("kind") or "data") == "app":
+        parts.append("HTML " + ("✅" if candidate.get("html") else "なし ⚠️"))
+        cmds = candidate.get("commands") or []
+        parts.append(f"操作ツール {len(cmds)}個 " + ("✅" if cmds else "⚠️"))
+    else:
+        parts.append(f"項目{len(candidate.get('fields') or [])}・一覧列{len(candidate.get('list_columns') or [])}")
+    parts.append(f"生成元 {gen}")
+    return "🔍 チェック: " + " / ".join(parts)
+
+
 def start_plan(
     project_id: str,
     goal: str,
@@ -494,6 +521,7 @@ def _run_plan(
     from app.workers import ui_designer
 
     try:
+        _progress(conversation_id, "📝 設計案を作成しています…")
         plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
         _set_flow(
             conversation_id,
@@ -507,7 +535,7 @@ def _run_plan(
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text="設計案の作成中にエラーが発生しました。もう一度お試しください。"),
+            ChatMessage(role="assistant", text=f"❌ 設計案の作成中にエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
 
@@ -529,6 +557,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     from app.orchestrator import service as orchestrator
 
     try:
+        _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…（数十秒）")
         result = orchestrator.plan_and_register(
             PlanRequest(project_id=project_id, goal=goal), design_plan=plan
         )
@@ -545,6 +574,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             approval_id=result.approval_id,
             candidate=candidate,
         )
+        _progress(conversation_id, _check_report(candidate))
         append_message(
             conversation_id,
             ChatMessage(
@@ -559,7 +589,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text="コード生成中にエラーが発生しました。もう一度お試しください。"),
+            ChatMessage(role="assistant", text=f"❌ コード生成でエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
 

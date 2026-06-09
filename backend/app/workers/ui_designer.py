@@ -47,8 +47,21 @@ _SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した�
   "title": "<日本語の機能名>",
   "description": "<1〜2文。何ができるアプリかを説明>",
   "theme": "default|warm|forest|ocean",
-  "html": "<!DOCTYPE html> から始まる完結した単一HTML文書"
+  "html": "<!DOCTYPE html> から始まる完結した単一HTML文書",
+  "commands": [{"name": "<英小文字スラッグ>", "description": "<日本語の説明>", "inputSchema": {"type": "object", "properties": {"<引数名>": {"type": "string|number|boolean", "description": "<説明>"}}}}]
 }
+
+commands の要件（重要・標準仕様 / MCP形式のツール契約）:
+- これは「ミニアプリ」。その中身を担当する「専門ワーカー」が自然言語で内容を編集できるよう、操作を
+  MCP形式のツールとして公開する（各ツール = name / description / inputSchema(JSON Schema)）。
+- HTML内に必ず `window.applyAgentCommand = function(name, args){ ... }` を実装する。name に応じて内容を
+  実際に変更し（描画/データ/テキスト等）、保存が要るなら AF.save も呼ぶ。未知の name は無視（安全）。
+- 公開した操作を上記 commands に列挙（name は applyAgentCommand と一致。args は inputSchema に従う）。
+- **アプリの「変更できる主要な内容・プロパティ」を網羅的にツール化する**（ユーザーが言いそうな操作を広めに）。
+  例（お絵描き）: set_color{color} / set_brush_size{size} / set_background{color} / set_mode{pen|eraser} / clear / undo
+  例（電卓）: input{keys} / clear    例（タスク）: add_item{title} / toggle{index} / remove{index} / clear_done
+  例（テキスト/メモ）: set_text{text} / append_text{text} / clear
+- 操作が無いミニアプリ（純粋表示のみ等）は空配列でよい。
 
 html の要件（重要）:
 - ユーザーが求めた機能を「実際に動く形で」すべて実装する。フォーム＋一覧で代替したり、機能を削ったりしない。
@@ -209,6 +222,8 @@ def design(
                 description = str(data.get("description") or (plan or {}).get("summary", ""))[:200]
                 theme = (plan or {}).get("theme") or data.get("theme", "default")
                 theme = theme if theme in _ALLOWED_THEMES else "default"
+                commands = data.get("commands")
+                commands = [c for c in commands if isinstance(c, dict) and c.get("name")] if isinstance(commands, list) else []
                 return ViewManifest(
                     kind="app",
                     feature=feature,
@@ -216,6 +231,7 @@ def design(
                     description=description,
                     theme=theme,
                     html=html,
+                    commands=commands,
                     generated_by=llm.name,
                 )
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> placeholder page
