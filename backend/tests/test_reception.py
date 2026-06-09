@@ -39,3 +39,6 @@ def test_classify_conversational_control():
     assert service.classify("ロールバックして") == "rollback"
     assert service.classify("タスク管理を追加して") == "build_feature:task"
     assert service.classify("こんにちは") == "chat"
+    # A build request that incidentally mentions a control word (戻す) must still
+    # be treated as a build, not a rollback.
+    assert service.classify("お絵描きツールを作って。元に戻すボタンも") == "build_feature:unknown"

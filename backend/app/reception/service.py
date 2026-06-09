@@ -26,12 +26,20 @@ def feature_label(feature: str) -> str:
 
 
 def classify(text: str) -> str:
-    """Coarse intent for Reception routing: approve / rollback / build_feature:* / chat."""
+    """Coarse intent for Reception routing.
+
+    A build request takes priority: a long feature description may incidentally
+    contain control words (e.g. 「元に戻す」 inside a paint-tool spec), so we must
+    NOT treat it as rollback. approve/rollback are standalone control commands.
+    """
+    intent = detect_intent(text)
+    if intent:
+        return intent
     if any(k in text for k in _APPROVE_KEYWORDS):
         return "approve"
     if any(k in text for k in _ROLLBACK_KEYWORDS):
         return "rollback"
-    return detect_intent(text) or "chat"
+    return "chat"
 
 
 def conversation_id_for(project_id: str) -> str:
