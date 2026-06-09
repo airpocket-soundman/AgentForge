@@ -159,3 +159,42 @@ export function setFeatureWorker(
     body: JSON.stringify({ enabled }),
   });
 }
+
+// --- Identity, feature flags, and admin (separate admin allowlist) ---
+
+export interface FeatureFlags {
+  byok_visible: boolean;
+}
+
+export interface Me {
+  uid: string;
+  email: string;
+  is_admin: boolean;
+  feature_flags: FeatureFlags;
+}
+
+export function getMe(): Promise<Me> {
+  return request<Me>("/api/me");
+}
+
+export interface AdminConfig {
+  allowlist_editable: string[];
+  allowlist_effective: string[];
+  admin_emails: string[];
+  feature_flags: FeatureFlags;
+}
+
+export function getAdminConfig(): Promise<AdminConfig> {
+  return request<AdminConfig>("/api/admin/config");
+}
+
+export function setAllowlist(emails: string[]): Promise<{ emails: string[] }> {
+  return request("/api/admin/allowlist", { method: "POST", body: JSON.stringify({ emails }) });
+}
+
+export function setFeatureFlags(flags: Partial<FeatureFlags>): Promise<FeatureFlags> {
+  return request<FeatureFlags>("/api/admin/feature-flags", {
+    method: "POST",
+    body: JSON.stringify(flags),
+  });
+}

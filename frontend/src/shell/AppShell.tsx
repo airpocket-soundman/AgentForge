@@ -1,18 +1,36 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { disableFeature, getFeatureStates, resetAll } from "../api";
+import { disableFeature, getFeatureStates, getMe, resetAll, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { TaskListView } from "../views/TaskListView";
 import { TaskDetailView } from "../views/TaskDetailView";
+import { AdminView } from "../views/AdminView";
+import { ByokView } from "../views/ByokView";
 
-type View = { kind: "chat" } | { kind: "tasks" } | { kind: "task"; id: string };
+type View =
+  | { kind: "chat" }
+  | { kind: "tasks" }
+  | { kind: "task"; id: string }
+  | { kind: "admin" }
+  | { kind: "byok" };
 
 export function AppShell({ user }: { user: User | null }) {
   const [taskActive, setTaskActive] = useState(false);
   const [taskTheme, setTaskTheme] = useState("default");
   const [view, setView] = useState<View>({ kind: "chat" });
+  const [prevView, setPrevView] = useState<View>({ kind: "chat" });
   const [denied, setDenied] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    void getMe().then(setMe).catch(() => {}); // identity + feature flags (admin/byok)
+  }, []);
+
+  function openOverlay(kind: "admin" | "byok") {
+    setPrevView(view);
+    setView({ kind });
+  }
 
   function loadStates() {
     return getFeatureStates()
@@ -91,6 +109,16 @@ export function AppShell({ user }: { user: User | null }) {
         <div className="topbar__brand">AgentForge</div>
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
         <span className="spacer" />
+        {me?.is_admin && (
+          <button className="admin-top" title="管理者ページ（管理者のみ）" onClick={() => openOverlay("admin")}>
+            ⚙ 管理
+          </button>
+        )}
+        {me?.feature_flags.byok_visible && (
+          <button className="byok-top" title="自分のAPIキー設定（試作）" onClick={() => openOverlay("byok")}>
+            🔑 API設定
+          </button>
+        )}
         {taskActive && (
           <button
             className="rollback-top"
@@ -135,7 +163,10 @@ export function AppShell({ user }: { user: User | null }) {
           )}
         </nav>
 
-        <main className="main" data-theme={view.kind === "chat" ? "default" : taskTheme}>
+        <main
+          className="main"
+          data-theme={view.kind === "tasks" || view.kind === "task" ? taskTheme : "default"}
+        >
           {view.kind === "chat" && (
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
           )}
@@ -145,6 +176,8 @@ export function AppShell({ user }: { user: User | null }) {
           {view.kind === "task" && (
             <TaskDetailView taskId={view.id} onBack={() => setView({ kind: "tasks" })} />
           )}
+          {view.kind === "admin" && <AdminView onBack={() => setView(prevView)} />}
+          {view.kind === "byok" && <ByokView onBack={() => setView(prevView)} />}
         </main>
       </div>
     </div>

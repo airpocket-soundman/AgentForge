@@ -220,3 +220,49 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .worker--off { flex-direction: row; align-items: center; justify-content: space-between; color: var(--gv-muted-2); font-size: 13px; }
 .worker--off button { font-size: 12px; padding: 6px 12px; border: none; border-radius: 8px; background: var(--gv-worker-accent); color: #fff; cursor: pointer; }
 .worker .chat--mini { height: 150px; background: var(--gv-surface); }
+
+/* ---- Topbar admin / byok entries (fixed chrome) ---- */
+.admin-top, .byok-top {
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600;
+  background: #2a2a44; color: #cfe0ff; border: 1px solid #3f4f80;
+}
+.admin-top:hover, .byok-top:hover { background: #3a3a58; }
+
+/* ---- Admin page ---- */
+.admin-card {
+  background: #fff; border: 1px solid #e3e4f0; border-radius: 12px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+}
+.admin-card h3 { color: #44456a; }
+.admin-textarea {
+  width: 100%; resize: vertical; padding: 10px; border-radius: 8px;
+  border: 1px solid #c9cae0; font: inherit; font-size: 13px;
+}
+.admin-save {
+  align-self: flex-start; padding: 8px 18px; border: none; border-radius: 8px;
+  background: #4a4ae0; color: #fff; font-weight: 600; cursor: pointer;
+}
+.admin-meta { font-size: 12px; color: #6b6b8a; display: flex; flex-direction: column; gap: 4px; }
+.admin-flag { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #2a2a4a; flex-wrap: wrap; }
+.admin-flag .hint { width: 100%; margin-left: 26px; }
+
+/* ---- BYOK stub (disabled form + apology modal) ---- */
+.byok { position: relative; }
+.byok-form { display: flex; flex-direction: column; gap: 12px; max-width: 420px; opacity: 0.4; pointer-events: none; }
+.byok-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #44456a; }
+.byok-form select, .byok-form input { padding: 9px; border: 1px solid #c9cae0; border-radius: 8px; font: inherit; }
+.byok-form button { padding: 10px; border: none; border-radius: 8px; background: #9a9ab0; color: #fff; font-weight: 600; }
+.byok-modal__backdrop {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(26, 26, 46, 0.35); padding: 20px;
+}
+.byok-modal {
+  background: #fff; border: 1px solid #e3e4f0; border-radius: 14px; padding: 22px 24px;
+  max-width: 460px; box-shadow: 0 10px 40px rgba(0,0,0,0.18); display: flex; flex-direction: column; gap: 10px;
+}
+.byok-modal h3 { color: #b5560a; font-size: 16px; }
+.byok-modal p { margin: 0; line-height: 1.7; font-size: 14px; }
+.byok-back {
+  align-self: flex-start; margin-top: 6px; padding: 9px 18px; border: none; border-radius: 8px;
+  background: #4a4ae0; color: #fff; font-weight: 600; cursor: pointer;
+}

@@ -7,6 +7,7 @@ IMPLEMENTATION_GUIDE.md §2. Later phases add more routers here.
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.admin.router import router as admin_router
 from app.auth import require_allowed_user
 from app.config import get_settings
 from app.control_plane.router import router as control_plane_router
@@ -40,6 +41,11 @@ def create_app() -> FastAPI:
 
     # All app/data routers require an allowlisted user (no-op when ALLOWED_EMAILS
     # is empty). /health and / stay open for Cloud Run probes.
+    # Admin module carries its own per-endpoint auth (current_user / require_admin),
+    # so it is mounted without the blanket user guard. /api/me identifies the caller;
+    # /api/admin/* require the separate admin allowlist.
+    app.include_router(admin_router)
+
     guard = [Depends(require_allowed_user)]
     app.include_router(reception_router, dependencies=guard)
     app.include_router(orchestrator_router, dependencies=guard)

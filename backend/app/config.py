@@ -52,7 +52,12 @@ class Settings(BaseSettings):
     # Allowlist of permitted login emails. EMPTY = enforcement OFF (open, e.g. local
     # dev). Set in prod (ALLOWED_EMAILS) to restrict who can use the app. Separate
     # multiple with ';' or space (NOT comma — gcloud --set-env-vars uses comma).
+    # The admin page can ADD more allowed emails at runtime (stored in Firestore);
+    # this env value is the bootstrap set.
     allowed_emails: str = ""
+    # Admin allowlist (separate, smaller). Only these accounts reach the admin page
+    # and can edit the user allowlist / feature flags. Admins are always allowed in.
+    admin_emails: str = "yamashita.3154@gmail.com"
 
     @property
     def cors_origin_list(self) -> list[str]:

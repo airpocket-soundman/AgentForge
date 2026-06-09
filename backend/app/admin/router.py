@@ -1,0 +1,87 @@
+"""Admin module: identity (/api/me) + admin-only config (allowlist, feature flags).
+
+Isolated from user data: admin endpoints require the (separate) admin allowlist.
+The user allowlist and feature flags live in Firestore `admin_config/*` so the
+owner can edit them at runtime from the admin page.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+
+from app.auth import (
+    CurrentUser,
+    admin_emails,
+    current_user,
+    effective_allowed_emails,
+    require_admin,
+    stored_allowlist,
+)
+from app.firestore import get_db
+
+router = APIRouter(prefix="/api", tags=["admin"])
+
+# Feature flags the admin can toggle. byok_visible: show the (stub) BYOK entry.
+_FLAG_DEFAULTS: dict[str, bool] = {"byok_visible": False}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def get_feature_flags() -> dict:
+    try:
+        snap = get_db().collection("admin_config").document("feature_flags").get()
+        data = snap.to_dict() if snap.exists else {}
+    except Exception:  # noqa: BLE001 — Firestore unavailable -> defaults
+        data = {}
+    return {**_FLAG_DEFAULTS, **{k: bool(v) for k, v in (data or {}).items() if k in _FLAG_DEFAULTS}}
+
+
+class AllowlistIn(BaseModel):
+    emails: list[str] = []
+
+
+class FeatureFlagsIn(BaseModel):
+    byok_visible: bool | None = None
+
+
+@router.get("/me")
+def me(user: CurrentUser = Depends(current_user)) -> dict:
+    """Who am I + what features are on (drives the SPA's conditional UI)."""
+    return {
+        "uid": user.uid,
+        "email": user.email,
+        "is_admin": user.is_admin,
+        "feature_flags": get_feature_flags(),
+    }
+
+
+@router.get("/admin/config")
+def admin_config(_: CurrentUser = Depends(require_admin)) -> dict:
+    return {
+        "allowlist_editable": stored_allowlist(),       # Firestore part (editable)
+        "allowlist_effective": effective_allowed_emails(),  # env ∪ admin ∪ stored
+        "admin_emails": admin_emails(),                 # read-only (env)
+        "feature_flags": get_feature_flags(),
+    }
+
+
+@router.post("/admin/allowlist")
+def set_allowlist(body: AllowlistIn, _: CurrentUser = Depends(require_admin)) -> dict:
+    emails = sorted({e.strip().lower() for e in body.emails if e.strip()})
+    get_db().collection("admin_config").document("allowlist").set(
+        {"emails": emails, "updated_at": _now_iso()}
+    )
+    return {"emails": emails}
+
+
+@router.post("/admin/feature-flags")
+def set_feature_flags(body: FeatureFlagsIn, _: CurrentUser = Depends(require_admin)) -> dict:
+    update = {k: bool(v) for k, v in body.model_dump().items() if k in _FLAG_DEFAULTS and v is not None}
+    if update:
+        update["updated_at"] = _now_iso()
+        get_db().collection("admin_config").document("feature_flags").set(update, merge=True)
+    return get_feature_flags()
