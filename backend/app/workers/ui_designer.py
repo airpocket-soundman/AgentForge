@@ -27,24 +27,38 @@ _ALLOWED_THEMES = {"default", "warm", "forest", "ocean"}
 _ALLOWED_CHARTS = {"bar", "line", "pie", "doughnut"}
 _ALLOWED_AGG = {"sum", "count", "avg"}
 
-_SCHEMA = """出力はJSONのみ（前後の説明やコードフェンスは不要）:
+_SCHEMA = """まず種別(kind)を判断し、JSONのみ出力（前後の説明やコードフェンス不要）。
+
+■ 記録・一覧・集計・予定管理など「データ管理系」なら kind="data":
 {
-  "feature": "<英小文字スラッグ。例: gantt, inventory, recipe>",
+  "kind": "data",
+  "feature": "<英小文字スラッグ>",
   "title": "<日本語の機能名>",
+  "description": "<1〜2文の平易な説明>",
   "theme": "default|warm|forest|ocean",
   "fields": [{"key": "<snake_case>", "label": "<日本語>", "type": "text|textarea|number|date|checkbox|markdown"}],
-  "list_columns": ["<fieldのkey>", "..."],
-  "stats": [{"label": "<日本語>", "value": "<fieldのkey>", "agg": "sum|count|avg"}],
+  "list_columns": ["<fieldのkey>"],
+  "stats": [{"label": "<日本語>", "value": "<数値fieldのkey>", "agg": "sum|count|avg"}],
   "charts": [{"type": "bar|line|pie|doughnut", "title": "<日本語>", "category": "<fieldのkey>", "value": "<数値fieldのkey>"}],
-  "gantt": {"label": "<fieldのkey>", "start": "<date型fieldのkey>", "end": "<date型fieldのkey>"},
-  "calendar": {"date": "<date型fieldのkey>", "title": "<fieldのkey>"}
+  "gantt": {"label": "<fieldのkey>", "start": "<date型key>", "end": "<date型key>"},
+  "calendar": {"date": "<date型key>", "title": "<fieldのkey>"}
 }
-制約:
-- fields は 2〜6 個。編集可能要素は決定的CRUD APIに保存される前提。標準部品のみ（フォーム/一覧/KPIカード/チャート/ガント/カレンダー）。生CSS/HTML/JSは出力しない。
-- 内容に有用な部品だけ入れる。不要なら省略（stats/charts は空配列、gantt/calendar は省略 or null）。
-- markdown 型は長文・書式付きメモ向け。stats.value と charts.value は number型field、category は分類軸。
-- gantt の start/end と calendar の date は date型field、label/title は表示用field。
-- 見た目テーマは内容に最も近いものを選ぶ（曖昧なら default）。"""
+
+■ お絵描き・電卓・ゲーム・特殊UIなど「インタラクティブ/独自実装」なら kind="app":
+{
+  "kind": "app",
+  "feature": "<英小文字スラッグ>",
+  "title": "<日本語の機能名>",
+  "description": "<1〜2文の説明>",
+  "theme": "default",
+  "html": "<完結した単一HTML文書。<style>と<script>を内包し、外部リソース無しで動く。要求された機能を実際に実装する（例: canvasお絵描き、計算ロジック等）。サンドボックス実行のため localStorage/cookie/外部通信/別ウィンドウは使えない（状態はメモリ内）。bodyはmargin:0でビューポートいっぱいに>"
+}
+
+判断指針:
+- 記録・一覧・管理・集計が主目的 → data。可視化(charts/gantt/calendar)は主目的に直結する時だけ（日付/数値があるだけで足さない）。dataモードでは生HTML/CSS/JSを書かず部品宣言のみ。
+- 描く・計算する・遊ぶ・操作するなどインタラクティブが主目的 → app。実際に動く self-contained な HTML/JS/CSS を書く。
+- markdown型は長文メモ向け。stats.value/charts.value は number型field。gantt/calendar の日付は date型field。
+- スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。"""
 
 
 def _slug(goal: str) -> str:
@@ -75,15 +89,28 @@ def design(goal: str) -> ViewManifest:
             if raw.startswith("```"):
                 raw = raw.strip("`").split("\n", 1)[-1]
             data = json.loads(raw)
+            kind = str(data.get("kind", "data")).lower()
+            feature = re.sub(r"[^a-z0-9_]+", "", str(data.get("feature", "")).lower()) or _slug(goal)
+            title = (str(data.get("title") or goal))[:60]
+            description = str(data.get("description", ""))[:200]
+            theme = data.get("theme", "default")
+            theme = theme if theme in _ALLOWED_THEMES else "default"
 
+            # app mode: the worker wrote real HTML/JS/CSS for an interactive tool,
+            # rendered in a sandboxed iframe. This is genuine code generation.
+            if kind == "app" and isinstance(data.get("html"), str) and "<" in data["html"]:
+                return ViewManifest(
+                    kind="app", feature=feature, title=title, description=description,
+                    theme=theme, html=data["html"], generated_by=llm.name,
+                )
+
+            # data mode: structured standard components.
             fields = [
                 FieldSpec(key=str(f["key"]), label=str(f.get("label") or f["key"]), type=f.get("type", "text"))
                 for f in data.get("fields", [])
                 if f.get("key") and f.get("type", "text") in _ALLOWED_TYPES
             ] or _default_fields()
             keys = {f.key for f in fields}
-            feature = re.sub(r"[^a-z0-9_]+", "", str(data.get("feature", "")).lower()) or _slug(goal)
-            theme = data.get("theme", "default")
             cols = [c for c in data.get("list_columns", []) if c in keys] or [f.key for f in fields[:3]]
             date_keys = {f.key for f in fields if f.type == "date"}
             charts = [
@@ -109,9 +136,11 @@ def design(goal: str) -> ViewManifest:
                 else None
             )
             return ViewManifest(
+                kind="data",
                 feature=feature,
-                title=(str(data.get("title") or goal))[:60],
-                theme=theme if theme in _ALLOWED_THEMES else "default",
+                title=title,
+                description=description,
+                theme=theme,
                 fields=fields,
                 list_columns=cols,
                 stats=stats,
@@ -126,6 +155,7 @@ def design(goal: str) -> ViewManifest:
     return ViewManifest(
         feature=_slug(goal),
         title=goal[:60],
+        description=f"「{goal[:40]}」に関する項目を記録・一覧管理する画面です。",
         theme="default",
         fields=_default_fields(),
         list_columns=["title", "note"],

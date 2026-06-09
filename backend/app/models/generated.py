@@ -57,6 +57,10 @@ class CalendarSpec(BaseModel):
 class ViewManifest(BaseModel):
     feature: str                 # slug, e.g. "inventory"
     title: str                   # e.g. "在庫管理"
+    description: str = ""         # 1-2 sentence plain explanation of what this does
+    # data = structured standard components (form/list/charts...); app = real
+    # generated HTML/JS/CSS rendered in a sandboxed iframe (interactive tools).
+    kind: Literal["data", "app"] = "data"
     theme: str = "default"
     fields: list[FieldSpec] = Field(default_factory=list)
     list_columns: list[str] = Field(default_factory=list)
@@ -64,6 +68,7 @@ class ViewManifest(BaseModel):
     charts: list[ChartSpec] = Field(default_factory=list)
     gantt: GanttSpec | None = None
     calendar: CalendarSpec | None = None
+    html: str = ""               # kind="app": self-contained HTML for the sandboxed iframe
     generated_by: str = "stub"   # gemini | claude-cli | stub
 
 

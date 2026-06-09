@@ -3,17 +3,15 @@ import type { User } from "firebase/auth";
 import { disableFeature, getFeatureStates, getMe, resetAll, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
-import { TaskListView } from "../views/TaskListView";
-import { TaskDetailView } from "../views/TaskDetailView";
 import { GeneratedView } from "../views/GeneratedView";
 import { ByokView } from "../views/ByokView";
 
 // Admin is a SEPARATE app (frontend/admin.html), not reachable from here.
+// EVERY feature (incl. task management) is AI-generated and rendered by the
+// Generated View Renderer — no hard-coded screens.
 type View =
   | { kind: "chat" }
-  | { kind: "tasks" }
-  | { kind: "task"; id: string }
-  | { kind: "feature"; key: string } // an AI-generated feature (Generated View Renderer)
+  | { kind: "feature"; key: string }
   | { kind: "byok" };
 
 export function AppShell({ user }: { user: User | null }) {
@@ -56,11 +54,10 @@ export function AppShell({ user }: { user: User | null }) {
   const activeFeatures = Object.keys(states).filter((k) => states[k] === "active");
   const titleOf = (f: string) => states[`${f}_title`] || (f === "task" ? "タスク管理" : f);
   const themeOf = (f: string) => states[`${f}_theme`] || "default";
-  const iconOf = (f: string) => (f === "task" ? "✓" : "🧩");
+  const iconOf = (_f: string) => "🧩";
 
   function goFeature(f: string) {
-    if (f === "task") setView({ kind: "tasks" });
-    else setView({ kind: "feature", key: f });
+    setView({ kind: "feature", key: f });
   }
 
   function onFeatureActivated(feature: string) {
@@ -95,12 +92,9 @@ export function AppShell({ user }: { user: User | null }) {
     }
   }
 
-  const currentFeature =
-    view.kind === "tasks" || view.kind === "task" ? "task" : view.kind === "feature" ? view.key : null;
+  const currentFeature = view.kind === "feature" ? view.key : null;
   const mainTheme = currentFeature ? themeOf(currentFeature) : "default";
-  const navActive = (f: string) =>
-    (f === "task" && (view.kind === "tasks" || view.kind === "task")) ||
-    (view.kind === "feature" && view.key === f);
+  const navActive = (f: string) => view.kind === "feature" && view.key === f;
 
   return (
     <div className="shell">
@@ -159,8 +153,6 @@ export function AppShell({ user }: { user: User | null }) {
           {view.kind === "chat" && (
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
           )}
-          {view.kind === "tasks" && <TaskListView onOpenTask={(id) => setView({ kind: "task", id })} />}
-          {view.kind === "task" && <TaskDetailView taskId={view.id} onBack={() => setView({ kind: "tasks" })} />}
           {view.kind === "feature" && <GeneratedView feature={view.key} />}
           {view.kind === "byok" && <ByokView onBack={() => setView(prevView)} />}
         </main>

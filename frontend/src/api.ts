@@ -234,6 +234,8 @@ export interface CalendarSpec {
 export interface ViewManifest {
   feature: string;
   title: string;
+  description?: string;
+  kind?: "data" | "app";
   theme: string;
   fields: FieldSpec[];
   list_columns: string[];
@@ -241,6 +243,7 @@ export interface ViewManifest {
   charts?: ChartSpec[];
   gantt?: GanttSpec | null;
   calendar?: CalendarSpec | null;
+  html?: string;
   generated_by: string;
 }
 

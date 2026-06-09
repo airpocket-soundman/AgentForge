@@ -73,7 +73,11 @@ export function ChatView({
         {messages.map((m, i) => (
           <div key={i} className={`bubble bubble--${m.role}`}>{m.text}</div>
         ))}
-        {busy && <div className="bubble bubble--assistant bubble--pending">…</div>}
+        {busy && (
+          <div className="bubble bubble--assistant bubble--pending">
+            🤖 AIワーカーが機能を設計しています…（数十秒かかることがあります）
+          </div>
+        )}
       </div>
 
       {pendingApprovalId && (

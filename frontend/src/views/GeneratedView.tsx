@@ -77,6 +77,27 @@ export function GeneratedView({ feature }: { feature: string }) {
   if (error && !manifest) return <div className="view"><div className="error">{error}</div></div>;
   if (!manifest) return <div className="view">読み込み中…</div>;
 
+  // app mode: the AI generated a real HTML/JS app — run it in a SANDBOXED iframe
+  // (allow-scripts only: isolated origin, no access to our app/auth/data).
+  if (manifest.kind === "app" && manifest.html) {
+    return (
+      <div className="view">
+        <div className="view__head">
+          <h2>{manifest.title}</h2>
+          <span className="hint">🤖 AI生成アプリ（{manifest.generated_by}）</span>
+        </div>
+        {manifest.description && <p className="gen-desc">{manifest.description}</p>}
+        <FeatureWorkerPanel feature={feature} onChanged={loadItems} />
+        <iframe
+          className="gen-app-frame"
+          title={manifest.title}
+          sandbox="allow-scripts"
+          srcDoc={manifest.html}
+        />
+      </div>
+    );
+  }
+
   const cols = manifest.list_columns.length ? manifest.list_columns : manifest.fields.map((f) => f.key);
   const labelOf = (k: string) => manifest.fields.find((f) => f.key === k)?.label ?? k;
   const typeOf = (k: string) => manifest.fields.find((f) => f.key === k)?.type;
@@ -87,6 +108,7 @@ export function GeneratedView({ feature }: { feature: string }) {
         <h2>{manifest.title}</h2>
         <span className="hint">🤖 AI生成（{manifest.generated_by}）</span>
       </div>
+      {manifest.description && <p className="gen-desc">{manifest.description}</p>}
 
       <FeatureStats stats={manifest.stats ?? []} items={items} />
 
