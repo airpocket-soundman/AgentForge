@@ -11,6 +11,7 @@ import json
 import uuid
 
 from app.control_plane import registry
+from app.firestore import get_db
 from app.llm.gateway import ModelTier, get_llm
 from app.models.orchestrator import (
     PlannedApi,
@@ -33,6 +34,112 @@ def infer_feature(goal: str) -> str:
         if any(k in lowered for k in kws):
             return feature
     return "unknown"
+
+
+# --- Request routing: new feature vs. edit existing (Orchestrator's call) ----
+# The Orchestrator owns the new-vs-edit decision so BOTH the main chat and a
+# feature screen feed the SAME pipeline. It only CLASSIFIES — it never rewrites
+# the user's text; the original instruction flows verbatim to the generator, and
+# any detailing happens additively downstream (plan/design), so intent can be
+# enriched along the pipeline but never degraded.
+
+_EDIT_HINT_KEYWORDS = (
+    "修正", "直", "なお", "変更", "編集", "改善", "変えて", "調整", "増やして",
+    "減らして", "大きく", "小さく", "追加して", "やめて削", "fix", "edit", "change",
+)
+_BUILD_HINT_KEYWORDS = ("作って", "つくって", "作成", "ほしい", "欲しい", "新しく", "create", "build", "make", "新規")
+
+
+def active_features(project_id: str) -> dict[str, str]:
+    """Active features as {slug: title} (meta keys filtered out)."""
+    snap = get_db().collection("feature_states").document(project_id).get()
+    states = (snap.to_dict() or {}) if snap.exists else {}
+    out: dict[str, str] = {}
+    for k, v in states.items():
+        if v == "active" and not any(k.endswith(s) for s in ("_worker", "_theme", "_title")) and k != "updated_at":
+            out[k] = states.get(f"{k}_title") or k
+    return out
+
+
+def _recent_messages(project_id: str, n: int = 8) -> list[dict]:
+    """Recent conversation turns so the Orchestrator can decide WITH context."""
+    snap = get_db().collection("conversations").document(f"conv_{project_id}").get()
+    data = (snap.to_dict() or {}) if snap.exists else {}
+    return (data.get("messages") or [])[-n:]
+
+
+def _classify_stub(goal: str, actives: dict[str, str], hint_feature: str | None) -> dict:
+    text = goal.lower()
+    # An explicitly named existing feature → edit it.
+    for slug, title in actives.items():
+        if (title and title in goal) or slug in text:
+            return {"action": "edit", "feature": slug}
+    is_edit = any(k in text for k in _EDIT_HINT_KEYWORDS)
+    is_build = any(k in text for k in _BUILD_HINT_KEYWORDS)
+    if hint_feature and hint_feature in actives and is_edit and not is_build:
+        return {"action": "edit", "feature": hint_feature}
+    if is_build:
+        return {"action": "create", "feature": None}
+    if is_edit and len(actives) == 1:
+        return {"action": "edit", "feature": next(iter(actives))}
+    if is_edit and hint_feature in actives:
+        return {"action": "edit", "feature": hint_feature}
+    return {"action": "chat", "feature": None}
+
+
+def classify_request(project_id: str, goal: str, hint_feature: str | None = None) -> dict:
+    """Read recent conversation context, then decide what to flow into the pipeline.
+
+    Returns {"action": "create"|"edit"|"chat", "feature": slug|None, "context_note": str}.
+
+    The Orchestrator reads the recent history so it can resolve references (e.g.
+    「それをもっと大きく」 → the feature just discussed) and route correctly. It does
+    NOT rewrite the user's instruction — `context_note` only CLARIFIES the target /
+    premise from history (additive). Callers append it to the verbatim original, so
+    intent is enriched along the pipeline but never degraded.
+
+    LLM-driven over the active-feature list + history; deterministic keyword
+    fallback when no model is reachable. `hint_feature` (the screen the user is on)
+    biases toward editing that feature but never forces it.
+    """
+    actives = active_features(project_id)
+    llm = get_llm()
+    if not llm.enabled:
+        return {**_classify_stub(goal, actives, hint_feature), "context_note": ""}
+    history = _recent_messages(project_id)
+    history_text = "\n".join(f"{m.get('role')}: {(m.get('text') or '')[:200]}" for m in history) or "（履歴なし）"
+    feature_lines = "\n".join(f"- {slug}: {title}" for slug, title in actives.items()) or "（まだ機能はありません）"
+    hint = f"\nユーザーは今「{actives.get(hint_feature, hint_feature)}」の画面にいます。" if hint_feature else ""
+    prompt = (
+        "あなたはオーケストレーターです。直近の会話を踏まえ、ユーザーの要求が"
+        "『新しい機能の作成(create)』『既存機能の改修(edit)』『ただの会話/質問(chat)』の"
+        "どれかを判定し、パイプラインに流す正しい指示を整えます。\n"
+        f"現在アクティブな機能:\n{feature_lines}{hint}\n\n"
+        f"直近の会話:\n{history_text}\n\n"
+        f"今回のユーザーの要求（原文）: {goal}\n\n"
+        "判定ルール: 既存機能の見た目/動作の変更・追加・修正なら edit（feature にその slug）。"
+        "新しい別機能の作成なら create。相談・質問・使い方なら chat。"
+        "画面ヒントがあっても新規作成を望む内容なら create を優先。\n"
+        "context_note: 履歴から判断した『対象や前提の明確化』だけを書く（例: 指示語が指す機能、"
+        "前回の続きである旨）。ユーザーの原文の言い換え・要約・改変は禁止。無ければ空文字。\n"
+        'JSONのみで出力: {"action": "create|edit|chat", "feature": "<edit時のslug/空>", "context_note": "<補足/空>"}'
+    )
+    try:
+        raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        data = json.loads(raw)
+        action = data.get("action")
+        feature = (data.get("feature") or "").strip() or None
+        note = str(data.get("context_note") or "").strip()
+        if action not in ("create", "edit", "chat"):
+            return {**_classify_stub(goal, actives, hint_feature), "context_note": note}
+        if action == "edit" and feature not in actives:
+            # Hallucinated/unknown target → fall back rather than edit the wrong thing.
+            return {**_classify_stub(goal, actives, hint_feature), "context_note": note}
+        return {"action": action, "feature": feature if action == "edit" else None, "context_note": note}
+    except Exception:  # noqa: BLE001
+        return {**_classify_stub(goal, actives, hint_feature), "context_note": ""}
 
 
 # --- Deterministic feature templates (stub / fallback) -----------------------
