@@ -54,6 +54,22 @@ class CalendarSpec(BaseModel):
     title: str  # field key shown on the day
 
 
+class DesignPlan(BaseModel):
+    """A lightweight design proposal shown to the user BEFORE any code is written.
+
+    The design worker produces this first (fast/cheap); the user reviews and
+    revises it in plain language, and only on approval is it turned into a real
+    HTML app (ViewManifest) by the heavier code step.
+    """
+
+    feature: str
+    title: str
+    summary: str = ""
+    features: list[str] = Field(default_factory=list)  # bullet list of capabilities
+    persistence: bool = False  # does it need to save data (tasks/memos) vs not (paint/calc)
+    theme: str = "default"
+
+
 class ViewManifest(BaseModel):
     feature: str                 # slug, e.g. "inventory"
     title: str                   # e.g. "在庫管理"
@@ -80,3 +96,33 @@ class EntityIn(BaseModel):
 
 class EntityUpdate(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class Attachment(BaseModel):
+    """A file/image attached to a feature-edit instruction (see reception.Attachment)."""
+
+    name: str = ""
+    mime: str = ""
+    kind: Literal["image", "text"] = "text"
+    content: str = ""
+
+
+class EditIn(BaseModel):
+    """A natural-language edit instruction for an existing feature (from its own
+    worker chat on the feature screen)."""
+
+    project_id: str = "default"
+    text: str = Field(min_length=1, max_length=2000)
+    attachments: list[Attachment] = Field(default_factory=list)
+
+
+class StateIn(BaseModel):
+    """Whole-app state blob persisted per feature for sandboxed generated apps.
+
+    The generated app calls AF.save(state) (any JSON-able value) via a postMessage
+    bridge; the frontend forwards it here so the app keeps its data across reloads
+    without granting the sandbox localStorage/network access.
+    """
+
+    project_id: str = "default"
+    state: Any = None

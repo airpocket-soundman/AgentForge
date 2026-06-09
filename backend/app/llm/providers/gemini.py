@@ -30,10 +30,22 @@ class GeminiProvider:
             self._client = genai.Client(api_key=self._api_key)
         return self._client
 
-    def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH) -> str:
+    def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH, images=None) -> str:
         if not self.enabled:
             return f"[gemini-stub:{tier.value}] (no API key configured) :: {prompt[:120]}"
+        contents: list = [prompt]
+        if images:
+            import base64
+
+            from google.genai import types  # local import keeps module import cheap
+
+            for img in images:
+                try:
+                    raw = base64.b64decode(img.get("data", ""))
+                    contents.append(types.Part.from_bytes(data=raw, mime_type=img.get("mime", "image/png")))
+                except Exception:  # noqa: BLE001 — skip a bad image, keep the text request
+                    continue
         resp = self._ensure_client().models.generate_content(
-            model=self._models[tier], contents=prompt
+            model=self._models[tier], contents=contents
         )
         return (resp.text or "").strip()

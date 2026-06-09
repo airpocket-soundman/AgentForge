@@ -19,6 +19,14 @@ export interface ChatMessage {
   created_at: string;
 }
 
+// A file/image attached to a chat message. text: file content; image: base64.
+export interface Attachment {
+  name: string;
+  mime: string;
+  kind: "image" | "text";
+  content: string;
+}
+
 export interface ReceptionReply {
   conversation_id: string;
   reply: ChatMessage;
@@ -27,6 +35,20 @@ export interface ReceptionReply {
   approval_id: string | null;
   activated_feature: string | null;
   disabled_feature: string | null;
+  building: boolean;
+}
+
+// Full chat state the browser renders from scratch and polls while a background
+// design runs (so navigating away / reloading keeps the design going).
+export interface ConversationState {
+  conversation_id: string;
+  messages: ChatMessage[];
+  building: boolean;
+  // Two-stage flow: "idle" | "plan" (proposal under review) | "built" (preview + publish).
+  stage: "idle" | "plan" | "built";
+  mode: "create" | "edit"; // at "built": new feature vs editing an existing one
+  pending_feature: string | null; // at "built": the feature to preview
+  pending_approval_id: string | null; // at "built": the approval to publish
 }
 
 export interface Task {
@@ -60,11 +82,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function sendMessage(text: string, projectId = PROJECT_ID): Promise<ReceptionReply> {
+export function sendMessage(
+  text: string,
+  attachments: Attachment[] = [],
+  projectId = PROJECT_ID,
+): Promise<ReceptionReply> {
   return request<ReceptionReply>("/api/reception/messages", {
     method: "POST",
-    body: JSON.stringify({ text, project_id: projectId }),
+    body: JSON.stringify({ text, project_id: projectId, attachments }),
   });
+}
+
+export function getConversationState(projectId = PROJECT_ID): Promise<ConversationState> {
+  return request<ConversationState>(`/api/reception/state/${encodeURIComponent(projectId)}`);
 }
 
 export function approve(approvalId: string): Promise<{ status: string; feature: string }> {
@@ -262,6 +292,35 @@ export function getView(feature: string, projectId = PROJECT_ID): Promise<ViewMa
   );
 }
 
+// Manifest regardless of approval status — used to preview generated code before publishing.
+export function getPreview(feature: string, projectId = PROJECT_ID): Promise<ViewManifest> {
+  return request<ViewManifest>(
+    `/api/app/preview/${encodeURIComponent(feature)}?project_id=${encodeURIComponent(projectId)}`,
+  );
+}
+
+// The app awaiting publish (new or edited) — preview source for the chat (works
+// for edits too, where the live manifest is still the old one).
+export async function getCandidate(projectId = PROJECT_ID): Promise<ViewManifest | null> {
+  const r = await request<{ manifest: ViewManifest | null }>(
+    `/api/reception/candidate/${encodeURIComponent(projectId)}`,
+  );
+  return r.manifest ?? null;
+}
+
+// Edit THIS feature from its own worker chat (scoped to one feature).
+export function editFeatureRequest(
+  feature: string,
+  text: string,
+  attachments: Attachment[] = [],
+  projectId = PROJECT_ID,
+): Promise<{ building: boolean; feature: string }> {
+  return request(`/api/app/features/${encodeURIComponent(feature)}/edit`, {
+    method: "POST",
+    body: JSON.stringify({ project_id: projectId, text, attachments }),
+  });
+}
+
 export function listEntities(feature: string, projectId = PROJECT_ID): Promise<{ items: Entity[] }> {
   return request<{ items: Entity[] }>(
     `/api/app/entities?feature=${encodeURIComponent(feature)}&project_id=${encodeURIComponent(projectId)}`,
@@ -281,4 +340,24 @@ export function createEntity(
 
 export function deleteEntity(entityId: string): Promise<{ deleted: string }> {
   return request(`/api/app/entities/${entityId}`, { method: "DELETE" });
+}
+
+// --- Whole-app persisted state for sandboxed generated apps (AF.load/AF.save) ---
+
+export async function getAppState(feature: string, projectId = PROJECT_ID): Promise<unknown> {
+  const r = await request<{ state: unknown }>(
+    `/api/app/state/${encodeURIComponent(feature)}?project_id=${encodeURIComponent(projectId)}`,
+  );
+  return r.state ?? null;
+}
+
+export function setAppState(
+  feature: string,
+  state: unknown,
+  projectId = PROJECT_ID,
+): Promise<{ ok: boolean }> {
+  return request(`/api/app/state/${encodeURIComponent(feature)}`, {
+    method: "PUT",
+    body: JSON.stringify({ project_id: projectId, state }),
+  });
 }

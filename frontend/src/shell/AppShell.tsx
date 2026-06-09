@@ -150,10 +150,15 @@ export function AppShell({ user }: { user: User | null }) {
         </nav>
 
         <main className="main" data-theme={mainTheme}>
-          {view.kind === "chat" && (
+          {/* ChatView stays MOUNTED across navigation (hidden, not unmounted) so a
+              background design keeps polling and the conversation is never lost when
+              you switch to a feature / API設定 and come back. */}
+          <div className={view.kind === "chat" ? "main-pane" : "main-pane main-pane--hidden"}>
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
+          </div>
+          {view.kind === "feature" && (
+            <GeneratedView feature={view.key} onEdited={() => setView({ kind: "chat" })} />
           )}
-          {view.kind === "feature" && <GeneratedView feature={view.key} />}
           {view.kind === "byok" && <ByokView onBack={() => setView(prevView)} />}
         </main>
       </div>

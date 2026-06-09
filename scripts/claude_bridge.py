@@ -23,11 +23,13 @@ Response JSON: {"text": "..."}  (or {"error": "..."} with HTTP 500)
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("CLAUDE_BRIDGE_PORT", "8765"))
@@ -35,18 +37,48 @@ HOST = os.environ.get("CLAUDE_BRIDGE_HOST", "0.0.0.0")
 CLAUDE_CMD = os.environ.get("CLAUDE_CMD", "claude")
 TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
 
+_MIME_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 
-def run_claude(prompt: str, model: str | None) -> str:
+
+def _write_temp_images(images: list) -> list[str]:
+    """Persist base64 images to temp files so claude can read them by path."""
+    paths: list[str] = []
+    for img in images or []:
+        try:
+            raw = base64.b64decode(img.get("data", ""))
+        except Exception:  # noqa: BLE001
+            continue
+        ext = _MIME_EXT.get(img.get("mime", ""), ".png")
+        fd, path = tempfile.mkstemp(prefix="agentforge_img_", suffix=ext)
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        paths.append(path)
+    return paths
+
+
+def run_claude(prompt: str, model: str | None, images: list | None = None) -> str:
     exe = shutil.which(CLAUDE_CMD) or CLAUDE_CMD
     cmd = [exe, "-p", "--output-format", "json"]
     if model:
         cmd += ["--model", model]
-    proc = subprocess.run(
-        cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or f"claude exited {proc.returncode}")
-    out = (proc.stdout or "").strip()
+    img_paths = _write_temp_images(images or [])
+    if img_paths:
+        # claude (print mode) can read local files referenced by absolute path.
+        listing = "\n".join(f"- {p}" for p in img_paths)
+        prompt = f"{prompt}\n\n[添付画像（必ず読み取って設計の参考にすること）]\n{listing}"
+    try:
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"claude exited {proc.returncode}")
+        out = (proc.stdout or "").strip()
+    finally:
+        for p in img_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
     # `claude -p --output-format json` -> {"type":"result","result":"<text>", ...}
     try:
         data = json.loads(out)
@@ -80,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
-            text = run_claude(body.get("prompt", ""), body.get("model") or None)
+            text = run_claude(body.get("prompt", ""), body.get("model") or None, body.get("images"))
             _send(self, 200, {"text": text})
         except Exception as exc:  # noqa: BLE001 — report to caller, keep serving
             _send(self, 500, {"error": str(exc)})

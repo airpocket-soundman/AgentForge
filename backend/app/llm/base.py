@@ -21,14 +21,23 @@ class ModelTier(str, Enum):
     PRO = "pro"
 
 
+# An image attachment for vision: {"mime": "image/png", "data": "<base64>"}.
+ImageInput = dict
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """Every provider exposes a name, an `enabled` flag (False -> callers use their
-    deterministic fallbacks), and a `generate(prompt, tier) -> str`."""
+    deterministic fallbacks), and a `generate(prompt, tier, images) -> str`.
+
+    `images` is an optional list of {mime, data(base64)} for multimodal/vision
+    requests; providers that can't do vision ignore them gracefully."""
 
     name: str
 
     @property
     def enabled(self) -> bool: ...
 
-    def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH) -> str: ...
+    def generate(
+        self, prompt: str, tier: ModelTier = ModelTier.FLASH, images: list[ImageInput] | None = None
+    ) -> str: ...

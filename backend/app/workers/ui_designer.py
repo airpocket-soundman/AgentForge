@@ -1,163 +1,216 @@
-"""UI Designer worker — REAL build-time worker.
+"""UI Designer worker — the REAL build-time worker.
 
-Turns a feature goal into an actual `view_manifest` by calling the LLM through the
-gateway (claude-cli locally / Gemini in prod). The Generated View Renderer renders
-this manifest, so the screen is genuinely produced by the agent — not hard-coded.
-Falls back to a generic manifest when no LLM is reachable so the pipeline completes.
+Turns a feature request into a COMPLETE, self-contained HTML application by
+calling the LLM through the gateway (claude-cli locally / Gemini in prod). The
+worker is told to FAITHFULLY and FULLY implement whatever the user asked — a
+paint tool, a calculator, a task manager, a game — as one runnable HTML
+document. The Generated View Renderer runs it in a sandboxed iframe, so the
+screen is genuinely produced by the agent: not hard-coded, and not constrained
+to a fixed set of components.
+
+Apps that need to remember data use the injected `AF.load()/AF.save()` bridge
+(persisted server-side per feature); the sandbox blocks localStorage/network.
+Falls back to a minimal placeholder page when no LLM is reachable so the
+pipeline still completes.
 """
 from __future__ import annotations
 
 import hashlib
+import html as _html
 import json
 import re
 
 from app import agents
 from app.llm.gateway import ModelTier, get_llm
-from app.models.generated import (
-    CalendarSpec,
-    ChartSpec,
-    FieldSpec,
-    GanttSpec,
-    StatSpec,
-    ViewManifest,
-)
+from app.models.generated import DesignPlan, ViewManifest
 
-_ALLOWED_TYPES = {"text", "textarea", "number", "date", "checkbox", "markdown"}
 _ALLOWED_THEMES = {"default", "warm", "forest", "ocean"}
-_ALLOWED_CHARTS = {"bar", "line", "pie", "doughnut"}
-_ALLOWED_AGG = {"sum", "count", "avg"}
 
-_SCHEMA = """まず種別(kind)を判断し、JSONのみ出力（前後の説明やコードフェンス不要）。
-
-■ 記録・一覧・集計・予定管理など「データ管理系」なら kind="data":
+_PLAN_SCHEMA = '''ユーザーの要求から「設計案」だけをJSONで出力してください（コードはまだ書かない・JSONのみ・前後の説明やコードフェンス不要）:
 {
-  "kind": "data",
-  "feature": "<英小文字スラッグ>",
+  "feature": "<英小文字スラッグ。例: paint, calculator, task_manager>",
   "title": "<日本語の機能名>",
-  "description": "<1〜2文の平易な説明>",
+  "summary": "<2〜3文。どんなアプリで、何が中心の体験かを具体的に>",
+  "features": ["<実装する主な機能を4〜8個、具体的な箇条書きで。例: ペンと消しゴムの切替 / 10色のパレット>"],
+  "persistence": true,
+  "theme": "default|warm|forest|ocean"
+}
+
+- persistence: データ保存が必要なら true（タスク/メモ/家計簿など）、不要なら false（お絵描き/電卓/時計/ゲームなど）。
+- お絵描き・ゲーム・電卓などインタラクティブな要求は、その操作内容を features に具体的に書く（「実際に描ける」等）。
+- スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
+
+_SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した、単一の完結したHTMLアプリを作ってください。
+出力はJSONのみ（前後の説明やコードフェンスは不要）:
+{
+  "feature": "<英小文字スラッグ。例: paint, calculator, task_manager>",
+  "title": "<日本語の機能名>",
+  "description": "<1〜2文。何ができるアプリかを説明>",
   "theme": "default|warm|forest|ocean",
-  "fields": [{"key": "<snake_case>", "label": "<日本語>", "type": "text|textarea|number|date|checkbox|markdown"}],
-  "list_columns": ["<fieldのkey>"],
-  "stats": [{"label": "<日本語>", "value": "<数値fieldのkey>", "agg": "sum|count|avg"}],
-  "charts": [{"type": "bar|line|pie|doughnut", "title": "<日本語>", "category": "<fieldのkey>", "value": "<数値fieldのkey>"}],
-  "gantt": {"label": "<fieldのkey>", "start": "<date型key>", "end": "<date型key>"},
-  "calendar": {"date": "<date型key>", "title": "<fieldのkey>"}
+  "html": "<!DOCTYPE html> から始まる完結した単一HTML文書"
 }
 
-■ お絵描き・電卓・ゲーム・特殊UIなど「インタラクティブ/独自実装」なら kind="app":
-{
-  "kind": "app",
-  "feature": "<英小文字スラッグ>",
-  "title": "<日本語の機能名>",
-  "description": "<1〜2文の説明>",
-  "theme": "default",
-  "html": "<完結した単一HTML文書。<style>と<script>を内包し、外部リソース無しで動く。要求された機能を実際に実装する（例: canvasお絵描き、計算ロジック等）。サンドボックス実行のため localStorage/cookie/外部通信/別ウィンドウは使えない（状態はメモリ内）。bodyはmargin:0でビューポートいっぱいに>"
-}
-
-判断指針:
-- 記録・一覧・管理・集計が主目的 → data。可視化(charts/gantt/calendar)は主目的に直結する時だけ（日付/数値があるだけで足さない）。dataモードでは生HTML/CSS/JSを書かず部品宣言のみ。
-- 描く・計算する・遊ぶ・操作するなどインタラクティブが主目的 → app。実際に動く self-contained な HTML/JS/CSS を書く。
-- markdown型は長文メモ向け。stats.value/charts.value は number型field。gantt/calendar の日付は date型field。
-- スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。"""
+html の要件（重要）:
+- ユーザーが求めた機能を「実際に動く形で」すべて実装する。フォーム＋一覧で代替したり、機能を削ったりしない。
+  例: 「お絵描きツール」→ canvas に実際に描ける（ペン/消しゴム/色/太さ/Undo/全消去など要求された機能）。
+      「電卓」→ 実際に計算できる。「タスク管理」→ 追加・完了・削除ができ、保存される。「〇×ゲーム」→ 実際に遊べる。
+- <style> と <script> を内包し、外部CDN・外部通信なしで単体で動く（外部リソースは読み込めない）。
+- body は margin:0 でビューポートいっぱいに広げ、モダンで見やすいUIにする。ボタンは押しやすく。
+- 入力はマウスとタッチの両対応（pointer イベント推奨）。
+- 状態を保存したい場合（タスク・メモ・設定・スコアなど）は、用意された永続化APIを使う:
+    const state = await AF.load();   // 保存済みの状態(任意のJSON)。無ければ null。
+    await AF.save(state);            // 状態(JSONにできる値)を保存する。
+  ※ localStorage / cookie / fetch / 外部通信 / 別ウィンドウ は使えない（サンドボックス）。保存は必ず AF を使う。
+  ※ お絵描き・電卓・時計など保存不要なものは AF を使わなくてよい。
+- スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
 
 
 def _slug(goal: str) -> str:
     return "gen_" + hashlib.sha1(goal.encode("utf-8")).hexdigest()[:8]
 
 
-def _default_fields() -> list[FieldSpec]:
-    return [
-        FieldSpec(key="title", label="名称", type="text"),
-        FieldSpec(key="note", label="メモ", type="textarea"),
-    ]
+def _fallback_html(goal: str) -> str:
+    g = _html.escape(goal[:120])
+    return (
+        '<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        "<style>body{margin:0;font-family:system-ui,sans-serif;display:grid;"
+        "place-items:center;height:100vh;background:#0e1016;color:#e6e8ef;"
+        "text-align:center;padding:24px}h2{margin:0 0 8px}p{color:#9aa1b3}</style>"
+        "</head><body><div><h2>この機能は準備中です</h2>"
+        f"<p>「{g}」を生成するワーカー(LLM)に到達できませんでした。</p>"
+        "<p>少し待って、もう一度お試しください。</p></div></body></html>"
+    )
 
 
-def design(goal: str) -> ViewManifest:
-    """Design a real view_manifest for the requested feature."""
+def plan_feature(
+    goal: str,
+    feedback: str | None = None,
+    previous: dict | None = None,
+    images: list[dict] | None = None,
+) -> DesignPlan:
+    """Produce a lightweight design proposal (no code yet) for review.
+
+    When `feedback`/`previous` are given, revise the previous proposal per the
+    user's instruction instead of starting from scratch. `images` (attachments)
+    are passed to the LLM for vision so the proposal can reflect a screenshot/photo.
+    """
     llm = get_llm()
     if llm.enabled:
         try:
-            prompt = "\n\n".join(
-                [
-                    agents.load("ui_designer"),
-                    agents.policy(),
-                    f"次の機能の画面（view_manifest）を設計してください。\nユーザー要求: {goal}",
-                    _SCHEMA,
-                ]
-            )
-            raw = llm.generate(prompt, tier=ModelTier.PRO).strip()
+            parts = [
+                agents.load("ui_designer"),
+                agents.policy(),
+                f"ユーザー要求: {goal}",
+            ]
+            if previous and feedback:
+                parts.append("前回の設計案:\n" + json.dumps(previous, ensure_ascii=False))
+                parts.append(
+                    f"ユーザーからの修正指示: {feedback}\n"
+                    "この指示を反映して設計案を作り直してください。"
+                )
+            parts.append(_PLAN_SCHEMA)
+            raw = llm.generate("\n\n".join(parts), tier=ModelTier.FLASH, images=images).strip()
             if raw.startswith("```"):
                 raw = raw.strip("`").split("\n", 1)[-1]
-            data = json.loads(raw)
-            kind = str(data.get("kind", "data")).lower()
-            feature = re.sub(r"[^a-z0-9_]+", "", str(data.get("feature", "")).lower()) or _slug(goal)
-            title = (str(data.get("title") or goal))[:60]
-            description = str(data.get("description", ""))[:200]
-            theme = data.get("theme", "default")
+            d = json.loads(raw)
+            feature = re.sub(r"[^a-z0-9_]+", "", str(d.get("feature", "")).lower()) or _slug(goal)
+            theme = d.get("theme", "default")
             theme = theme if theme in _ALLOWED_THEMES else "default"
-
-            # app mode: the worker wrote real HTML/JS/CSS for an interactive tool,
-            # rendered in a sandboxed iframe. This is genuine code generation.
-            if kind == "app" and isinstance(data.get("html"), str) and "<" in data["html"]:
-                return ViewManifest(
-                    kind="app", feature=feature, title=title, description=description,
-                    theme=theme, html=data["html"], generated_by=llm.name,
-                )
-
-            # data mode: structured standard components.
-            fields = [
-                FieldSpec(key=str(f["key"]), label=str(f.get("label") or f["key"]), type=f.get("type", "text"))
-                for f in data.get("fields", [])
-                if f.get("key") and f.get("type", "text") in _ALLOWED_TYPES
-            ] or _default_fields()
-            keys = {f.key for f in fields}
-            cols = [c for c in data.get("list_columns", []) if c in keys] or [f.key for f in fields[:3]]
-            date_keys = {f.key for f in fields if f.type == "date"}
-            charts = [
-                ChartSpec(type=c.get("type", "bar"), title=str(c.get("title", "")), category=c["category"], value=c["value"])
-                for c in data.get("charts", [])
-                if c.get("type", "bar") in _ALLOWED_CHARTS and c.get("category") in keys and c.get("value") in keys
-            ]
-            stats = [
-                StatSpec(label=str(s["label"]), value=s["value"], agg=s.get("agg", "sum"))
-                for s in data.get("stats", [])
-                if s.get("label") and s.get("value") in keys and s.get("agg", "sum") in _ALLOWED_AGG
-            ]
-            g = data.get("gantt")
-            gantt = (
-                GanttSpec(label=g["label"], start=g["start"], end=g["end"])
-                if isinstance(g, dict) and g.get("label") in keys and g.get("start") in date_keys and g.get("end") in date_keys
-                else None
-            )
-            cal = data.get("calendar")
-            calendar = (
-                CalendarSpec(date=cal["date"], title=cal["title"])
-                if isinstance(cal, dict) and cal.get("date") in date_keys and cal.get("title") in keys
-                else None
-            )
-            return ViewManifest(
-                kind="data",
+            features = [str(x) for x in d.get("features", []) if str(x).strip()][:10]
+            return DesignPlan(
                 feature=feature,
-                title=title,
-                description=description,
+                title=(str(d.get("title") or goal))[:60],
+                summary=str(d.get("summary", ""))[:400],
+                features=features,
+                persistence=bool(d.get("persistence", False)),
                 theme=theme,
-                fields=fields,
-                list_columns=cols,
-                stats=stats,
-                charts=charts,
-                gantt=gantt,
-                calendar=calendar,
-                generated_by=llm.name,
             )
-        except Exception:  # noqa: BLE001 — any LLM/parse failure -> deterministic fallback
+        except Exception:  # noqa: BLE001 — fall back to a minimal proposal
+            pass
+    return DesignPlan(
+        feature=_slug(goal),
+        title=goal[:60],
+        summary=goal[:200],
+        features=[],
+        persistence=False,
+        theme="default",
+    )
+
+
+def design(
+    goal: str,
+    plan: dict | None = None,
+    current_html: str | None = None,
+    images: list[dict] | None = None,
+) -> ViewManifest:
+    """Build a real, self-contained HTML app that implements `goal`.
+
+    - `plan`: an approved DesignPlan dict — implement that reviewed proposal, and
+      keep its slug/title/theme.
+    - `current_html`: when EDITING an existing feature, the current app code. `goal`
+      is then the change instruction; the worker rewrites the full document with
+      only that change applied, preserving everything else.
+    - `images`: attachments passed to the LLM for vision (e.g. edit from a screenshot).
+    """
+    llm = get_llm()
+    if llm.enabled:
+        try:
+            if current_html:
+                parts = [
+                    agents.load("ui_designer"),
+                    agents.policy(),
+                    "既存のアプリを、ユーザーの指示どおりに修正してください。指示された箇所だけを的確に直し、"
+                    "それ以外の機能・UI・状態保存(AF.load/AF.save)は壊さないこと。",
+                    "既存アプリの全コード:\n" + current_html,
+                    f"ユーザーの修正指示: {goal}",
+                    "修正を反映した完全な単一HTML文書を作り直して、JSONのhtmlに入れてください。",
+                    _SCHEMA,
+                ]
+            else:
+                parts = [
+                    agents.load("ui_designer"),
+                    agents.policy(),
+                    f"次の機能を作ってください。\nユーザー要求: {goal}",
+                ]
+                if plan:
+                    parts.append(
+                        "ユーザーが承認した設計案（これに忠実に実装すること）:\n"
+                        + json.dumps(plan, ensure_ascii=False)
+                    )
+                parts.append(_SCHEMA)
+            prompt = "\n\n".join(parts)
+            raw = llm.generate(prompt, tier=ModelTier.PRO, images=images).strip()
+            if raw.startswith("```"):
+                raw = raw.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
+            data = json.loads(raw)
+            html = data.get("html")
+            if isinstance(html, str) and "<" in html and len(html.strip()) > 80:
+                # When an approved plan exists, keep its slug/title/theme so the
+                # generated feature matches exactly what the user signed off on.
+                feature = re.sub(r"[^a-z0-9_]+", "", str((plan or {}).get("feature") or data.get("feature", "")).lower()) or _slug(goal)
+                title = (str((plan or {}).get("title") or data.get("title") or goal))[:60]
+                description = str(data.get("description") or (plan or {}).get("summary", ""))[:200]
+                theme = (plan or {}).get("theme") or data.get("theme", "default")
+                theme = theme if theme in _ALLOWED_THEMES else "default"
+                return ViewManifest(
+                    kind="app",
+                    feature=feature,
+                    title=title,
+                    description=description,
+                    theme=theme,
+                    html=html,
+                    generated_by=llm.name,
+                )
+        except Exception:  # noqa: BLE001 — any LLM/parse failure -> placeholder page
             pass
 
     return ViewManifest(
+        kind="app",
         feature=_slug(goal),
         title=goal[:60],
-        description=f"「{goal[:40]}」に関する項目を記録・一覧管理する画面です。",
+        description="ワーカー(LLM)に到達できず、生成できませんでした。",
         theme="default",
-        fields=_default_fields(),
-        list_columns=["title", "note"],
+        html=_fallback_html(goal),
         generated_by="stub",
     )

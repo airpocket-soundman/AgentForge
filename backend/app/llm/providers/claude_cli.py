@@ -26,13 +26,17 @@ class ClaudeCliProvider:
     def enabled(self) -> bool:
         return bool(self._url)
 
-    def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH) -> str:
+    def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH, images=None) -> str:
         import httpx  # local import keeps module import cheap
 
-        payload = {"prompt": prompt, "tier": tier.value}
+        payload: dict = {"prompt": prompt, "tier": tier.value}
         model = self._models.get(tier)
         if model:
             payload["model"] = model
+        if images:
+            # The host bridge writes these to temp files and references their paths
+            # so the host's claude can read them (best-effort vision locally).
+            payload["images"] = images
         # Fast connect timeout so a missing bridge fails immediately (callers then
         # fall back to deterministic output) instead of hanging.
         timeout = httpx.Timeout(connect=5.0, read=self._timeout, write=10.0, pool=5.0)

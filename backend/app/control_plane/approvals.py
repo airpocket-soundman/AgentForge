@@ -135,6 +135,33 @@ def approve(approval_id: str) -> dict:
     return {"approval_id": approval_id, "status": "approved", "feature": feature, "project_id": project_id}
 
 
+def publish_edit(project_id: str, feature: str, manifest: dict) -> dict:
+    """Publish an edited feature: overwrite the live (active) view_manifest with the
+    regenerated one, keeping the feature active. The human gate here is the user's
+    preview + 「反映して」 — no new pending approval is needed for an in-place edit."""
+    db = get_db()
+    db.collection("generated_views").document(f"{project_id}_{feature}").set(
+        {
+            **manifest,
+            "project_id": project_id,
+            "status": "active",
+            "updated_at": _now_iso(),
+        },
+        merge=True,
+    )
+    _feature_state_ref(project_id).set(
+        {
+            feature: "active",
+            f"{feature}_title": manifest.get("title") or feature,
+            f"{feature}_theme": manifest.get("theme", "default") or "default",
+            "updated_at": _now_iso(),
+        },
+        merge=True,
+    )
+    _audit("generated_view.edited", f"{project_id}:{feature}", {"title": manifest.get("title")})
+    return {"project_id": project_id, "feature": feature, "status": "active"}
+
+
 def reject(approval_id: str) -> dict:
     appr_ref = get_db().collection("approval_requests").document(approval_id)
     appr = appr_ref.get()

@@ -17,12 +17,17 @@ from fastapi import APIRouter, HTTPException
 
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
-from app.models.generated import EntityIn, EntityUpdate
+from app.models.generated import EditIn, EntityIn, EntityUpdate, StateIn
 
 router = APIRouter(prefix="/api/app", tags=["generated-app:generic"])
 
 _ENTITIES = "app_entities"
 _VIEWS = "generated_views"
+_STATE = "app_state"
+
+
+def _state_doc_id(project_id: str, feature: str) -> str:
+    return f"{project_id}_{feature}"
 
 
 def _now_iso() -> str:
@@ -40,6 +45,28 @@ def get_view(feature: str, project_id: str = "default") -> dict:
     snap = get_db().collection(_VIEWS).document(_view_doc_id(project_id, feature)).get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="この機能の view manifest が見つかりません")
+    return snap.to_dict()
+
+
+@router.post("/features/{feature}/edit")
+def edit_feature(feature: str, body: EditIn) -> dict:
+    """Edit THIS feature from its own worker chat (scoped to one feature). Kicks off
+    a background regeneration; the preview + 「反映して」 happen in the main chat."""
+    require_feature_active(body.project_id, feature)
+    from app.reception import service as reception
+
+    extra_text, images = reception.split_attachments(body.attachments)
+    reception.start_edit(body.project_id, feature, body.text + extra_text, images=images)
+    return {"building": True, "feature": feature}
+
+
+@router.get("/preview/{feature}")
+def preview_view(feature: str, project_id: str = "default") -> dict:
+    """The view_manifest for a feature regardless of approval status, so the chat
+    can show a PREVIEW of generated code before the user publishes it."""
+    snap = get_db().collection(_VIEWS).document(_view_doc_id(project_id, feature)).get()
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="プレビュー対象が見つかりません")
     return snap.to_dict()
 
 
@@ -85,6 +112,31 @@ def update_entity(entity_id: str, body: EntityUpdate) -> dict:
     merged = {**cur.get("data", {}), **body.data}
     ref.set({"data": merged, "updated_at": _now_iso()}, merge=True)
     return {**cur, "data": merged, "updated_at": _now_iso()}
+
+
+@router.get("/state/{feature}")
+def get_state(feature: str, project_id: str = "default") -> dict:
+    """Whole-app persisted state for a generated app (AF.load() reads this)."""
+    require_feature_active(project_id, feature)
+    snap = get_db().collection(_STATE).document(_state_doc_id(project_id, feature)).get()
+    if not snap.exists:
+        return {"state": None}
+    return {"state": (snap.to_dict() or {}).get("state")}
+
+
+@router.put("/state/{feature}")
+def put_state(feature: str, body: StateIn) -> dict:
+    """Persist the whole-app state blob (AF.save() writes this)."""
+    require_feature_active(body.project_id, feature)
+    get_db().collection(_STATE).document(_state_doc_id(body.project_id, feature)).set(
+        {
+            "feature": feature,
+            "project_id": body.project_id,
+            "state": body.state,
+            "updated_at": _now_iso(),
+        }
+    )
+    return {"ok": True}
 
 
 @router.delete("/entities/{entity_id}")

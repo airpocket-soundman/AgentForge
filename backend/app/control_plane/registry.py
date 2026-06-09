@@ -141,6 +141,7 @@ _RESET_COLLECTIONS = [
     "feature_states",
     "generated_views",
     "app_entities",
+    "app_state",
     "feature_chats",
 ]
 

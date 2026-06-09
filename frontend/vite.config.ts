@@ -10,6 +10,10 @@ export default defineConfig({
   server: {
     host: true, // listen on 0.0.0.0 so the container port is reachable
     port: 5173,
+    // Windows + Docker bind mounts don't deliver inotify events to the Linux
+    // container, so Vite never sees edits and serves stale modules. Poll instead
+    // so HMR works without restarting the container after every change.
+    watch: { usePolling: true, interval: 300 },
     proxy: {
       "/api": { target: apiTarget, changeOrigin: true },
     },

@@ -12,9 +12,7 @@ Responsibilities:
 from fastapi import APIRouter
 
 from app.control_plane import approvals
-from app.models.orchestrator import PlanRequest
 from app.models.reception import ChatMessage, MessageIn, ReceptionReply
-from app.orchestrator import service as orchestrator
 from app.reception import service
 
 router = APIRouter(prefix="/api/reception", tags=["reception"])
@@ -25,27 +23,99 @@ def reception_health() -> dict:
     return {"status": "ok", "module": "reception"}
 
 
+@router.get("/state/{project_id}")
+def get_state(project_id: str) -> dict:
+    """Full chat state for the browser to render from scratch and poll while a
+    background design runs (survives navigation / reload)."""
+    return service.conversation_state(project_id)
+
+
+@router.get("/candidate/{project_id}")
+def get_candidate(project_id: str) -> dict:
+    """The generated app awaiting publish (new or edited), for the chat preview."""
+    return {"manifest": service.get_candidate(project_id)}
+
+
 @router.post("/messages", response_model=ReceptionReply)
 def post_message(body: MessageIn) -> ReceptionReply:
     conversation_id = service.conversation_id_for(body.project_id)
     service.append_message(conversation_id, ChatMessage(role="user", text=body.text))
 
+    # The main worker is busy: the reception worker stays responsive and reports
+    # status instead of starting new (or duplicate) work. The chat is never blocked.
+    build = service.current_build(body.project_id)
+    if build.get("status") == "designing":
+        reply = ChatMessage(role="assistant", text=service.building_status_reply(body.project_id, body.text, build))
+        service.append_message(conversation_id, reply)
+        return ReceptionReply(
+            conversation_id=conversation_id, reply=reply, detected_intent="busy", building=True
+        )
+
+    # Attachments: text/data files are inlined into the request; images go to the
+    # LLM for vision. Intent/feature resolution still keys off the typed text only.
+    extra_text, images = service.split_attachments(body.attachments)
+    goal_text = body.text + extra_text
+
+    flow = service.get_flow(body.project_id)
+    stage = flow.get("stage", "idle")
     intent = service.classify(body.text)
     task_id: str | None = None
     approval_id: str | None = None
     activated_feature: str | None = None
     disabled_feature: str | None = None
+    building = False
 
-    if intent == "approve":
+    # === Stage: a design PROPOSAL is under review =========================
+    if stage == "plan":
+        if service.is_cancel(body.text):
+            service.clear_flow(body.project_id)
+            reply_text = "設計をキャンセルしました。新しく機能を依頼してください。"
+        elif service.is_plan_ok(body.text):
+            service.start_codegen(body.project_id, flow["goal"], flow["plan"])
+            building = True
+            reply_text = (
+                "プランを承認しました。AIワーカーがコードを生成します（数十秒〜1分）。\n"
+                "完了するとここにプレビューが表示されます。"
+            )
+        else:
+            # Anything else = a revision instruction; rebuild the proposal.
+            service.start_plan(
+                body.project_id, flow["goal"], feedback=goal_text, previous=flow["plan"], images=images
+            )
+            building = True
+            reply_text = "修正を反映して設計案を作り直します…（数秒）"
+
+    # === Stage: code is BUILT, awaiting publish ===========================
+    elif stage == "built":
+        if intent == "approve" or service.is_plan_ok(body.text):
+            if flow.get("mode") == "edit":
+                title = (flow.get("candidate") or {}).get("title") or service.feature_label(flow["feature"])
+                res = approvals.publish_edit(body.project_id, flow["feature"], flow["candidate"])
+                activated_feature = res["feature"]
+                service.clear_flow(body.project_id)
+                reply_text = f"「{title}」を更新しました。"
+            else:
+                res = approvals.approve(flow["approval_id"])
+                activated_feature = res["feature"]
+                approval_id = flow["approval_id"]
+                service.clear_flow(body.project_id)
+                reply_text = f"公開しました。「{service.feature_title(body.project_id, activated_feature)}」を左メニューに追加しました。"
+        elif service.is_cancel(body.text) or intent == "rollback":
+            service.clear_flow(body.project_id)
+            reply_text = "キャンセルしました（生成物は破棄しました）。"
+        else:
+            reply_text = "公開するには「反映して」、やめるには「キャンセル」と送ってください。"
+
+    # === Stage: idle ======================================================
+    elif intent == "approve":
         pending = approvals.find_latest_pending(body.project_id)
         if pending:
             res = approvals.approve(pending["approval_id"])
             activated_feature = res["feature"]
             approval_id = pending["approval_id"]
-            label = service.feature_label(activated_feature)
-            reply_text = f"承認しました。「{label}」を有効化しました。右のパネルで使えます。"
+            reply_text = f"承認しました。「{service.feature_label(activated_feature)}」を有効化しました。"
         else:
-            reply_text = "承認できる保留中の計画がありません。先に「タスク管理を追加して」などで機能追加を依頼してください。"
+            reply_text = "承認できる設計がありません。先に作りたい機能を伝えてください。"
 
     elif intent == "rollback":
         disabled = approvals.disable_active_features(body.project_id)
@@ -56,13 +126,20 @@ def post_message(body: MessageIn) -> ReceptionReply:
         else:
             reply_text = "無効化できる有効な機能がありません。"
 
+    elif service.is_edit_request(body.text) and service.resolve_feature(body.project_id, body.text):
+        # Edit an EXISTING feature by name (e.g. 「電卓を修正して…」). Regenerate its
+        # code with the change applied, then preview + publish (replace).
+        feat = service.resolve_feature(body.project_id, body.text)
+        service.start_edit(body.project_id, feat, goal_text, images=images)
+        building = True
+        reply_text = f"「{service.feature_title(body.project_id, feat)}」の修正版を作成しています…（数十秒）"
+
     elif intent.startswith("build_feature:"):
-        result = orchestrator.plan_and_register(
-            PlanRequest(project_id=body.project_id, goal=body.text)
-        )
-        reply_text = result.summary
-        task_id = result.task_id
-        approval_id = result.approval_id
+        # Phase 1: produce a design PROPOSAL (fast) for the user to review. No code
+        # is written yet. Runs in the background; the chat polls /state for it.
+        service.start_plan(body.project_id, goal_text, images=images)
+        building = True
+        reply_text = "設計案を作成しています…（数秒）。少しお待ちください。"
 
     else:
         reply_text = service.compose_reply(body.text, None)
@@ -78,4 +155,5 @@ def post_message(body: MessageIn) -> ReceptionReply:
         approval_id=approval_id,
         activated_feature=activated_feature,
         disabled_feature=disabled_feature,
+        building=building,
     )

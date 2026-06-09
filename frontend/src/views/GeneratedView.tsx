@@ -1,168 +1,114 @@
 import { useEffect, useState } from "react";
-import {
-  createEntity,
-  deleteEntity,
-  getView,
-  listEntities,
-  type Entity,
-  type ViewManifest,
-} from "../api";
-import ReactMarkdown from "react-markdown";
-import { FeatureWorkerPanel } from "./FeatureWorkerPanel";
-import { FeatureCharts } from "./FeatureCharts";
-import { FeatureStats } from "./FeatureStats";
-import { GanttChart } from "./GanttChart";
-import { CalendarView } from "./CalendarView";
+import { editFeatureRequest, getView, type ViewManifest } from "../api";
+import { AppFrame } from "./AppFrame";
+import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
 
-// Generated View Renderer: draws a feature screen from the view_manifest the UI
-// Designer worker produced (form + list, bound to the generic CRUD). This is what
-// makes an arbitrary AI-generated feature actually appear and work.
-function msg(e: unknown) { return e instanceof Error ? e.message : String(e); }
-function fmt(v: unknown) {
-  if (v === true) return "✓";
-  if (v === false || v == null || v === "") return "—";
-  return String(v);
+// Generated View Renderer: every feature is a COMPLETE self-contained HTML app the
+// UI Designer worker wrote to faithfully implement the request. We run it live in a
+// sandboxed iframe (see AppFrame) with the AF persistence bridge. Each feature also
+// has its own worker box that edits ONLY this feature (code/UI changes); the preview
+// + 「反映して」 then happen in the main chat.
+function msg(e: unknown) {
+  return e instanceof Error ? e.message : String(e);
 }
 
-export function GeneratedView({ feature }: { feature: string }) {
+export function GeneratedView({
+  feature,
+  onEdited,
+}: {
+  feature: string;
+  onEdited?: () => void;
+}) {
   const [manifest, setManifest] = useState<ViewManifest | null>(null);
-  const [items, setItems] = useState<Entity[]>([]);
-  const [form, setForm] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function loadItems() {
-    listEntities(feature).then((r) => setItems(r.items)).catch((e) => setError(msg(e)));
-  }
+  const [edit, setEdit] = useState("");
+  const [editing, setEditing] = useState(false);
+  const att = useAttachments();
 
   useEffect(() => {
     setError(null);
     setManifest(null);
-    getView(feature).then(setManifest).catch((e) => setError(msg(e)));
-    loadItems();
+    setEdit("");
+    att.clear();
+    getView(feature)
+      .then(setManifest)
+      .catch((e) => setError(msg(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feature]);
 
-  async function add() {
-    if (!manifest || busy) return;
-    const data: Record<string, unknown> = {};
-    for (const f of manifest.fields) {
-      const v = form[f.key];
-      if (f.type === "checkbox") data[f.key] = v === "true";
-      else if (f.type === "number") data[f.key] = v ? Number(v) : null;
-      else data[f.key] = v ?? "";
-    }
-    setBusy(true);
+  async function submitEdit() {
+    const text = edit.trim();
+    if (!text || editing) return;
+    setEditing(true);
     setError(null);
+    const files = att.items;
     try {
-      await createEntity(feature, data);
-      setForm({});
-      loadItems();
+      await editFeatureRequest(feature, text, files);
+      setEdit("");
+      att.clear();
+      onEdited?.(); // jump to main chat where the修正版 preview + 反映して appear
     } catch (e) {
       setError(msg(e));
     } finally {
-      setBusy(false);
+      setEditing(false);
     }
   }
 
-  async function remove(id: string) {
-    try {
-      await deleteEntity(id);
-      loadItems();
-    } catch (e) {
-      setError(msg(e));
-    }
-  }
-
-  if (error && !manifest) return <div className="view"><div className="error">{error}</div></div>;
+  if (error && !manifest)
+    return (
+      <div className="view">
+        <div className="error">{error}</div>
+      </div>
+    );
   if (!manifest) return <div className="view">読み込み中…</div>;
 
-  // app mode: the AI generated a real HTML/JS app — run it in a SANDBOXED iframe
-  // (allow-scripts only: isolated origin, no access to our app/auth/data).
-  if (manifest.kind === "app" && manifest.html) {
+  if (!manifest.html) {
     return (
       <div className="view">
         <div className="view__head">
           <h2>{manifest.title}</h2>
-          <span className="hint">🤖 AI生成アプリ（{manifest.generated_by}）</span>
         </div>
-        {manifest.description && <p className="gen-desc">{manifest.description}</p>}
-        <FeatureWorkerPanel feature={feature} onChanged={loadItems} />
-        <iframe
-          className="gen-app-frame"
-          title={manifest.title}
-          sandbox="allow-scripts"
-          srcDoc={manifest.html}
-        />
+        <div className="error">
+          この機能は旧形式で作成されたため表示できません。メインチャットで作り直すか、
+          「🗑 初期化」後にもう一度依頼してください。
+        </div>
       </div>
     );
   }
 
-  const cols = manifest.list_columns.length ? manifest.list_columns : manifest.fields.map((f) => f.key);
-  const labelOf = (k: string) => manifest.fields.find((f) => f.key === k)?.label ?? k;
-  const typeOf = (k: string) => manifest.fields.find((f) => f.key === k)?.type;
-
   return (
-    <div className="view">
+    <div className="view view--app">
       <div className="view__head">
         <h2>{manifest.title}</h2>
-        <span className="hint">🤖 AI生成（{manifest.generated_by}）</span>
-      </div>
-      {manifest.description && <p className="gen-desc">{manifest.description}</p>}
-
-      <FeatureStats stats={manifest.stats ?? []} items={items} />
-
-      <FeatureWorkerPanel feature={feature} onChanged={loadItems} />
-
-      <div className="gen-form">
-        {manifest.fields.map((f) => (
-          <label key={f.key} className="gen-field">
-            <span>{f.label}</span>
-            {f.type === "textarea" || f.type === "markdown" ? (
-              <textarea rows={2} value={form[f.key] ?? ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} />
-            ) : f.type === "checkbox" ? (
-              <input type="checkbox" checked={form[f.key] === "true"} onChange={(e) => setForm({ ...form, [f.key]: String(e.target.checked) })} />
-            ) : (
-              <input
-                type={f.type === "number" ? "number" : f.type === "date" ? "date" : "text"}
-                value={form[f.key] ?? ""}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-              />
-            )}
-          </label>
-        ))}
-        <button onClick={() => void add()} disabled={busy}>追加</button>
+        <span className="hint">🤖 AI生成アプリ（{manifest.generated_by}）</span>
       </div>
 
+      {/* This feature's own worker: edit ONLY this feature in natural language. */}
+      <div className="feature-edit-wrap" onDrop={att.onDrop} onDragOver={(e) => e.preventDefault()}>
+        <AttachmentChips items={att.items} onRemove={att.removeAt} />
+        <div className="feature-edit">
+          <AttachButton inputRef={att.inputRef} onFiles={att.addFiles} />
+          <input
+            value={edit}
+            placeholder="この機能を修正…（例：ボタンを大きく / 桁を四捨五入 / 画像も貼り付け・＋で添付）"
+            onChange={(e) => setEdit(e.target.value)}
+            onPaste={att.onPaste}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submitEdit();
+              }
+            }}
+            disabled={editing}
+          />
+          <button onClick={() => void submitEdit()} disabled={editing || !edit.trim()}>
+            {editing ? "作成中…" : "修正を依頼"}
+          </button>
+        </div>
+      </div>
       {error && <div className="error">{error}</div>}
 
-      <FeatureCharts charts={manifest.charts ?? []} items={items} />
-      {manifest.gantt && <GanttChart gantt={manifest.gantt} items={items} />}
-      {manifest.calendar && <CalendarView calendar={manifest.calendar} items={items} />}
-
-      <table className="table">
-        <thead>
-          <tr>
-            {cols.map((c) => <th key={c}>{labelOf(c)}</th>)}
-            <th style={{ width: 60 }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 && (
-            <tr><td colSpan={cols.length + 1} className="table__empty">まだデータがありません</td></tr>
-          )}
-          {items.map((it) => (
-            <tr key={it.entity_id}>
-              {cols.map((c) => (
-                <td key={c}>
-                  {typeOf(c) === "markdown" ? <ReactMarkdown>{String(it.data[c] ?? "")}</ReactMarkdown> : fmt(it.data[c])}
-                </td>
-              ))}
-              <td><button className="gen-del" onClick={() => void remove(it.entity_id)}>削除</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <AppFrame html={manifest.html} feature={feature} title={manifest.title} live />
     </div>
   );
 }

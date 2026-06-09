@@ -13,11 +13,27 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class Attachment(BaseModel):
+    """A file/image attached to a chat message.
+
+    - kind="text": `content` is the decoded file text (CSV/JSON/code/…) — inlined
+      into the request so the AI reads it.
+    - kind="image": `content` is base64 (no data: prefix) — passed to the LLM for
+      vision (e.g. "build a tool like this screenshot").
+    """
+
+    name: str = ""
+    mime: str = ""
+    kind: Literal["image", "text"] = "text"
+    content: str = ""
+
+
 class MessageIn(BaseModel):
     """A message sent by the user from the Web Shell chat."""
 
     project_id: str = Field(default="default", description="Project scope for the conversation")
     text: str = Field(min_length=1, max_length=4000)
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class ChatMessage(BaseModel):
@@ -41,3 +57,5 @@ class ReceptionReply(BaseModel):
     # Set when a conversational command changed feature state, so the UI can react.
     activated_feature: str | None = None
     disabled_feature: str | None = None
+    # True when a background design was kicked off; the browser then polls /state.
+    building: bool = False
