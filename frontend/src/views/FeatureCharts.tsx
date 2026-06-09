@@ -36,11 +36,11 @@ export function FeatureCharts({ charts, items }: { charts: ChartSpec[]; items: E
         const labels = [...sums.keys()];
         const values = [...sums.values()];
         const colors = labels.map((_, j) => PALETTE[j % PALETTE.length]);
-        const data = {
+        const data: any = {
           labels,
           datasets: [{ label: c.title || c.value, data: values, backgroundColor: colors, borderColor: "#4a4ae0" }],
         };
-        const options = {
+        const options: any = {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {

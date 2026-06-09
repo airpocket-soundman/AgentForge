@@ -282,3 +282,38 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   flex: 1 1 320px; min-width: 280px; max-width: 520px; height: 260px;
   background: var(--gv-surface); border: 1px solid var(--gv-border); border-radius: 10px; padding: 12px;
 }
+.gen-chart--wide { flex-basis: 100%; max-width: none; height: 320px; }
+
+/* KPI / metric tiles */
+.gen-stats { display: flex; flex-wrap: wrap; gap: 12px; }
+.gen-stat { flex: 1 1 140px; min-width: 120px; background: var(--gv-surface); border: 1px solid var(--gv-border); border-radius: 12px; padding: 14px 16px; }
+.gen-stat__label { font-size: 12px; color: var(--gv-muted); }
+.gen-stat__value { font-size: 26px; font-weight: 800; color: var(--gv-accent); margin-top: 4px; }
+
+/* Markdown rendered inside table cells */
+.table td p { margin: 0; }
+.table td ul, .table td ol { margin: 4px 0; padding-left: 18px; }
+
+/* Calendar */
+.gen-cal { background: var(--gv-surface); border: 1px solid var(--gv-border); border-radius: 12px; padding: 12px; }
+.gen-cal__head { display: flex; align-items: center; justify-content: center; gap: 16px; font-weight: 700; margin-bottom: 8px; }
+.gen-cal__head button { border: 1px solid var(--gv-border-strong); background: var(--gv-surface); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; }
+.gen-cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.gen-cal__dow { text-align: center; font-size: 11px; color: var(--gv-muted); padding: 4px 0; }
+.gen-cal__cell { min-height: 62px; border: 1px solid var(--gv-border-soft); border-radius: 8px; padding: 4px; background: var(--gv-surface); }
+.gen-cal__cell--empty { background: transparent; border: none; }
+.gen-cal__day { font-size: 11px; color: var(--gv-muted-2); }
+.gen-cal__ev { font-size: 11px; background: var(--gv-accent); color: var(--gv-accent-contrast); border-radius: 4px; padding: 1px 4px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Modern polish (subtle depth, smooth transitions, clear focus) ---- */
+.table, .gen-form, .worker, .gen-stat, .gen-chart, .gen-cal, .detail__summary pre, .admin-card {
+  box-shadow: 0 1px 3px rgba(26, 26, 46, 0.06);
+}
+.navitem, .composer button, .task-add button, .gen-form > button, .admin-save, .login,
+.rollback-top, .reset-top, .admin-top, .byok-top, .back, .gen-del {
+  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--gv-accent); outline-offset: 1px; border-color: var(--gv-accent);
+}
+.bubble { box-shadow: 0 1px 2px rgba(26, 26, 46, 0.05); }

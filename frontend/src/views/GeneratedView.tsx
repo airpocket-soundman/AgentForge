@@ -7,8 +7,12 @@ import {
   type Entity,
   type ViewManifest,
 } from "../api";
+import ReactMarkdown from "react-markdown";
 import { FeatureWorkerPanel } from "./FeatureWorkerPanel";
 import { FeatureCharts } from "./FeatureCharts";
+import { FeatureStats } from "./FeatureStats";
+import { GanttChart } from "./GanttChart";
+import { CalendarView } from "./CalendarView";
 
 // Generated View Renderer: draws a feature screen from the view_manifest the UI
 // Designer worker produced (form + list, bound to the generic CRUD). This is what
@@ -75,6 +79,7 @@ export function GeneratedView({ feature }: { feature: string }) {
 
   const cols = manifest.list_columns.length ? manifest.list_columns : manifest.fields.map((f) => f.key);
   const labelOf = (k: string) => manifest.fields.find((f) => f.key === k)?.label ?? k;
+  const typeOf = (k: string) => manifest.fields.find((f) => f.key === k)?.type;
 
   return (
     <div className="view">
@@ -83,13 +88,15 @@ export function GeneratedView({ feature }: { feature: string }) {
         <span className="hint">🤖 AI生成（{manifest.generated_by}）</span>
       </div>
 
+      <FeatureStats stats={manifest.stats ?? []} items={items} />
+
       <FeatureWorkerPanel feature={feature} onChanged={loadItems} />
 
       <div className="gen-form">
         {manifest.fields.map((f) => (
           <label key={f.key} className="gen-field">
             <span>{f.label}</span>
-            {f.type === "textarea" ? (
+            {f.type === "textarea" || f.type === "markdown" ? (
               <textarea rows={2} value={form[f.key] ?? ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} />
             ) : f.type === "checkbox" ? (
               <input type="checkbox" checked={form[f.key] === "true"} onChange={(e) => setForm({ ...form, [f.key]: String(e.target.checked) })} />
@@ -108,6 +115,8 @@ export function GeneratedView({ feature }: { feature: string }) {
       {error && <div className="error">{error}</div>}
 
       <FeatureCharts charts={manifest.charts ?? []} items={items} />
+      {manifest.gantt && <GanttChart gantt={manifest.gantt} items={items} />}
+      {manifest.calendar && <CalendarView calendar={manifest.calendar} items={items} />}
 
       <table className="table">
         <thead>
@@ -122,7 +131,11 @@ export function GeneratedView({ feature }: { feature: string }) {
           )}
           {items.map((it) => (
             <tr key={it.entity_id}>
-              {cols.map((c) => <td key={c}>{fmt(it.data[c])}</td>)}
+              {cols.map((c) => (
+                <td key={c}>
+                  {typeOf(c) === "markdown" ? <ReactMarkdown>{String(it.data[c] ?? "")}</ReactMarkdown> : fmt(it.data[c])}
+                </td>
+              ))}
               <td><button className="gen-del" onClick={() => void remove(it.entity_id)}>削除</button></td>
             </tr>
           ))}

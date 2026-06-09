@@ -204,7 +204,7 @@ export function setFeatureFlags(flags: Partial<FeatureFlags>): Promise<FeatureFl
 export interface FieldSpec {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "date" | "checkbox";
+  type: "text" | "textarea" | "number" | "date" | "checkbox" | "markdown";
 }
 
 export interface ChartSpec {
@@ -214,13 +214,33 @@ export interface ChartSpec {
   value: string;    // numeric field key
 }
 
+export interface StatSpec {
+  label: string;
+  value: string;
+  agg: "sum" | "count" | "avg";
+}
+
+export interface GanttSpec {
+  label: string;
+  start: string;
+  end: string;
+}
+
+export interface CalendarSpec {
+  date: string;
+  title: string;
+}
+
 export interface ViewManifest {
   feature: string;
   title: string;
   theme: string;
   fields: FieldSpec[];
   list_columns: string[];
+  stats?: StatSpec[];
   charts?: ChartSpec[];
+  gantt?: GanttSpec | null;
+  calendar?: CalendarSpec | null;
   generated_by: string;
 }
 

@@ -205,7 +205,11 @@ def plan_and_register(req: PlanRequest) -> PlanResponse:
     that the Generated View Renderer draws (true self-expansion)."""
     plan = generate_plan(req)
     manifest = None
-    if plan.feature != "task":
+    # Decide built-in-task vs generated feature DETERMINISTICALLY from the request,
+    # not from the LLM's plan.feature (which it may mislabel as "task").
+    if infer_feature(req.goal) == "task":
+        plan.feature = "task"  # the built-in, hand-crafted task screen
+    else:
         from app.workers import ui_designer
 
         manifest = ui_designer.design(req.goal)
