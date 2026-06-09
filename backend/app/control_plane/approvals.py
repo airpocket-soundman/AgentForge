@@ -108,11 +108,23 @@ def approve(approval_id: str) -> dict:
             has_worker = any(v.get("has_worker", True) for v in views)
             theme = views[0].get("theme", "default") or "default"
 
+    # Activate the generated view_manifest (for generated features) and carry its
+    # title so the dynamic left menu can label it.
+    title = {"task": "タスク管理", "pdf_memo": "PDFメモ"}.get(feature, feature)
+    gv_ref = db.collection("generated_views").document(f"{project_id}_{feature}")
+    gv = gv_ref.get()
+    if gv.exists:
+        gv_ref.set({"status": "active", "updated_at": _now_iso()}, merge=True)
+        gvd = gv.to_dict()
+        title = gvd.get("title") or title
+        theme = gvd.get("theme", theme) or theme
+
     _feature_state_ref(project_id).set(
         {
             feature: "active",
             f"{feature}_worker": has_worker,
             f"{feature}_theme": theme,
+            f"{feature}_title": title,
             "updated_at": _now_iso(),
         },
         merge=True,

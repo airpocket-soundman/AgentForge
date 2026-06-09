@@ -68,3 +68,19 @@ services:
       - /app/node_modules # keep container-installed deps, don't shadow with host
     depends_on:
       - backend
+
+  # SEPARATE admin app on its own port (admin.html). Not linked from the user app.
+  frontend-admin:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    command: ["npm", "run", "dev", "--", "--port", "5174", "--host"]
+    ports:
+      - "5174:5174"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8080
+    volumes:
+      - ./frontend:/app:cached
+      - /app/node_modules
+    depends_on:
+      - backend

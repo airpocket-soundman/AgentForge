@@ -14,4 +14,12 @@ export default defineConfig({
       "/api": { target: apiTarget, changeOrigin: true },
     },
   },
+  build: {
+    // Two entries: the user app (index.html) and the SEPARATE admin app
+    // (admin.html). In dev they run on different ports (compose); in a static
+    // build both land in dist/ (admin reachable at /admin.html).
+    rollupOptions: {
+      input: { main: "index.html", admin: "admin.html" },
+    },
+  },
 });

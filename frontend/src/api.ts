@@ -198,3 +198,64 @@ export function setFeatureFlags(flags: Partial<FeatureFlags>): Promise<FeatureFl
     body: JSON.stringify(flags),
   });
 }
+
+// --- AI-generated features: view manifest + generic entity CRUD (real self-expansion) ---
+
+export interface FieldSpec {
+  key: string;
+  label: string;
+  type: "text" | "textarea" | "number" | "date" | "checkbox";
+}
+
+export interface ChartSpec {
+  type: "bar" | "line" | "pie" | "doughnut";
+  title: string;
+  category: string; // field key for labels
+  value: string;    // numeric field key
+}
+
+export interface ViewManifest {
+  feature: string;
+  title: string;
+  theme: string;
+  fields: FieldSpec[];
+  list_columns: string[];
+  charts?: ChartSpec[];
+  generated_by: string;
+}
+
+export interface Entity {
+  entity_id: string;
+  feature: string;
+  project_id: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getView(feature: string, projectId = PROJECT_ID): Promise<ViewManifest> {
+  return request<ViewManifest>(
+    `/api/app/view/${encodeURIComponent(feature)}?project_id=${encodeURIComponent(projectId)}`,
+  );
+}
+
+export function listEntities(feature: string, projectId = PROJECT_ID): Promise<{ items: Entity[] }> {
+  return request<{ items: Entity[] }>(
+    `/api/app/entities?feature=${encodeURIComponent(feature)}&project_id=${encodeURIComponent(projectId)}`,
+  );
+}
+
+export function createEntity(
+  feature: string,
+  data: Record<string, unknown>,
+  projectId = PROJECT_ID,
+): Promise<Entity> {
+  return request<Entity>("/api/app/entities", {
+    method: "POST",
+    body: JSON.stringify({ feature, project_id: projectId, data }),
+  });
+}
+
+export function deleteEntity(entityId: string): Promise<{ deleted: string }> {
+  return request(`/api/app/entities/${entityId}`, { method: "DELETE" });
+}

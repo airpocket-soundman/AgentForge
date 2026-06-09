@@ -95,6 +95,20 @@ def register_pending_views(plan: WorkPlan) -> None:
         _audit("ui_view_registry.pending", view.view_id, {"route": view.route})
 
 
+def register_generated_view(project_id: str, manifest) -> None:
+    """Store the UI Designer worker's REAL view_manifest (pending) for a generated
+    feature, so the Generated View Renderer can draw it after approval."""
+    get_db().collection("generated_views").document(f"{project_id}_{manifest.feature}").set(
+        {
+            **manifest.model_dump(mode="json"),
+            "project_id": project_id,
+            "status": "pending",
+            "created_at": _now_iso(),
+        }
+    )
+    _audit("generated_view.pending", manifest.feature, {"title": manifest.title})
+
+
 def create_approval_request(plan: WorkPlan) -> str:
     approval_id = f"appr_{uuid.uuid4().hex[:12]}"
     get_db().collection("approval_requests").document(approval_id).set(
@@ -125,6 +139,9 @@ _RESET_COLLECTIONS = [
     "audit_logs",
     "app_tasks",
     "feature_states",
+    "generated_views",
+    "app_entities",
+    "feature_chats",
 ]
 
 

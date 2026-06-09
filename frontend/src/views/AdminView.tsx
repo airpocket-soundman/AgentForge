@@ -8,7 +8,7 @@ import {
 
 // Admin-only page (isolated from user data; gated by the separate admin allowlist).
 // Lets the owner edit the USER allowlist and toggle feature flags (e.g. BYOK entry).
-export function AdminView({ onBack }: { onBack: () => void }) {
+export function AdminView({ onBack }: { onBack?: () => void }) {
   const [cfg, setCfg] = useState<AdminConfig | null>(null);
   const [emailsText, setEmailsText] = useState("");
   const [byok, setByok] = useState(false);
@@ -56,7 +56,7 @@ export function AdminView({ onBack }: { onBack: () => void }) {
   return (
     <div className="view">
       <div className="view__head">
-        <button className="back" onClick={onBack}>← 戻る</button>
+        {onBack && <button className="back" onClick={onBack}>← 戻る</button>}
         <h2>⚙ 管理者ページ</h2>
       </div>
       <p className="hint">

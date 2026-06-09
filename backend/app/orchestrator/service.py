@@ -177,7 +177,15 @@ def generate_plan(req: PlanRequest) -> WorkPlan:
     return plan
 
 
-def _summarize(plan: WorkPlan) -> str:
+def _summarize(plan: WorkPlan, manifest=None) -> str:
+    if manifest is not None:
+        cols = "、".join(f.label for f in manifest.fields) or "なし"
+        return (
+            f"「{manifest.title}」の画面を UI Designer ワーカーが設計しました（{manifest.generated_by}）。\n"
+            f"・入力項目: {cols}\n"
+            f"・データ保存: 汎用CRUDに自動接続\n"
+            f"「反映して」で承認すると、左メニューに追加されて実際に使えます。"
+        )
     apis = "、".join(a.api_id for a in plan.planned_apis) or "なし"
     views = "、".join(v.view_id for v in plan.planned_views) or "なし"
     return (
@@ -185,14 +193,34 @@ def _summarize(plan: WorkPlan) -> str:
         f"・ステップ: {len(plan.plan)}（{ '→'.join(s.worker for s in plan.plan) }）\n"
         f"・生成予定API: {apis}\n"
         f"・生成予定画面: {views}\n"
-        f"これらを pending 登録しました。「反映して」で承認すると有効化されます（Phase 4）。"
+        f"これらを pending 登録しました。「反映して」で承認すると有効化されます。"
     )
 
 
 def plan_and_register(req: PlanRequest) -> PlanResponse:
-    """Generate a plan and register it (pending) in the Control Plane."""
+    """Generate a plan and register it (pending) in the Control Plane.
+
+    For the built-in `task` feature we keep the polished hard-coded screen. For ANY
+    other request the UI Designer worker actually runs and designs a real view_manifest
+    that the Generated View Renderer draws (true self-expansion)."""
     plan = generate_plan(req)
+    manifest = None
+    if plan.feature != "task":
+        from app.workers import ui_designer
+
+        manifest = ui_designer.design(req.goal)
+        plan.feature = manifest.feature  # the slug the designer chose
+        if plan.planned_views:
+            v = plan.planned_views[0]
+            v.view_id = f"{manifest.feature}_view"
+            v.route = f"/app/{manifest.feature}"
+            v.title = manifest.title
+            v.theme = manifest.theme  # type: ignore[assignment]
+
     approval_id = registry.register_plan(plan)
+    if manifest is not None:
+        registry.register_generated_view(req.project_id, manifest)
+
     return PlanResponse(
-        task_id=plan.task_id, approval_id=approval_id, plan=plan, summary=_summarize(plan)
+        task_id=plan.task_id, approval_id=approval_id, plan=plan, summary=_summarize(plan, manifest)
     )

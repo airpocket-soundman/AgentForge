@@ -12,6 +12,7 @@ from app.auth import require_allowed_user
 from app.config import get_settings
 from app.control_plane.router import router as control_plane_router
 from app.generated_app.features import router as feature_worker_router
+from app.generated_app.generic import router as generic_router
 from app.generated_app.tasks import router as task_router
 from app.orchestrator.router import router as orchestrator_router
 from app.reception.router import router as reception_router
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(orchestrator_router, dependencies=guard)
     app.include_router(control_plane_router, dependencies=guard)
     app.include_router(task_router, dependencies=guard)
+    app.include_router(generic_router, dependencies=guard)
     app.include_router(feature_worker_router, dependencies=guard)
     return app
 
