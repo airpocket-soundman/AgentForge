@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { disableFeature, getFeatureStates, getMe, resetAll, type Me } from "../api";
+import { disableFeature, getFeatureStates, getMe, resetAll, stopAllWorkers, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
 import { ByokView } from "../views/ByokView";
+import { StatusView } from "../views/StatusView";
 
 // Admin is a SEPARATE app (frontend/admin.html), not reachable from here.
 // EVERY feature (incl. task management) is AI-generated and rendered by the
@@ -12,7 +13,8 @@ import { ByokView } from "../views/ByokView";
 type View =
   | { kind: "chat" }
   | { kind: "feature"; key: string }
-  | { kind: "byok" };
+  | { kind: "byok" }
+  | { kind: "status" };
 
 export function AppShell({ user }: { user: User | null }) {
   // Raw feature_states doc: { <feature>: "active"|"disabled", <feature>_title, _theme, _worker, ... }
@@ -34,9 +36,24 @@ export function AppShell({ user }: { user: User | null }) {
   useEffect(() => { void loadStates(); }, []);
   useEffect(() => { void getMe().then(setMe).catch(() => {}); }, []); // identity + flags
 
-  function openOverlay(kind: "byok") {
+  function openOverlay(kind: "byok" | "status") {
     setPrevView(view);
     setView({ kind });
+  }
+
+  const [stoppingAll, setStoppingAll] = useState(false);
+  async function handleStopAll() {
+    if (stoppingAll) return;
+    if (!confirm("実行中のワーカーをすべて停止します（全セッション）。よろしいですか？")) return;
+    setStoppingAll(true);
+    try {
+      const r = await stopAllWorkers();
+      alert(`停止しました（${r.stopped}件）。`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStoppingAll(false);
+    }
   }
 
   if (denied) {
@@ -102,6 +119,21 @@ export function AppShell({ user }: { user: User | null }) {
         <div className="topbar__brand">AgentForge</div>
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
         <span className="spacer" />
+        <button
+          className="stopall-top"
+          title="実行中のワーカーをすべて停止（全セッション）"
+          onClick={() => void handleStopAll()}
+          disabled={stoppingAll}
+        >
+          ■ 全停止
+        </button>
+        <button
+          className={view.kind === "status" ? "byok-top byok-top--active" : "byok-top"}
+          title="ステータスモニタ（起動中ワーカー一覧）"
+          onClick={() => openOverlay("status")}
+        >
+          📊 ステータス
+        </button>
         {me?.feature_flags.byok_visible && (
           <button className="byok-top" title="自分のAPIキー設定（試作）" onClick={() => openOverlay("byok")}>
             🔑 API設定
@@ -157,9 +189,12 @@ export function AppShell({ user }: { user: User | null }) {
             <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
           </div>
           {view.kind === "feature" && (
-            <GeneratedView feature={view.key} onEdited={() => setView({ kind: "chat" })} />
+            // After an in-place worker edit, refresh the sidebar (title/theme may
+            // change) but STAY on the feature screen — the worker chat lives here.
+            <GeneratedView feature={view.key} onEdited={() => void loadStates()} />
           )}
           {view.kind === "byok" && <ByokView onBack={() => setView(prevView)} />}
+          {view.kind === "status" && <StatusView onBack={() => setView(prevView)} />}
         </main>
       </div>
     </div>

@@ -239,7 +239,7 @@ def start_edit(
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso())
     threading.Thread(
         target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
     ).start()
@@ -289,6 +289,52 @@ def _run_edit(
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
 
 
+def handle_request(
+    project_id: str,
+    goal: str,
+    images: list[dict] | None = None,
+    hint_feature: str | None = None,
+) -> dict:
+    """Single pipeline entry for a substantive request, from the main chat OR a
+    feature screen. The ORCHESTRATOR decides create-vs-edit-vs-chat; we then run the
+    SAME pipeline (start_plan for new, start_edit for existing).
+
+    `goal` is passed through VERBATIM to the generator — classification never
+    rewrites it, so the original intent is preserved while the plan/design stages
+    add detail. Returns {"action", "feature", "building"}.
+    """
+    from app.orchestrator import service as orchestrator
+
+    decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
+    action = decision.get("action")
+    feature = decision.get("feature")
+    # The Orchestrator read the history and may add a context note (resolved target
+    # / premise). Keep the user's ORIGINAL text verbatim at the front and APPEND the
+    # note — enrich without degrading. The pipeline then just executes this.
+    note = (decision.get("context_note") or "").strip()
+    pipeline_goal = f"{goal}\n\n[文脈（過去の会話から補足）] {note}" if note else goal
+    if action in ("edit", "create"):
+        # Runaway/loop guard: a heavy worker run. Trip the breaker before spending
+        # PRO tokens if this project is looping (rolling run-rate cap).
+        allowed, count = guard_run(project_id)
+        if not allowed:
+            return {"action": "rate_limited", "feature": None, "building": False, "count": count}
+    if action == "edit" and feature:
+        start_edit(project_id, feature, pipeline_goal, images=images)
+        return {"action": "edit", "feature": feature, "building": True}
+    if action == "create":
+        start_plan(project_id, pipeline_goal, images=images)
+        return {"action": "create", "feature": None, "building": True}
+    return {"action": "chat", "feature": None, "building": False}
+
+
+def guard_run(project_id: str) -> tuple[bool, int]:
+    """Record a heavy worker run and report whether it's within the loop-guard cap."""
+    from app.control_plane import guard
+
+    return guard.record_and_check(project_id)
+
+
 def current_build(project_id: str) -> dict:
     """The conversation's background-build record ({status, phase, goal, ...})."""
     snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
@@ -303,22 +349,104 @@ _PHASE_LABELS = {
     "editing": "修正版",
 }
 
-# A status question while the main worker is busy ("動いてる？" "まだ？").
-_STATUS_KEYWORDS = ("動いて", "進捗", "まだ", "状況", "どう", "終わ", "できた", "どれくらい", "status")
+# Per-phase time budget (seconds). Past the budget → "slow"; well past → "stuck".
+# Non-resident workers can't be pinged directly, so the build record's timestamps
+# are the observable: a long gap with status still "designing" means the worker
+# (or its LLM call) likely died, leaving the chat locked.
+_PHASE_BUDGET = {"planning": 40, "revising": 40, "codegen": 130, "editing": 130}
+_STUCK_FACTOR = 2.5
 
 
-def building_status_reply(project_id: str, text: str, build: dict) -> str:
-    """The reception worker stays responsive while the main worker is busy: it
-    explains the current status instead of starting new work."""
-    what = _PHASE_LABELS.get(build.get("phase"), "作業")
-    goal = (build.get("goal") or "").strip()
-    target = f"「{goal[:30]}」の" if goal else ""
-    head = "はい、動いています。" if any(k in text for k in _STATUS_KEYWORDS) else "ただいま作業中です。"
-    return (
-        f"{head}いま{target}{what}をAIワーカーが作成しています。"
-        "完了するとこのチャットに自動で表示されます。少しお待ちください。\n"
-        "（このチャットはそのまま使えます。新しいご依頼は完了後にどうぞ。）"
+def _age_sec(iso: str | None) -> float:
+    if not iso:
+        return 0.0
+    try:
+        then = datetime.fromisoformat(iso)
+    except ValueError:
+        return 0.0
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - then).total_seconds())
+
+
+def diagnose_build(project_id: str) -> dict:
+    """Actually investigate the running pipeline (not a canned reply).
+
+    Reads the build record the background worker writes and judges health from the
+    elapsed time vs the phase budget: progressing / slow / stuck. Used by the
+    reception worker to answer 'is it really running?' truthfully and to release a
+    locked chat when a worker has clearly died.
+    """
+    build = current_build(project_id)
+    status = build.get("status") or "idle"
+    phase = build.get("phase")
+    goal = build.get("goal", "")
+    if status != _BUILD_DESIGNING:
+        health = status if status in ("error", "done") else "idle"
+        return {"status": status, "phase": phase, "goal": goal, "health": health,
+                "total_sec": 0, "since_update_sec": 0, "error": build.get("error")}
+    total = int(_age_sec(build.get("started_at") or build.get("updated_at")))
+    since = int(_age_sec(build.get("updated_at")))
+    budget = _PHASE_BUDGET.get(phase or "planning", 90)
+    if total > budget * _STUCK_FACTOR:
+        health = "stuck"
+    elif total > budget:
+        health = "slow"
+    else:
+        health = "progressing"
+    return {"status": status, "phase": phase, "goal": goal, "health": health,
+            "total_sec": total, "since_update_sec": since, "error": build.get("error")}
+
+
+def recover_build(project_id: str, reason: str = "") -> None:
+    """Release a stuck/cancelled background build so the chat isn't locked forever."""
+    _set_build(conversation_id_for(project_id), status=_BUILD_ERROR, error=(reason[:300] or "recovered"))
+
+
+def building_status_reply(project_id: str, text: str, diag: dict) -> str:
+    """The reception worker INVESTIGATES the pipeline (diagnose_build) and explains
+    the real situation in its own words — it reasons over the diagnostic facts with
+    the reception-agent prompt, rather than emitting a fixed 'please wait' template.
+    Falls back to a concise factual line only when no LLM is reachable.
+    """
+    what = _PHASE_LABELS.get(diag.get("phase"), "作業")
+    goal = (diag.get("goal") or "").strip()
+    total = diag.get("total_sec", 0)
+    since = diag.get("since_update_sec", 0)
+    health = diag.get("health")
+    facts = (
+        f"- 対象: {goal[:80] or '（不明）'}\n"
+        f"- 現在のフェーズ: {what}（{diag.get('phase')}）\n"
+        f"- 経過: {total}秒（最終更新から {since}秒）\n"
+        f"- 自動判定: {health}（progressing=順調 / slow=想定より遅い / stuck=停止の可能性）\n"
+        f"- 直近のエラー: {diag.get('error') or 'なし'}"
     )
+    from app import agents
+    from app.llm.gateway import ModelTier, get_llm
+
+    llm = get_llm()
+    if llm.enabled:
+        prompt = (
+            f"{agents.load('reception')}\n\n"
+            "あなたは受付AIワーカーです。バックグラウンドで動くアプリ生成パイプラインの稼働状況を、"
+            "下の診断結果に基づいて正直に説明してください。定型文は禁止。いまどの工程か、順調か/"
+            "遅いか/止まっていそうか、ユーザーは待てばよいか・中止(「キャンセル」)すべきかを、"
+            "2〜3文の簡潔な日本語で伝えます。stuck の場合は停止の可能性と再試行/キャンセルを案内し、"
+            "誇張や断定のしすぎはしないこと。\n\n"
+            f"【パイプライン診断（実測）】\n{facts}\n\n"
+            f"【ユーザーの発言】{text}\n\n"
+            "受付ワーカーの返答:"
+        )
+        try:
+            out = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            pass
+    # Fallback (no LLM): still grounded in the diagnosis, not a vague template.
+    if health == "slow":
+        return f"稼働中です。{what}に想定より時間がかかっています（経過{total}秒）。もう少し待つか「キャンセル」で中止できます。"
+    return f"稼働中です。いま{what}を生成しています（経過{total}秒・順調）。完了すると自動表示されます。中止は「キャンセル」。"
 
 
 def get_candidate(project_id: str) -> dict | None:
@@ -353,7 +481,7 @@ def start_plan(
     """Generate (or revise) a design proposal in the background, then post it."""
     conversation_id = conversation_id_for(project_id)
     phase = "revising" if (feedback and previous) else "planning"
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso())
     threading.Thread(
         target=_run_plan, args=(project_id, goal, feedback, previous, images), daemon=True
     ).start()
@@ -389,7 +517,7 @@ def _run_plan(
 def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso())
     threading.Thread(
         target=_run_codegen, args=(project_id, goal, plan), daemon=True
     ).start()
@@ -450,6 +578,9 @@ def conversation_state(project_id: str) -> dict:
         "conversation_id": conversation_id,
         "messages": data.get("messages", []),
         "building": build.get("status") == _BUILD_DESIGNING,
+        # The work happening NOW (planning/revising/codegen/editing). The flow stage
+        # stays "plan" during code generation, so the spinner must key off phase.
+        "phase": build.get("phase") if build.get("status") == _BUILD_DESIGNING else None,
         "stage": stage,
         "mode": flow.get("mode", "create"),
         "pending_feature": flow.get("feature") if stage == _STAGE_BUILT else None,

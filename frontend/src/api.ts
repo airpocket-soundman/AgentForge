@@ -44,6 +44,8 @@ export interface ConversationState {
   conversation_id: string;
   messages: ChatMessage[];
   building: boolean;
+  // What the worker is doing now while building: "planning" | "revising" | "codegen" | "editing".
+  phase?: string | null;
   // Two-stage flow: "idle" | "plan" (proposal under review) | "built" (preview + publish).
   stage: "idle" | "plan" | "built";
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
@@ -159,23 +161,62 @@ export function resetAll(): Promise<{ status: string; deleted: Record<string, nu
   return request("/api/control-plane/reset", { method: "POST", body: "{}" });
 }
 
+// --- Status monitor: running background workers + global stop ---
+
+export interface RunningWorker {
+  conversation_id: string;
+  project_id: string;
+  phase: string | null;
+  goal: string;
+  total_sec: number;
+  health: "progressing" | "slow" | "stuck" | string;
+}
+
+export interface WorkerUsage {
+  runs_in_window: number;
+  max_runs: number;
+  window_sec: number;
+  total_runs: number;
+  total_blocked: number;
+}
+
+export function getWorkers(projectId = PROJECT_ID): Promise<{ workers: RunningWorker[]; usage: WorkerUsage }> {
+  return request(`/api/control-plane/workers?project_id=${encodeURIComponent(projectId)}`);
+}
+
+// Stop ALL running background workers across sessions (release every locked chat).
+export function stopAllWorkers(): Promise<{ stopped: number; conversations: string[] }> {
+  return request("/api/control-plane/stop-all", { method: "POST", body: "{}" });
+}
+
 // --- Feature-level managing AI worker (standard: instruction area per feature) ---
+// A GENERAL chat with the feature's own worker: it answers conversationally and,
+// when asked to change the feature, forwards the request into the SAME app-design
+// pipeline the main chat uses (the Orchestrator decides create-vs-edit). The
+// resulting preview + 反映 surface from the shared conversation state
+// (getConversationState / getCandidate / sendMessage("反映して")).
+
+export interface FeatureWorkerState {
+  enabled: boolean;
+  messages: ChatMessage[];
+}
 
 export function getFeatureWorker(
   feature: string,
   projectId = PROJECT_ID,
-): Promise<{ enabled: boolean; messages: ChatMessage[] }> {
-  return request(`/api/app/features/${feature}/worker?project_id=${encodeURIComponent(projectId)}`);
+): Promise<FeatureWorkerState> {
+  return request(`/api/app/features/${encodeURIComponent(feature)}/worker?project_id=${encodeURIComponent(projectId)}`);
 }
 
 export function sendFeatureWorkerMessage(
   feature: string,
   text: string,
+  attachments: Attachment[] = [],
   projectId = PROJECT_ID,
-): Promise<{ reply: ChatMessage; created: { task_id: string; title: string }[] }> {
-  return request(`/api/app/features/${feature}/worker/messages`, {
+): Promise<{ reply: ChatMessage; building: boolean; created: { task_id: string; title: string }[] }> {
+  return request(`/api/app/features/${encodeURIComponent(feature)}/worker/messages`, {
     method: "POST",
-    body: JSON.stringify({ project_id: projectId, text }),
+    body: JSON.stringify({ project_id: projectId, text, attachments }),
   });
 }
 
@@ -306,19 +347,6 @@ export async function getCandidate(projectId = PROJECT_ID): Promise<ViewManifest
     `/api/reception/candidate/${encodeURIComponent(projectId)}`,
   );
   return r.manifest ?? null;
-}
-
-// Edit THIS feature from its own worker chat (scoped to one feature).
-export function editFeatureRequest(
-  feature: string,
-  text: string,
-  attachments: Attachment[] = [],
-  projectId = PROJECT_ID,
-): Promise<{ building: boolean; feature: string }> {
-  return request(`/api/app/features/${encodeURIComponent(feature)}/edit`, {
-    method: "POST",
-    body: JSON.stringify({ project_id: projectId, text, attachments }),
-  });
 }
 
 export function listEntities(feature: string, projectId = PROJECT_ID): Promise<{ items: Entity[] }> {

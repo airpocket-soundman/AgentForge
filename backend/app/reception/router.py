@@ -41,11 +41,34 @@ def post_message(body: MessageIn) -> ReceptionReply:
     conversation_id = service.conversation_id_for(body.project_id)
     service.append_message(conversation_id, ChatMessage(role="user", text=body.text))
 
-    # The main worker is busy: the reception worker stays responsive and reports
-    # status instead of starting new (or duplicate) work. The chat is never blocked.
+    # The main worker is busy: the reception worker actually INVESTIGATES the
+    # pipeline (diagnose_build) instead of replying from a template, and can
+    # release a chat that a dead worker left locked.
     build = service.current_build(body.project_id)
     if build.get("status") == "designing":
-        reply = ChatMessage(role="assistant", text=service.building_status_reply(body.project_id, body.text, build))
+        diag = service.diagnose_build(body.project_id)
+        # Escape hatch: cancel even while a build is running (busy-guard otherwise
+        # blocks every message, including 「キャンセル」).
+        if service.is_cancel(body.text):
+            service.recover_build(body.project_id, "user cancelled")
+            service.clear_flow(body.project_id)
+            reply = ChatMessage(role="assistant", text="作業を中止しました。新しいご依頼をどうぞ。")
+            service.append_message(conversation_id, reply)
+            return ReceptionReply(conversation_id=conversation_id, reply=reply, detected_intent="cancel", building=False)
+        # Diagnosed as stuck (no progress past the phase budget) → unlock.
+        if diag["health"] == "stuck":
+            service.recover_build(body.project_id, f"stuck at {diag.get('phase')} for {diag['total_sec']}s")
+            reply = ChatMessage(
+                role="assistant",
+                text=(
+                    f"{diag['total_sec']} 秒以上応答がなく、処理が停止した可能性があります。"
+                    "安全のため解除しました。お手数ですが、もう一度ご依頼ください"
+                    "（直前のプランは保持しています）。"
+                ),
+            )
+            service.append_message(conversation_id, reply)
+            return ReceptionReply(conversation_id=conversation_id, reply=reply, detected_intent="recovered", building=False)
+        reply = ChatMessage(role="assistant", text=service.building_status_reply(body.project_id, body.text, diag))
         service.append_message(conversation_id, reply)
         return ReceptionReply(
             conversation_id=conversation_id, reply=reply, detected_intent="busy", building=True
@@ -71,12 +94,19 @@ def post_message(body: MessageIn) -> ReceptionReply:
             service.clear_flow(body.project_id)
             reply_text = "設計をキャンセルしました。新しく機能を依頼してください。"
         elif service.is_plan_ok(body.text):
-            service.start_codegen(body.project_id, flow["goal"], flow["plan"])
-            building = True
-            reply_text = (
-                "プランを承認しました。AIワーカーがコードを生成します（数十秒〜1分）。\n"
-                "完了するとここにプレビューが表示されます。"
-            )
+            allowed, count = service.guard_run(body.project_id)
+            if not allowed:
+                reply_text = (
+                    f"短時間に実行が集中しています（直近{count}回）。トークン保護のため一時停止しました。"
+                    "少し待ってから「これで作って」と送ってください。"
+                )
+            else:
+                service.start_codegen(body.project_id, flow["goal"], flow["plan"])
+                building = True
+                reply_text = (
+                    "プランを承認しました。AIワーカーがコードを生成します（数十秒〜1分）。\n"
+                    "完了するとここにプレビューが表示されます。"
+                )
         else:
             # Anything else = a revision instruction; rebuild the proposal.
             service.start_plan(
@@ -132,34 +162,23 @@ def post_message(body: MessageIn) -> ReceptionReply:
         else:
             reply_text = "無効化できる有効な機能がありません。"
 
-    elif service.is_edit_request(body.text) and service.resolve_feature(
-        body.project_id, body.text, allow_lone_fallback=False
-    ):
-        # Edit an EXISTING feature EXPLICITLY named (e.g. 「電卓を修正して…」). An explicit
-        # reference wins even over a build keyword, so 「電卓に履歴を追加して」 edits the
-        # calculator rather than creating a new feature.
-        feat = service.resolve_feature(body.project_id, body.text, allow_lone_fallback=False)
-        service.start_edit(body.project_id, feat, goal_text, images=images)
-        building = True
-        reply_text = f"「{service.feature_title(body.project_id, feat)}」の修正版を作成しています…（数十秒）"
-
-    elif intent.startswith("build_feature:"):
-        # A build request creates a NEW feature (design PROPOSAL first; no code yet).
-        # This runs BEFORE the lone-feature edit fallback so 「カウンターも増やして作って」
-        # builds a new feature instead of silently overwriting the only existing one.
-        service.start_plan(body.project_id, goal_text, images=images)
-        building = True
-        reply_text = "設計案を作成しています…（数秒）。少しお待ちください。"
-
-    elif service.is_edit_request(body.text) and service.resolve_feature(body.project_id, body.text):
-        # Edit phrasing with no explicit target but exactly one active feature → it.
-        feat = service.resolve_feature(body.project_id, body.text)
-        service.start_edit(body.project_id, feat, goal_text, images=images)
-        building = True
-        reply_text = f"「{service.feature_title(body.project_id, feat)}」の修正版を作成しています…（数十秒）"
-
     else:
-        reply_text = service.compose_reply(body.text, None)
+        # Substantive request: the ORCHESTRATOR decides new-vs-edit-vs-chat and the
+        # SAME pipeline runs (create → design proposal; edit → regenerate existing).
+        res = service.handle_request(body.project_id, goal_text, images=images)
+        if res["action"] == "edit":
+            building = True
+            reply_text = f"「{service.feature_title(body.project_id, res['feature'])}」の修正版を作成しています…（数十秒）"
+        elif res["action"] == "create":
+            building = True
+            reply_text = "設計案を作成しています…（数秒）。少しお待ちください。"
+        elif res["action"] == "rate_limited":
+            reply_text = (
+                f"短時間に実行が集中しています（直近{res.get('count', '')}回）。"
+                "トークン保護のため一時停止しました。少し待ってからもう一度お試しください。"
+            )
+        else:
+            reply_text = service.compose_reply(body.text, None)
 
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
     service.append_message(conversation_id, assistant_msg)

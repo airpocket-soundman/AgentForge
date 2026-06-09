@@ -123,6 +123,27 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   font-weight: 600;
 }
 .reset-top:hover { background: #3a2a2a; }
+.stopall-top {
+  padding: 6px 12px;
+  border: 1px solid #c0455a;
+  border-radius: 8px;
+  background: #3a2030;
+  color: #ffb4c2;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.stopall-top:hover { background: #50263a; }
+.stopall-top:disabled { opacity: .5; cursor: not-allowed; }
+.byok-top--active { background: #3a3a58; }
+
+/* Status monitor view */
+.status-actions { display: flex; gap: 10px; align-items: center; margin: 4px 0 8px; }
+.status-sub { margin: 12px 0 6px; font-size: 14px; }
+.status-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.status-table th, .status-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--gv-border); }
+.status-table th { color: var(--gv-muted); font-weight: 600; }
+.status-goal { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .body { flex: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
 
@@ -308,10 +329,32 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .composer-wrap, .feature-edit-wrap { flex: 0 0 auto; }
 
 /* Per-feature worker box: edit ONLY this feature from its own screen. */
-.feature-edit { display: flex; gap: 8px; flex: 0 0 auto; }
-.feature-edit input { flex: 1; padding: 9px 12px; border: 1px solid var(--gv-border-strong); border-radius: 9px; font: inherit; background: var(--gv-surface); }
+.feature-edit { display: flex; gap: 8px; flex: 0 0 auto; align-items: flex-end; }
+.feature-edit input, .feature-edit textarea { flex: 1; padding: 9px 12px; border: 1px solid var(--gv-border-strong); border-radius: 9px; font: inherit; background: var(--gv-surface); resize: none; }
 .feature-edit button { padding: 9px 16px; border: 0; border-radius: 9px; background: var(--gv-accent, #6366f1); color: #fff; cursor: pointer; white-space: nowrap; }
 .feature-edit button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Feature screen vertical split: app pane / draggable divider / worker chat.
+   Drag the divider to resize; drag to either end to show only one side. */
+.gv-split { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.gv-pane { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.gv-pane--app { flex: 0 1 auto; }
+.gv-pane--app .gen-app-frame { flex: 1 1 auto; height: auto; min-height: 0; border-radius: 8px; }
+.gv-pane--chat { flex: 1 1 0; }
+.gv-divider { flex: 0 0 12px; cursor: row-resize; touch-action: none; position: relative; margin: 2px 0; background: var(--gv-surface); border-top: 1px solid var(--gv-border); border-bottom: 1px solid var(--gv-border); }
+.gv-divider::before { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 44px; height: 4px; border-radius: 2px; background: var(--gv-border-strong); }
+.gv-divider:hover::before, .gv-divider:active::before { background: var(--gv-accent, #6366f1); }
+
+/* Per-feature worker CHAT — fills its pane; thread scrolls, composer pinned. The
+   feature's own worker: general instructions, conversation, and in-place
+   regenerate → preview → 反映. */
+.feature-worker { flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.feature-worker__off { flex: 0 0 auto; }
+.fw-scroll { flex: 1 1 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.fw-preview .fw-actions { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--gv-border); background: var(--gv-surface); }
+.fw-actions button { padding: 8px 14px; border: 0; border-radius: 9px; background: var(--gv-accent, #6366f1); color: #fff; cursor: pointer; }
+.fw-actions button.rollback { background: transparent; color: var(--gv-muted); border: 1px solid var(--gv-border-strong); }
+.fw-actions button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* In-chat preview of generated code before publishing. */
 .chat-preview { border: 1px solid var(--gv-border); border-radius: 10px; overflow: hidden; background: #fff; }

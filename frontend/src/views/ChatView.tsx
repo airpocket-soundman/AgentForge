@@ -33,6 +33,7 @@ export function ChatView({
   const [sending, setSending] = useState(false);
   const [building, setBuilding] = useState(false);
   const [stage, setStage] = useState<ConversationState["stage"]>("idle");
+  const [phase, setPhase] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationState["mode"]>("create");
   const [pendingFeature, setPendingFeature] = useState<string | null>(null);
   const [preview, setPreview] = useState<ViewManifest | null>(null);
@@ -50,8 +51,22 @@ export function ChatView({
       setMessages(s.messages.length ? s.messages : [WELCOME]);
       setBuilding(s.building);
       setStage(s.stage);
+      setPhase(s.phase ?? null);
       setMode(s.mode);
       setPendingFeature(s.pending_feature);
+      // Fetch the candidate app the moment code is built (create OR edit), in the
+      // SAME call that flips the stage — avoids a one-shot race that left the
+      // preview blank. Keep any existing preview if a transient fetch fails.
+      if (s.stage === "built") {
+        try {
+          const c = await getCandidate();
+          if (c) setPreview(c);
+        } catch {
+          /* keep current preview; the poll will retry */
+        }
+      } else {
+        setPreview(null);
+      }
       scrollDown();
       return s;
     } catch {
@@ -64,23 +79,14 @@ export function ChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll while a background step (planning or code generation) is running.
+  // Poll while a background step runs, and keep polling until the built-stage
+  // preview has actually loaded (so a slow/again-null candidate still appears).
   useEffect(() => {
-    if (!building) return;
+    if (!building && !(stage === "built" && !preview?.html)) return;
     const id = setInterval(() => void loadState(), 2500);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [building]);
-
-  // Fetch the candidate app once code is built and awaiting publish (works for
-  // edits too, where the live manifest is still the previous version).
-  useEffect(() => {
-    if (stage === "built") {
-      getCandidate().then(setPreview).catch(() => setPreview(null));
-    } else {
-      setPreview(null);
-    }
-  }, [stage, pendingFeature]);
+  }, [building, stage, preview]);
 
   async function send(text: string, attachments: Attachment[] = []) {
     // The chat stays usable while a background build runs — the reception worker
@@ -113,10 +119,16 @@ export function ChatView({
     await send(text, files);
   }
 
+  // Drive the spinner by the ACTIVE phase, not the flow stage: the stage stays
+  // "plan" during code generation, so keying off stage mislabels codegen as 設計案.
   const spinnerText =
-    stage === "plan"
-      ? "🤖 設計案を作成しています…（数秒）"
-      : "🤖 AIワーカーがコードを生成しています…（数十秒〜1分／他の画面に移動しても続きます）";
+    phase === "codegen"
+      ? "🤖 AIワーカーがコードを生成しています…（数十秒〜1分／他の画面に移動しても続きます）"
+      : phase === "editing"
+        ? "🤖 修正版を作成しています…（数十秒）"
+        : phase === "revising"
+          ? "🤖 設計案を修正しています…（数秒）"
+          : "🤖 設計案を作成しています…（数秒）";
 
   return (
     <div className="chatview">
