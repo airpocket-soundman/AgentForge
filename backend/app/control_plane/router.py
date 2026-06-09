@@ -1,7 +1,7 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
 from fastapi import APIRouter
 
-from app.control_plane import approvals, registry
+from app.control_plane import approvals, guard, monitor, registry
 from app.models.tasks import WorkerToggleIn
 
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
@@ -45,6 +45,18 @@ def disable_feature(project_id: str, feature: str) -> dict:
 def set_worker(project_id: str, feature: str, body: WorkerToggleIn) -> dict:
     """Show/hide a feature's managing AI worker (instruction area)."""
     return approvals.set_worker(project_id, feature, body.enabled)
+
+
+@router.get("/workers")
+def workers(project_id: str = "default") -> dict:
+    """Status monitor: background workers running right now + this project's run usage."""
+    return {"workers": monitor.running_workers(), "usage": guard.usage(project_id)}
+
+
+@router.post("/stop-all")
+def stop_all() -> dict:
+    """Stop ALL running background workers across sessions (release every locked chat)."""
+    return monitor.stop_all()
 
 
 @router.post("/reset")
