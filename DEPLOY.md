@@ -5,6 +5,8 @@ backend（core-api）を Cloud Run にデプロイし、Secret Manager の `gemi
 
 > これが通ると必須要件（Cloud Run 実行 ＋ Gemini API 利用）を満たし、
 > 公開デプロイURL（提出要件）が立つ＝**最低限の提出可能状態**に到達する。
+>
+> デプロイ前のテスト実行手順は [ENVIRONMENT.md](ENVIRONMENT.md) §2 (C) を参照。
 
 ---
 

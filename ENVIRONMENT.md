@@ -35,6 +35,39 @@ docker compose -f docker-compose.dev.yml up --build
 
 > Dev Container を使わない「ネイティブ再現」も可能（§5 フォールバック参照）。
 
+### (C) テストを回す：pytest（backend）
+
+テストは **dev イメージ（`requirements-dev.txt` に pytest 同梱）** の中で実行する。
+ホストの system python には pytest は入っていない／本番イメージにも入らない。
+
+**正規コマンド（リポジトリルートで実行）:**
+```bash
+MSYS_NO_PATHCONV=1 docker compose -f docker-compose.dev.yml run --rm --no-deps \
+  -v "${PWD}/backend/tests:/app/tests" \
+  -e APP_ENV=test -e LLM_PROVIDER=stub -e FIRESTORE_EMULATOR_HOST= -e GOOGLE_CLOUD_PROJECT= \
+  backend python -m pytest /app/tests -q
+```
+これで全件パス（現状 19 passed）。`--no-deps` なので稼働中の compose スタックや
+エミュレータには触れない使い捨てコンテナで走る。
+
+**ハマりどころ（なぜ上記の env 上書きが必要か）:**
+- `tests/` は `docker-compose.dev.yml` でマウントされない（`app/` のみ）。
+  → `-v ".../backend/tests:/app/tests"` で明示マウントしないと "no tests ran"。
+- `backend` サービスは `APP_ENV=local` を注入する。local は **常に `is_admin=True`（open mode）** なので、
+  prod-default 前提の admin テストが落ちる → **`APP_ENV=test`** で上書き。
+- `FIRESTORE_EMULATOR_HOST` が残ると稼働中エミュレータに接続し、保存済みフラグを読んで
+  「Firestore 不在 = デフォルト値」前提のテストが落ちる → **空に上書き**（`GOOGLE_CLOUD_PROJECT` も同様）。
+- `LLM_PROVIDER=stub` で LLM へ出ない（決定的・無課金）。
+- **Git Bash（Windowsホスト）**は `/app/tests` を Windows パスに変換してしまう
+  → 先頭の **`MSYS_NO_PATHCONV=1`** で抑止。PowerShell/Dev Container 内では不要。
+- 稼働中の `agentforge-backend-1` に `docker cp` してテストを入れるのは**避ける**
+  （デモ用ワークロードを汚す）。常に使い捨てコンテナで。
+
+**Dev Container 内なら**（`backend/.venv` に pytest 構築済み）:
+```bash
+cd backend && APP_ENV=test LLM_PROVIDER=stub pytest -q
+```
+
 ## 3. 採用バージョン（ピン留め）
 
 | ツール | バージョン | 定義場所 |
