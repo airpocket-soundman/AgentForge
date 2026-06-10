@@ -1,7 +1,7 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
 from fastapi import APIRouter
 
-from app.control_plane import approvals, guard, monitor, registry, worker_status
+from app.control_plane import approvals, guard, monitor, registry, worker_bus, worker_status
 from app.models.tasks import WorkerToggleIn
 
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
@@ -68,6 +68,12 @@ def worker_start(worker_type: str, project_id: str = "default") -> dict:
 def worker_stop(worker_type: str, project_id: str = "default") -> dict:
     """Stop a worker."""
     return worker_status.stop_worker(worker_type, project_id)
+
+
+@router.get("/messages/{task_id}")
+def messages(task_id: str) -> dict:
+    """MCP-like request/report thread for a work item (correlation/traceability)."""
+    return {"task_id": task_id, "messages": worker_bus.thread(task_id)}
 
 
 @router.post("/stop-all")

@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import uuid
 
+from typing import Callable
+
 from pydantic import ValidationError
 
+from app.control_plane import worker_status
 from app.firestore import get_db
 from app.models.worker_protocol import WorkerReport, WorkerRequest
 
@@ -56,3 +59,52 @@ def thread(task_id: str) -> list[dict]:
     out = [m for m in out if m.get("task_id") == task_id]
     out.sort(key=lambda m: m.get("message_id") or m.get("in_reply_to") or "")
     return out
+
+
+def gate_report_fields(result: dict) -> dict:
+    """Pure: map a Tester/Reviewer verdict dict to MCP-like report body fields."""
+    verdict = result.get("verdict")
+    status = "ok" if verdict in ("pass", "ok") else "needs_revision"
+    findings = list(result.get("errors") or []) + list(result.get("findings") or [])
+    return {"status": status, "result": result, "findings": findings}
+
+
+def dispatch(
+    *,
+    task_id: str,
+    sender: str,
+    to: str,
+    intent: str,
+    payload: dict,
+    handler: Callable[[dict], dict],
+    project_id: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """Send an MCP-like request to `to`, run its handler, return the report dict.
+
+    Logs both messages (request/report), validates the request (invalid → rejected
+    without running the handler), wakes the recipient (status active) before and
+    stops it after — the in-process realization of the wait + wake-up rule. The
+    handler returns report body fields ({status, result, findings, error}); a raised
+    handler maps to status=failed."""
+    mid = new_message_id()
+    req = {"task_id": task_id, "message_id": mid, "from": sender, "to": to, "intent": intent, "payload": payload}
+    valid, err = validate_request(req)
+    if valid is None:
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, "status": "rejected", "error": err}
+        log_message("report", report)
+        return report
+
+    log_message("request", req)
+    if project_id:
+        worker_status.start_worker(to, project_id, model=model, task_id=task_id)  # wake the recipient
+    try:
+        body = handler(payload)
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, **body}
+    except Exception as exc:  # noqa: BLE001
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, "status": "failed", "error": str(exc)[:300]}
+    finally:
+        if project_id:
+            worker_status.record_status(to, project_id, worker_status.STOPPED)
+    log_message("report", report)
+    return report

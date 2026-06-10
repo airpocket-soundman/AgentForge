@@ -295,14 +295,15 @@ def _run_edit(
             )
             return ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
 
+        corr = f"edit_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
         manifest = _build()
-        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"))
+        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
             manifest = _build(_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"))
+            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
 
         cand = manifest.model_dump(mode="json")
         _set_flow(
@@ -635,27 +636,38 @@ def start_codegen(project_id: str, goal: str, plan: dict) -> None:
 _GATE_MAX_ATTEMPTS = 2
 
 
-def _run_gates(conversation_id: str, goal: str, manifest: dict) -> tuple[bool, dict]:
+def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str) -> tuple[bool, dict]:
     """Run Tester + Reviewer on a generated manifest; post the result to chat.
 
     The two are independent, so run them concurrently to halve the gate's latency."""
     from concurrent.futures import ThreadPoolExecutor
 
+    from app.control_plane import worker_bus
     from app.workers import reviewer, tester
 
     project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
     flash = _model_for_phase("planning")  # gates run on FLASH
+    payload = {"manifest": manifest, "goal": goal}
     _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約レビュー）を実行中…")
-    worker_status.record_status("Tester", project_id, worker_status.ACTIVE, model=flash)
-    worker_status.record_status("Reviewer", project_id, worker_status.ACTIVE, model=flash)
+
+    # Orchestrator dispatches verify/review to Tester/Reviewer over the MCP-like bus
+    # (request/report logged + correlated by task_id; recipient status via the bus).
+    def _verify(p):
+        return worker_bus.gate_report_fields(tester.verify(p["manifest"], p["goal"]))
+
+    def _review(p):
+        return worker_bus.gate_report_fields(reviewer.review(p["manifest"], p["goal"]))
+
     with ThreadPoolExecutor(max_workers=2) as ex:
-        t_fut = ex.submit(tester.verify, manifest, goal)
-        r_fut = ex.submit(reviewer.review, manifest, goal)
-        tv = t_fut.result()
-        rv = r_fut.result()
-    worker_status.record_status("Tester", project_id, worker_status.STOPPED)
-    worker_status.record_status("Reviewer", project_id, worker_status.STOPPED)
-    passed = tv.get("verdict") == "pass" and rv.get("verdict") == "ok"
+        t_fut = ex.submit(worker_bus.dispatch, task_id=task_id, sender="Orchestrator", to="Tester",
+                          intent="verify", payload=payload, handler=_verify, project_id=project_id, model=flash)
+        r_fut = ex.submit(worker_bus.dispatch, task_id=task_id, sender="Orchestrator", to="Reviewer",
+                          intent="review", payload=payload, handler=_review, project_id=project_id, model=flash)
+        t_rep, r_rep = t_fut.result(), r_fut.result()
+
+    tv = t_rep.get("result") or {}
+    rv = r_rep.get("result") or {}
+    passed = t_rep.get("status") == "ok" and r_rep.get("status") == "ok"
     _progress(conversation_id, _gate_report(tv, rv))
     return passed, {"tester": tv, "reviewer": rv}
 
@@ -683,17 +695,18 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     from app.orchestrator import service as orchestrator
 
     req = PlanRequest(project_id=project_id, goal=goal)
-    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("codegen"))
+    corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
+    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("codegen"), task_id=corr)
     try:
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…（数十秒）")
         manifest = orchestrator.build_app(req, design_plan=plan)
-        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"))
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
             manifest = orchestrator.build_app(req, design_plan=plan, feedback=_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"))
+            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
 
         result = orchestrator.register_app(req, manifest)
         feat = result.plan.feature

@@ -1,6 +1,21 @@
 """MCP-like inter-worker protocol schema tests (pure, no Firestore)."""
-from app.control_plane.worker_bus import validate_report, validate_request
+from app.control_plane.worker_bus import gate_report_fields, validate_report, validate_request
 from app.models.worker_protocol import WorkerReport, WorkerRequest
+
+
+def test_gate_report_fields_pass_maps_to_ok():
+    body = gate_report_fields({"verdict": "pass", "checks": ["ok"], "errors": []})
+    assert body["status"] == "ok" and body["findings"] == []
+
+
+def test_gate_report_fields_fail_maps_to_needs_revision():
+    body = gate_report_fields({"verdict": "fail", "errors": ["動かない"]})
+    assert body["status"] == "needs_revision" and body["findings"] == ["動かない"]
+
+
+def test_gate_report_fields_review_findings_collected():
+    body = gate_report_fields({"verdict": "needs_revision", "findings": ["theme 規定外"]})
+    assert body["status"] == "needs_revision" and "theme 規定外" in body["findings"]
 
 
 def test_valid_request_parses_with_from_alias():
