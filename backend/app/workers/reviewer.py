@@ -55,7 +55,9 @@ def review(manifest: dict, goal: str) -> dict:
     llm = get_llm()
     if llm.enabled:
         try:
-            slim = {k: (v[:4000] if k == "html" and isinstance(v, str) else v) for k, v in manifest.items()}
+            # Send the FULL html so the reviewer judges the real artifact. (Slicing
+            # it caused false "HTML が途中で切れている" findings on larger apps.)
+            slim = {k: (v[:100000] if k == "html" and isinstance(v, str) else v) for k, v in manifest.items()}
             prompt = "\n\n".join([
                 agents.load("reviewer"),
                 agents.policy(),

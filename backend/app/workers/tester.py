@@ -60,7 +60,7 @@ def verify(manifest: dict, goal: str) -> dict:
     # Only ask the model when the artifact is at least structurally loadable.
     if llm.enabled and not errors and (manifest.get("kind") or "app") == "app":
         try:
-            html = (manifest.get("html") or "")[:8000]
+            html = (manifest.get("html") or "")[:100000]  # send full html (avoid false "truncated" reads)
             prompt = "\n\n".join([
                 agents.load("tester"),
                 f"ユーザー要求: {goal}",
