@@ -327,7 +327,8 @@ def _run_edit(
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE)  # awaiting 反映して
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                    detail="修正版の公開待ち（「反映して」）")  # preview done
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
@@ -670,7 +671,8 @@ def _run_plan(
         )
         append_message(conversation_id, ChatMessage(role="assistant", text=_format_plan(plan)))
         _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE)  # awaiting user approval
+        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                    detail="設計案の承認待ち（「これで作って」）")
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
@@ -796,7 +798,8 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)  # deploy(preview) done
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                    detail="プレビュー公開待ち（「反映して」）")  # deploy(preview) done
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,

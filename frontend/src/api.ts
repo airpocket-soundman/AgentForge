@@ -186,6 +186,7 @@ export interface WorkerRegistryEntry {
   project_id: string;
   status: "active" | "idle" | "stopped" | string;
   stale: boolean;
+  detail: string | null;
   model: string | null;
   task_id: string | null;
   since_update_sec: number;

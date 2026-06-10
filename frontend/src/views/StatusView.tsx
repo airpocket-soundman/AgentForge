@@ -115,6 +115,7 @@ export function StatusView({ onBack }: { onBack: () => void }) {
             <tr>
               <th>ワーカー</th>
               <th>状態</th>
+              <th>状況</th>
               <th>使用モデル</th>
               <th>最終更新</th>
             </tr>
@@ -124,6 +125,7 @@ export function StatusView({ onBack }: { onBack: () => void }) {
               <tr key={`${w.worker_type}:${w.project_id}`}>
                 <td>{w.worker_type}</td>
                 <td>{STATUS_LABEL[w.status] ?? w.status}{w.stale ? "（応答なし）" : ""}</td>
+                <td className="status-goal">{w.detail || "—"}</td>
                 <td className="status-goal">{w.model || "—"}</td>
                 <td>{w.since_update_sec}s前</td>
               </tr>

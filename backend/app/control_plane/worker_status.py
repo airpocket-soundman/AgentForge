@@ -100,6 +100,7 @@ def list_workers(project_id: str | None = None) -> list[dict]:
             "project_id": rec.get("project_id"),
             "status": eff,
             "stale": eff != rec.get("status"),  # True if reaped from active
+            "detail": rec.get("detail"),  # why it's in this state (e.g. 承認待ち)
             "model": rec.get("model"),
             "task_id": rec.get("task_id"),
             "since_update_sec": int(_age_sec(rec.get("updated_at"))),
