@@ -81,7 +81,61 @@
 
 ---
 
-## 3. 留意・未決
+## 3. 環境展開と検証サイクル（各フェーズ共通）
+
+各フェーズは必ず次の 5 ステップで進める（テスト環境で実装・検証 → 本番へ展開・検証）。
+
+| # | ステップ | 環境 | 手段（参照） |
+|---|---|---|---|
+| 1 | **実装・起動** | テスト（ローカル） | `docker compose -f docker-compose.dev.yml up -d backend firestore`。LLM=claude CLI ブリッジ（`python scripts/claude_bridge.py`）／オフラインは `LLM_PROVIDER=stub` |
+| 2 | **検証（テスト）** | テスト | 自動：pytest（[ENVIRONMENT.md](ENVIRONMENT.md) §2(C)）。手動：ローカル UI/API スモーク＋パイプライン実走 |
+| 3 | **デプロイ** | 本番（Cloud Run） | `gcloud run deploy --source`（[DEPLOY.md](DEPLOY.md)）。LLM=Gemini、Firestore=本番 |
+| 4 | **検証（本番）** | 本番 | `/health`=200、`/api/**` スモーク、`generated_by="gemini"`、公開 URL で e2e |
+| 5 | **記録** | — | 変更履歴／監査（Phase 2 以降は本機能で）。本ファイルのチェックを更新 |
+
+### テスト環境 検証コマンド（雛形）
+```bash
+# 自動テスト（リポジトリルート）
+MSYS_NO_PATHCONV=1 docker compose -f docker-compose.dev.yml run --rm --no-deps \
+  -v "${PWD}/backend/tests:/app/tests" \
+  -e APP_ENV=test -e LLM_PROVIDER=stub -e FIRESTORE_EMULATOR_HOST= -e GOOGLE_CLOUD_PROJECT= \
+  backend python -m pytest /app/tests -q
+
+# 手動スモーク（バックエンド起動後）
+curl -s http://localhost:8000/health
+```
+
+### 本番 検証コマンド（雛形）
+```bash
+URL=$(gcloud run services describe agentforge-core-api --region=asia-northeast1 --format='value(status.url)')
+curl -s $URL/health ; echo
+curl -s $URL/api/orchestrator/health ; echo
+# 生成が実 Gemini か（work_plans の generated_by == "gemini"）
+```
+
+## 4. フェーズ別 検証マトリクス（テスト環境 / 本番で何を確認するか）
+
+| Phase | テスト環境で確認 | 本番で確認 |
+|---|---|---|
+| **0** | pytest 緑／codegen が PRO **1 回**（ログ計測）／monitor 応答に **model** ／生成が体感短縮 | `/health`=200／生成で `generated_by="gemini"`／monitor に Gemini モデル名 |
+| **1** | 規約NG・動作NG を意図的に作り**差し戻し**が発生／正常系で **Tester＋Reviewer 両通過 → pending**／単体テスト追加 | 実生成でゲート通過・NG 時の差し戻しがユーザーに見える／**Tester 実行基盤が本番で動く** |
+| **2** | 公開→版保存→改変→公開→**巻き戻しで直前版に戻る**／`GET /history` が時系列を返す | 同等 e2e／巻き戻しが即時・公開済みに影響なし |
+| **3** | worker status/registry・start/stop API・request/report の相関（`task_id`/`in_reply_to`）・**wake-up**・**固着 reaper**・context rehydrate の単体/結合テスト | **既存フロー非破壊**（段階リリース）／monitor に worker 種別・状態・model |
+| **4** | Specialist 構造変更→メイン取り次ぎ／タイムアウト**3択**（N=2）／モニターUI | e2e UX 確認／透明性（自動判定が Receptor 経由で見える） |
+
+## 5. 本番への展開 安全策（提出 URL を落とさない）
+
+> 提出 URL（`https://agentforge-devops.web.app` ＝ Cloud Run `agentforge-core-api`）は**審査期間中に停止しない**。
+
+- **必ずテスト環境で検証してからデプロイ**（このアプリ自身の Tester/Reviewer 精神をリポ運用にも適用）。
+- Cloud Run は**新リビジョンをデプロイ → ヘルス確認 → トラフィック切替**。問題時は即ロールバック：
+  ```bash
+  gcloud run services update-traffic agentforge-core-api --region=asia-northeast1 --to-revisions=<PREV>=100
+  ```
+- **大きな構造変更（Phase 3）は feature flag／段階移行**で既存パスを壊さない。
+- フロント（Firebase Hosting）は `npm run build` → `firebase deploy --only hosting`。バックエンドと**前方/後方互換**を保って順次反映。
+
+## 6. 留意・未決
 - **Tester 実行基盤**：本番 Cloud Run で生成HTMLを実行する手段（Playwright 等）を置くか、軽量版（ロード＋静的＋LLM判定）にするか。Phase 1 着手時に決定。
 - **R6（Orchestrator 肥大／多エージェントの必然性）**：Phase 3 でサブワーカー分割の是非を判断（Tester 追加で多エージェント性は前進済み）。
 - **N・閾値・リトライ回数**：タイムアウト N=2、失敗自動リトライ 1〜2 回、固着検出の閾値は実装時に定数化（後で調整可）。
