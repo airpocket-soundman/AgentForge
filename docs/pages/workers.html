@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ワーカー定義と運用ルール</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>ワーカー定義と運用ルール（正本）</h1>
+  <p class="lead">
+    このアプリでは、<strong>複数の異なるコンテキストを持つ LLM セッションが協業</strong>します。
+    本ドキュメントは、その各セッション（=ワーカー）の<strong>名前・役割・運用ルール</strong>を定める唯一の正本です。
+    実装はこの定義に一致させ、変更が必要な場合は先にここを更新します。
+  </p>
+
+  <div class="callout">
+    このページは <code>CLAUDE.md</code> から「開発セッション必読」として参照されています。
+    ワーカーやミニアプリ生成パイプラインのコードを触る前に、必ず本ページの定義に従ってください。
+  </div>
+
+  <div class="callout good">
+    <strong>公式名称は英語表記。</strong> 全ワーカー種別の正式名は英語とし、日本語は読み・補助とします
+    （<code>Receptor</code> / <code>Orchestrator</code> / <code>Reviewer</code> / <code>Specialist Worker</code>）。
+  </div>
+
+  <h2>1. 基本概念</h2>
+
+  <h3>Worker（ワーカー）</h3>
+  <p>
+    異なるコンテキストを持つ <strong>LLM セッション</strong>を「ワーカー」と呼びます。
+    ワーカー同士は<strong>独立して動作</strong>しますが、<strong>定められたルールに基づいて
+    別のワーカーから指示を受け、報告を返します</strong>。
+  </p>
+
+  <h3>メインチャット（Main Chat）</h3>
+  <p>
+    このアプリの<strong>中心となる機能</strong>です。ユーザーはここでアプリと対話します。
+  </p>
+
+  <h3>Receptor（レセプター）</h3>
+  <p>
+    <strong>メインチャットの受付をするワーカー</strong>です。
+    メインチャットでチャット（会話）を行うのは、この Receptor です。
+  </p>
+
+  <h3>ミニアプリ（Mini-App）</h3>
+  <p>
+    このアプリの特徴である、<strong>自由に追加・改変できる機能</strong>を「ミニアプリ」と呼びます。
+  </p>
+
+  <h3>Specialist Worker（専門ワーカー）</h3>
+  <p>
+    <strong>個々のミニアプリ向けに設定されたワーカー</strong>です。そのミニアプリを扱うことができます。
+  </p>
+
+  <h3>Orchestrator（オーケストレーター）</h3>
+  <p>
+    ミニアプリの制作・改変作業のパイプラインには複数のワーカーが携わります。
+    これを<strong>統括するワーカー</strong>が Orchestrator です。
+  </p>
+
+  <h3>Reviewer（レビュワー）</h3>
+  <p>
+    Orchestrator の作ったコードを<strong>レビューするワーカー</strong>です。
+    主に、このアプリの中で定めた<strong>コード規約</strong>に適合しているかを判定します。
+  </p>
+
+  <h2>2. ワーカー一覧</h2>
+  <table class="tbl">
+    <tr><th>ワーカー（公式名）</th><th>役割</th><th>運用ルール</th></tr>
+    <tr>
+      <td><span class="pill blue">Receptor</span><br>レセプター</td>
+      <td>メインチャットの受付。ユーザーとの会話を担当し、ユーザーの指示・承認・実行命令を Orchestrator に取り次ぐ。</td>
+      <td>メインチャットで会話するのは Receptor のみ。<strong>軽い処理のみ</strong>を受け持ち即応する。</td>
+    </tr>
+    <tr>
+      <td><span class="pill green">Orchestrator</span><br>オーケストレーター</td>
+      <td>ミニアプリ制作・改変パイプラインの統括。設計・改変計画の立案、コード作成（HTML作成・API作成・Specialist Worker の設定）、レビュー依頼、デプロイを行う。</td>
+      <td><strong>最大 3 つまで同時稼働可能</strong>（複数タスクの同時進行のため）。</td>
+    </tr>
+    <tr>
+      <td><span class="pill yellow">Reviewer</span><br>レビュワー</td>
+      <td>Orchestrator が作ったコードをレビューし、問題があれば指摘してやり直しを命じる。主にコード規約への適合を判定。</td>
+      <td>Orchestrator は<strong>デプロイ前に必ずレビュー依頼</strong>する。</td>
+    </tr>
+    <tr>
+      <td><span class="pill blue">Specialist Worker</span><br>専門ワーカー</td>
+      <td>個々のミニアプリを扱う。ミニアプリごとに設定される。</td>
+      <td>Orchestrator がミニアプリ制作時に設定する。</td>
+    </tr>
+  </table>
+
+  <h2>3. ミニアプリ 制作・改変パイプライン</h2>
+  <p class="lead">
+    統括は <strong>Orchestrator</strong>。Receptor を起点に、設計 → 実行命令 → コード作成 →
+    レビュー → デプロイの順で進みます。
+  </p>
+
+  <h3>Orchestrator の役割</h3>
+  <ol>
+    <li><strong>指示の確認</strong>：Receptor を通じてユーザーの指示を確認する。</li>
+    <li><strong>計画の立案</strong>：アプリの新規設計・改変の<strong>具体的な計画</strong>を立てて返す。</li>
+    <li><strong>実行</strong>：Receptor からアプリ制作・改修の<strong>実行命令</strong>を受けて、実際にコードを作ってデプロイする。
+      <ul>
+        <li>アプリ制作には <strong>HTML 作成 / API 作成 / Specialist Worker の設定</strong> などが含まれる。</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>レビューのループ（デプロイ前）</h3>
+  <ol>
+    <li>Orchestrator はデプロイ前に <strong>Reviewer へレビューを依頼</strong>する。</li>
+    <li>Reviewer は<strong>コード規約</strong>への適合を判定する。</li>
+    <li>問題があれば指摘し、Orchestrator に<strong>やり直しを命じる</strong>。</li>
+    <li>Orchestrator はその結果を受けて<strong>再度コーディング</strong>を進める。</li>
+    <li>問題がなくなったらデプロイする。</li>
+  </ol>
+
+  <h4>差し戻しループの停止条件（無限ループ防止）</h4>
+  <ul>
+    <li>1つの作業（<code>task_id</code>）での <strong>レビュー差し戻しは最大 3 回</strong>まで。</li>
+    <li>3 回連続で不適合の場合、Orchestrator は自動修正を打ち切り、<strong>Receptor 経由でユーザーにエスカレーション</strong>する（「コード規約に適合させられませんでした。指示の調整をお願いします」）。</li>
+    <li>各レビュー1回には<strong>タイムアウト</strong>を設ける。Reviewer から時間内に報告が無ければ、その回は失敗扱い（リトライ回数を1消費）。</li>
+    <li>この上限は<strong>1作業内のリトライ制御</strong>。短時間に実行が集中したときに止める既存の runaway guard とは別レイヤ。</li>
+  </ul>
+
+  <h3>並列実行とタスク管理</h3>
+  <ul>
+    <li>Orchestrator は<strong>最大 3 つ</strong>まで同時稼働。各作業は <code>task_id</code> で識別し、ステータスモニターに表示する。</li>
+    <li>3 枠が埋まっているときの新規実行命令は<strong>待機キュー（FIFO）</strong>に入れる。空きが出たら先頭から割り当てる。Receptor は<strong>順番待ちであることをユーザーに伝える</strong>。</li>
+    <li><strong>同一ミニアプリ（同じ feature）への同時改変は禁止（ロック）。</strong> すでに改変中の場合、その feature への新規依頼は、その作業の完了を待つ。</li>
+  </ul>
+
+  <div class="callout">
+    <strong>コード規約：</strong> Reviewer が判定の基準とする「このアプリの中で定めたコード規約」は別ドキュメントで定義します（<em>記載予定</em>）。定まり次第ここからリンクします。
+  </div>
+
+  <h2>4. 共通の運用ルール</h2>
+  <ul>
+    <li>ワーカーは<strong>独立して動作</strong>する（互いの内部状態を直接共有しない）。</li>
+    <li>連携は<strong>定められたルールに基づく「指示」と「報告」</strong>のみで行う。</li>
+    <li>メインチャットでユーザーと会話するのは <strong>Receptor のみ</strong>。</li>
+    <li>Orchestrator は<strong>デプロイ前に必ず Reviewer のレビューを通す</strong>。</li>
+    <li>Orchestrator は<strong>最大 3 並列</strong>。</li>
+    <li><strong>各ワーカーは不要時は休止する</strong>（非常駐）。</li>
+    <li>各ワーカーは<strong>コンテキストを保存するファイルを持ち</strong>、再開時にそれを読んでコンテキストを理解する。</li>
+    <li>コンテキストは<strong>適宜コンパクト化</strong>する。</li>
+    <li><strong>Receptor は軽い処理のみ</strong>を受け持ち、可能な限りユーザーに早く回答する。</li>
+  </ul>
+
+  <h2>5. ワーカーのライフサイクルとステータス</h2>
+  <p class="lead">
+    ステータスは <strong>活動中 / 待機中 / 停止中</strong> の3種。各ワーカーは API で起動・停止し、
+    自分のステータス変化を自分で記録します。
+  </p>
+
+  <h3>ステータスの定義</h3>
+  <ul>
+    <li><strong>活動中</strong> … 指示を受けて考えている／処理しているとき。</li>
+    <li><strong>待機中</strong> … どこかからの指示やリプライを待っているとき。</li>
+    <li><strong>停止中</strong> … セッションが止まっているとき。</li>
+  </ul>
+
+  <h3>記録と起動・停止の仕組み（API 駆動）</h3>
+  <ul>
+    <li>各ワーカーは<strong>ステータスを変更するタイミングで、自分のステータスを記録する</strong>（そのための記録 API を使う）。</li>
+    <li>各ワーカーを<strong>起動・停止させる API</strong> を用意し、<strong>他のワーカーからの操作で自動的に起動・停止</strong>する。</li>
+  </ul>
+
+  <h3>ワーカー別の起動・停止トリガー</h3>
+  <table class="tbl">
+    <tr><th>ワーカー</th><th>起動トリガー</th><th>活動中</th><th>待機中</th><th>停止トリガー</th></tr>
+    <tr>
+      <td><span class="pill blue">Receptor</span></td>
+      <td>メインチャットが開いたとき</td>
+      <td>ユーザーや各ワーカーからの指示を受けて考えているとき</td>
+      <td>指示やリプライを待っているとき</td>
+      <td>このウェブアプリが閉じられたとき</td>
+    </tr>
+    <tr>
+      <td><span class="pill green">Orchestrator</span></td>
+      <td>Receptor から指示を受けたとき</td>
+      <td>考えたり処理しているとき／各ワーカーからの指示を受けて考えているとき</td>
+      <td>指示やリプライを待っているとき</td>
+      <td>新規アプリのデプロイ、またはアプリ改変後のデプロイが完了したとき</td>
+    </tr>
+    <tr>
+      <td><span class="pill yellow">Reviewer</span></td>
+      <td>Orchestrator がレビューを依頼したとき</td>
+      <td>レビューしているとき</td>
+      <td>—</td>
+      <td>レビューを返したとき</td>
+    </tr>
+    <tr>
+      <td><span class="pill blue">Specialist Worker</span></td>
+      <td>担当のミニアプリを起動したとき</td>
+      <td>アプリ内の処理を行っているとき</td>
+      <td>指示を待っているとき</td>
+      <td>ミニアプリ画面が非表示／閉じられ、行っていた処理が完了したとき</td>
+    </tr>
+  </table>
+
+  <h2>6. 各ワーカーの基本プロンプト</h2>
+  <ul>
+    <li>絶対に守るルールと、<strong>指示がないときに守るデフォルトルール</strong>を定める。</li>
+    <li>そのワーカーが使用する <strong>API の仕様マニュアル</strong>を含める。</li>
+    <li>（随時追加）</li>
+  </ul>
+
+  <h2>7. ワーカー間プロトコル（MCP 的 API）</h2>
+  <p class="lead">
+    <strong>MCP 的な API</strong> を通じて、ワーカー同士が<strong>定まった形</strong>で「指示（request）」を投げ、
+    「報告（report）」を返します。通信プロトコルを API で固定することで、<strong>指示の過不足をなくし、
+    依頼の品質を保ち、受け手の作業精度を担保</strong>します。スキーマに合わない指示・報告は受け付けません。
+  </p>
+
+  <h3>指示（request）メッセージ</h3>
+  <table class="tbl">
+    <tr><th>フィールド</th><th>意味</th></tr>
+    <tr><td><code>task_id</code></td><td>作業全体の相関 ID（同じ仕事に属する指示・報告を束ねる）。</td></tr>
+    <tr><td><code>message_id</code></td><td>この指示の一意 ID（報告はこれを参照して返す）。</td></tr>
+    <tr><td><code>from</code> / <code>to</code></td><td>送信元／宛先のワーカー種別＋インスタンス（例 <code>Orchestrator#1</code> → <code>Reviewer</code>）。</td></tr>
+    <tr><td><code>intent</code></td><td>依頼の種類。例：<code>plan</code> / <code>build</code> / <code>edit</code> / <code>review</code> / <code>operate</code>。</td></tr>
+    <tr><td><code>payload</code></td><td><code>intent</code> ごとの定型データ（JSON Schema 準拠）。</td></tr>
+    <tr><td><code>context_refs</code></td><td>必要な文脈への<strong>最小ポインタ</strong>。本体は各ワーカーが Firestore から取得（rehydrate）。</td></tr>
+    <tr><td><code>deadline_sec</code></td><td>この指示のタイムアウト。</td></tr>
+  </table>
+
+  <h3>報告（report）メッセージ</h3>
+  <table class="tbl">
+    <tr><th>フィールド</th><th>意味</th></tr>
+    <tr><td><code>task_id</code></td><td>対応する作業の相関 ID。</td></tr>
+    <tr><td><code>in_reply_to</code></td><td>応答対象の指示 <code>message_id</code>。</td></tr>
+    <tr><td><code>from</code> / <code>to</code></td><td>報告元（=指示の受け手）／報告先（=指示の送り手）。</td></tr>
+    <tr><td><code>status</code></td><td><code>ok</code> / <code>needs_revision</code>（Reviewer の差し戻し）/ <code>rejected</code>（スキーマ不正等で着手せず）/ <code>failed</code>（実行時エラー）。</td></tr>
+    <tr><td><code>result</code></td><td>成果物または成果への参照（スキーマ準拠）。</td></tr>
+    <tr><td><code>findings</code></td><td>Reviewer の指摘一覧（<code>needs_revision</code> 時）。</td></tr>
+    <tr><td><code>error</code></td><td><code>rejected</code> / <code>failed</code> の理由。</td></tr>
+    <tr><td><code>usage</code></td><td>使用モデル・トークン等（監査用。<code>worker_runs</code> に記録）。</td></tr>
+  </table>
+
+  <h3>やり取りのルール</h3>
+  <ul>
+    <li>通信は<strong>非同期</strong>。受け手は着手時にステータスを<strong>活動中</strong>へ変え、完了時に報告を返す。</li>
+    <li>送り手はワーカー非常駐のため、<strong>ステータス監視／ポーリング</strong>で完了を知る（相関は <code>task_id</code> ＋ <code>in_reply_to</code>）。</li>
+    <li>指示・報告は<strong>必ずスキーマ検証</strong>。通らない指示は着手せず <code>rejected</code> を即返す。</li>
+    <li>（intent ごとの <code>payload</code>/<code>result</code> スキーマ詳細は随時追加）</li>
+  </ul>
+
+  <h2>8. 機能区分</h2>
+
+  <h3>固定機能</h3>
+  <p class="lead">※ 現行実装に準拠（Control Plane）。</p>
+  <table class="tbl">
+    <tr><th>機能</th><th>内容</th><th>現行実装</th></tr>
+    <tr>
+      <td>メインチャット</td>
+      <td>主要機能。<strong>Receptor</strong> が対応する。</td>
+      <td><code>/api/reception/*</code></td>
+    </tr>
+    <tr>
+      <td>ステータスモニター</td>
+      <td>ワーカーリストの表示と、各ワーカーのステータス（活動中／待機中／停止中）の表示。</td>
+      <td><code>GET /api/control-plane/monitor</code></td>
+    </tr>
+    <tr>
+      <td>セッション終了</td>
+      <td><strong>ワーカーをすべて停止する</strong>。実行中のバックグラウンド作業を止め、ロックされたチャットを解放する。</td>
+      <td><code>POST /api/control-plane/stop-all</code>（<code>monitor.stop_all</code>）</td>
+    </tr>
+    <tr>
+      <td>巻き戻し</td>
+      <td>有効な機能（ミニアプリ）を<strong>論理的に無効化（ソフト無効化）</strong>する。<strong>削除はせずデータは保持</strong>するため、再有効化で戻せる。会話では「戻して」で実行。</td>
+      <td><code>approvals.disable_active_features</code>（監査 <code>feature.disabled / user_rollback</code>）</td>
+    </tr>
+    <tr>
+      <td>初期化</td>
+      <td><strong>全アプリデータを削除</strong>し、<strong>メインチャットのみの初期状態に戻す</strong>。対象は会話・タスク・work_plans・API/UI レジストリ・承認・監査ログ・生成ビュー・feature_states 等。<strong>開発専用（DEV ONLY）の破壊的操作</strong>。</td>
+      <td><code>POST /api/control-plane/reset</code>（<code>registry.reset_all</code>）</td>
+    </tr>
+  </table>
+  <div class="callout warn">
+    「巻き戻し」と「初期化」は別物。<strong>巻き戻し＝可逆（無効化のみ・データ保持）</strong>、
+    <strong>初期化＝不可逆の全削除（DEV 専用）</strong>。
+  </div>
+
+  <h3>可変機能</h3>
+  <table class="tbl">
+    <tr><th>機能</th><th>内容</th></tr>
+    <tr>
+      <td>ミニアプリ</td>
+      <td>
+        メインチャットの指示により新作・改変される。<strong>アプリチャット</strong>を持ち、
+        ユーザーが直接操作できるほか、<strong>Specialist Worker からも操作</strong>できる。
+        Specialist Worker から操作するための <strong>API</strong> を持つ。
+        Specialist Worker は、そのミニアプリが編集しているデータや API を扱う。
+      </td>
+    </tr>
+    <tr>
+      <td>アプリチャット</td>
+      <td>
+        アプリの中の<strong>データ処理や API 操作</strong>を受け持つ。
+        アプリごとに Specialist Worker を作り、アプリチャットからの指示を受けて
+        <strong>そのアプリ内に限って</strong>作業を行う。
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

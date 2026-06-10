@@ -68,6 +68,7 @@ body.doc { padding: 36px 44px 80px; max-width: 980px; margin: 0 auto; }
   border-bottom: 2px solid var(--line);
 }
 .doc h3 { font-size: 15px; margin: 22px 0 8px; color: var(--blue-d); }
+.doc h4 { font-size: 13.5px; margin: 16px 0 6px; color: var(--ink); }
 .doc p { margin: 10px 0; }
 .doc ul, .doc ol { margin: 10px 0; padding-left: 22px; }
 .doc li { margin: 5px 0; }
