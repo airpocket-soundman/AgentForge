@@ -11,7 +11,7 @@ Responsibilities:
 """
 from fastapi import APIRouter
 
-from app.control_plane import approvals, registry
+from app.control_plane import approvals, registry, worker_status
 from app.models.reception import ChatMessage, MessageIn, ReceptionReply
 from app.reception import service
 
@@ -39,6 +39,8 @@ def get_candidate(project_id: str) -> dict:
 @router.post("/messages", response_model=ReceptionReply)
 def post_message(body: MessageIn) -> ReceptionReply:
     conversation_id = service.conversation_id_for(body.project_id)
+    # Receptor is active while handling a message (returns to idle below).
+    worker_status.record_status("Receptor", body.project_id, worker_status.ACTIVE, model=service._model_for_phase("planning"))
     service.append_message(conversation_id, ChatMessage(role="user", text=body.text))
 
     # The main worker is busy: the reception worker actually INVESTIGATES the
@@ -189,6 +191,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
 
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
     service.append_message(conversation_id, assistant_msg)
+    worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)  # back to waiting
 
     return ReceptionReply(
         conversation_id=conversation_id,

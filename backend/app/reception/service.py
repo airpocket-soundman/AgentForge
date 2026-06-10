@@ -15,6 +15,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
+from app.control_plane import worker_status
 from app.firestore import get_db
 from app.models.generated import DesignPlan
 from app.models.reception import ChatMessage
@@ -261,6 +262,7 @@ def _run_edit(
     conversation_id = conversation_id_for(project_id)
     from app.workers import ui_designer
 
+    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("editing"))
     try:
         _progress(conversation_id, "✏️ 修正版を生成しています…（数十秒）")
         snap = get_db().collection("generated_views").document(f"{project_id}_{feature}").get()
@@ -309,12 +311,14 @@ def _run_edit(
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
+        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE)  # awaiting 反映して
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
             ChatMessage(role="assistant", text=f"❌ 修正版の作成中にエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
 
 
 def handle_request(
@@ -547,6 +551,7 @@ def _run_plan(
     conversation_id = conversation_id_for(project_id)
     from app.workers import ui_designer
 
+    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("planning"))
     try:
         _progress(conversation_id, "📝 設計案を作成しています…")
         plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
@@ -559,12 +564,14 @@ def _run_plan(
         )
         append_message(conversation_id, ChatMessage(role="assistant", text=_format_plan(plan)))
         _set_build(conversation_id, status=_BUILD_DONE)
+        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE)  # awaiting user approval
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
             ChatMessage(role="assistant", text=f"❌ 設計案の作成中にエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
 
 
 # --- Stage 2: code generation from the approved plan ------------------------
@@ -592,12 +599,18 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict) -> tuple[bool, d
 
     from app.workers import reviewer, tester
 
+    project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
+    flash = _model_for_phase("planning")  # gates run on FLASH
     _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約レビュー）を実行中…")
+    worker_status.record_status("Tester", project_id, worker_status.ACTIVE, model=flash)
+    worker_status.record_status("Reviewer", project_id, worker_status.ACTIVE, model=flash)
     with ThreadPoolExecutor(max_workers=2) as ex:
         t_fut = ex.submit(tester.verify, manifest, goal)
         r_fut = ex.submit(reviewer.review, manifest, goal)
         tv = t_fut.result()
         rv = r_fut.result()
+    worker_status.record_status("Tester", project_id, worker_status.STOPPED)
+    worker_status.record_status("Reviewer", project_id, worker_status.STOPPED)
     passed = tv.get("verdict") == "pass" and rv.get("verdict") == "ok"
     _progress(conversation_id, _gate_report(tv, rv))
     return passed, {"tester": tv, "reviewer": rv}
@@ -626,6 +639,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     from app.orchestrator import service as orchestrator
 
     req = PlanRequest(project_id=project_id, goal=goal)
+    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("codegen"))
     try:
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…（数十秒）")
         manifest = orchestrator.build_app(req, design_plan=plan)
@@ -664,12 +678,14 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)  # deploy(preview) done
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
             ChatMessage(role="assistant", text=f"❌ コード生成でエラーが発生しました: {str(exc)[:200]}"),
         )
         _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
 
 
 def conversation_state(project_id: str) -> dict:

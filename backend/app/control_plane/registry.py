@@ -200,6 +200,8 @@ _RESET_COLLECTIONS = [
     "feature_states",
     "generated_views",
     "feature_versions",
+    "workers",
+    "worker_messages",
     "app_entities",
     "app_state",
     "feature_chats",

@@ -71,13 +71,15 @@
 - [x] **テスト**：`tests/test_versioning.py`（純粋ロジック4件）＋ 全 **30 passed**。エミュレータ実走で v1→v2公開→巻き戻し(v1復元)→再巻き戻し(無効化)→history を確認（VERDICT: PASS）。
 - [ ] フロント：変更履歴／版ビューの UI（後続）。
 
-### Phase 3 — ワーカー基盤（構造・最大の山）
-- [ ] **worker レジストリ＋status**：Firestore に worker 種別・状態（活動/待機/停止）・**model**・**最終更新時刻**。`monitor` を build 単位から worker 単位へ拡張。
-- [ ] **固着回収（reaper）**：status の最終更新が閾値超で停止扱い（Receptor/モニター）。
-- [ ] **起動・停止 API**：worker を起こす/止める。**他ワーカーから呼べる**。
-- [ ] **MCP 的 request/report**：`task_id`/`message_id`/`in_reply_to`、`intent`(plan/build/edit/verify/review/operate)、スキーマ検証（不正=`rejected`）、**基本は待ち＋誤停止時 wake-up**。
-- [ ] **context 永続化**：各ワーカーの保存ファイル・rehydrate・コンパクト化（`task_worker` の整理済み要約を雛形に共通化）。
-- [ ] **Orchestrator 正式ワーカー化**：`orchestrator/` の関数群をセッション化。**R6 判断**：UI/API/検証などサブワーカーへ分割するか。
+### Phase 3 — ワーカー基盤（構造・最大の山）— ✅ 基盤実装・検証／一部は後続
+- [x] **worker レジストリ＋status**：`control_plane/worker_status.py`（`workers` コレクション：種別・状態 active/idle/stopped・**model**・**最終更新**）。`/api/control-plane/workers` に `registry` を追加。
+- [x] **固着回収（reaper）**：`_effective_status`＝active かつ最終更新が `_STALE_SEC`(900s) 超なら stopped 扱い・`stale` フラグ。
+- [x] **起動・停止 API**：`POST /worker/{type}/start`・`/stop`（他ワーカーから呼べる）。
+- [x] **MCP 的（MCP-like）request/report**：`models/worker_protocol.py`（`WorkerRequest`/`WorkerReport`：`task_id`/`message_id`/`in_reply_to`/`intent`/`status`、`from` エイリアス）＋ `control_plane/worker_bus.py`（スキーマ検証＝不正は `rejected`、メッセージログ、相関）。※実 MCP ではなく内部の MCP 風契約。
+- [x] **context 永続化**：`control_plane/worker_context.py`（save/load/rehydrate＋純粋 `plan_compaction`）。
+- [x] **status 記録の配線**：Receptor（router）・Orchestrator（plan/codegen/edit）・Tester/Reviewer（gate）が要所で `record_status`。
+- [x] **テスト**：protocol 5・context 4（純粋）＝計 **39 passed**。
+- [ ] **後続（より大きな構造変更）**：全パイプラインを worker_bus 経由の**非同期 request/report＋停止中 wake-up** に載せ替え／**Orchestrator を関数群からセッション化**（R6：UI/API/検証のサブワーカー分割の是非）。今は contract と status 基盤まで。
 
 ### Phase 4 — 体験（UX）
 - [ ] **Specialist 構造変更ルーティング**：`generated_app/*` のアプリチャットで構造変更を検知し、メインチャット（Receptor→Orchestrator）へ取り次ぐ。

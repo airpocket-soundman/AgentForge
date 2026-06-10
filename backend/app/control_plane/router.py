@@ -1,7 +1,7 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
 from fastapi import APIRouter
 
-from app.control_plane import approvals, guard, monitor, registry
+from app.control_plane import approvals, guard, monitor, registry, worker_status
 from app.models.tasks import WorkerToggleIn
 
 router = APIRouter(prefix="/api/control-plane", tags=["control-plane"])
@@ -49,8 +49,25 @@ def set_worker(project_id: str, feature: str, body: WorkerToggleIn) -> dict:
 
 @router.get("/workers")
 def workers(project_id: str = "default") -> dict:
-    """Status monitor: background workers running right now + this project's run usage."""
-    return {"workers": monitor.running_workers(), "usage": guard.usage(project_id)}
+    """Status monitor: the worker registry (type/status/model/freshness), the live
+    background builds, and this project's run usage."""
+    return {
+        "registry": worker_status.list_workers(project_id),
+        "workers": monitor.running_workers(),
+        "usage": guard.usage(project_id),
+    }
+
+
+@router.post("/worker/{worker_type}/start")
+def worker_start(worker_type: str, project_id: str = "default") -> dict:
+    """Start/wake a worker (spec §5: other workers start/stop one another)."""
+    return worker_status.start_worker(worker_type, project_id)
+
+
+@router.post("/worker/{worker_type}/stop")
+def worker_stop(worker_type: str, project_id: str = "default") -> dict:
+    """Stop a worker."""
+    return worker_status.stop_worker(worker_type, project_id)
 
 
 @router.post("/stop-all")
