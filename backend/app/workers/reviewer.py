@@ -56,8 +56,13 @@ def review(manifest: dict, goal: str) -> dict:
     if llm.enabled:
         try:
             # Send the FULL html so the reviewer judges the real artifact. (Slicing
-            # it caused false "HTML が途中で切れている" findings on larger apps.)
-            slim = {k: (v[:100000] if k == "html" and isinstance(v, str) else v) for k, v in manifest.items()}
+            # it caused false "HTML が途中で切れている" findings on larger apps.) If an
+            # app is pathologically large, cap it but mark the cut so the reviewer
+            # doesn't mistake our truncation for a broken (unterminated) document.
+            html = manifest.get("html")
+            if isinstance(html, str) and len(html) > 100000:
+                html = html[:100000] + "\n<!-- …(以下はサイズ上限で省略。末尾の閉じタグ有無で『途中で切れている』と判断しないこと) -->"
+            slim = {**manifest, "html": html} if isinstance(manifest.get("html"), str) else dict(manifest)
             prompt = "\n\n".join([
                 agents.load("reviewer"),
                 agents.policy(),
