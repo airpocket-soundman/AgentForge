@@ -283,7 +283,7 @@
     <li>コード生成やデプロイが失敗（report <code>status=failed</code>）したら、Orchestrator は<strong>短い自動リトライ</strong>を行う（暫定 1〜2 回）。</li>
     <li>それでも失敗する場合は、<strong>Receptor 経由でユーザーに報告して停止</strong>する（中断）。</li>
     <li>失敗したのは<strong>プレビュー</strong>なので、<strong>公開済みの版は影響を受けない</strong>。</li>
-    <li>これは実行時エラー（<code>failed</code>）の扱い。Reviewer の品質差し戻し（<code>needs_revision</code>＝自動回数で打ち切らない）とは別レイヤ。</li>
+    <li>これは実行時エラー（<code>failed</code>）の扱い。Tester／Reviewer の品質差し戻し（<code>needs_revision</code>＝自動回数で打ち切らない）とは別レイヤ。</li>
   </ul>
 
   <h3>並列実行とタスク管理</h3>
@@ -472,7 +472,7 @@
   <h2>8. 機能区分</h2>
 
   <h3>固定機能</h3>
-  <p class="lead">※ 多くは現行実装に準拠（Control Plane）。ただし「巻き戻し」は新仕様（版を戻す）のため要実装。</p>
+  <p class="lead">※ 多くは現行実装に準拠（Control Plane）。ただし「巻き戻し」（版を戻す）と「変更履歴」は要実装。</p>
   <table class="tbl">
     <tr><th>機能</th><th>内容</th><th>現行実装</th></tr>
     <tr>
