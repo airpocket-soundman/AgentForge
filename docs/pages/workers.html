@@ -70,6 +70,9 @@
   <p>
     Orchestrator の作ったコードを<strong>実際に動かして検証するワーカー</strong>です。
     コード規約の適合（Reviewer）とは別に、<strong>「ちゃんと動くか・要求どおりか」</strong>を確かめます。
+    検証は <strong>Docker 内に用意した「本番相当エミュレータ」環境</strong>（Firestore エミュレータ＋backend ＝
+    <code>docker-compose.dev</code> 相当）で行う。<strong>LLM プロバイダのみ claude に差し替え</strong>（コスト節約）、
+    それ以外は本番同等で実働させ、<strong>本番デプロイ前に本番同等条件で動作確認</strong>する。
   </p>
 
   <h2>2. ワーカー一覧</h2>
@@ -93,7 +96,7 @@
     <tr>
       <td><span class="pill red">Tester</span><br>検証ワーカー</td>
       <td>Orchestrator が作ったコードを<strong>実際に動かして検証</strong>する（起動するか・主要な操作（commands）が動くか・コンソールエラーが無いか・要求どおりか）。動かなければ差し戻す。</td>
-      <td>Orchestrator は<strong>デプロイ前に必ず検証依頼</strong>する（Reviewer と並ぶゲート）。</td>
+      <td>Orchestrator は<strong>デプロイ前に必ず検証依頼</strong>する（Reviewer と並ぶゲート）。検証は<strong>本番相当の Docker エミュレータ（モデルのみ claude）</strong>で実行。</td>
     </tr>
     <tr>
       <td><span class="pill blue">Specialist Worker</span><br>専門ワーカー</td>
@@ -230,7 +233,7 @@
   <h3>検証・レビューのループ（デプロイ前）</h3>
   <ol>
     <li>Orchestrator はデプロイ前に <strong>Tester に動作検証</strong>を、<strong>Reviewer に規約レビュー</strong>を依頼する。</li>
-    <li><strong>Tester</strong> は生成物を実際に動かし「<strong>動くか・要求どおりか</strong>」を、<strong>Reviewer</strong> は<strong>コード規約</strong>への適合を判定する。</li>
+    <li><strong>Tester</strong> は<strong>本番相当の Docker エミュレータ</strong>（モデルのみ claude）で生成物を実際に動かし「<strong>動くか・要求どおりか</strong>」を、<strong>Reviewer</strong> は<strong>コード規約</strong>への適合を判定する。</li>
     <li><strong>どちらかで問題があれば</strong>指摘し、Orchestrator に<strong>やり直しを命じる</strong>。</li>
     <li>Orchestrator はその結果を受けて<strong>再度コーディング</strong>を進める。</li>
     <li><strong>両方を通過したら</strong>プレビューとしてデプロイし、Orchestrator は<strong>停止</strong>する。</li>
@@ -559,7 +562,7 @@
     <li>ワーカーは<strong>自分の権限を増やせない</strong>。<strong>別ワーカーを勝手に作れない</strong>（Specialist Worker の設定は Orchestrator の定められた役割の範囲内でのみ行う）。</li>
     <li><strong>Orchestrator</strong> はデプロイはするが、<strong>Secret を読まない・IAM を触らない</strong>。副作用操作はすべて <strong>Tool Gateway 経由</strong>、出力は<strong>スキーマ検証</strong>。</li>
     <li><strong>Reviewer</strong> は<strong>判定（読み取り）のみ</strong>。コードの書き換えやデプロイはしない。</li>
-    <li><strong>Tester</strong> は生成物を<strong>サンドボックスで実行して検証するのみ</strong>。コードの書き換えやデプロイはしない（判定を返すだけ）。</li>
+    <li><strong>Tester</strong> は生成物を<strong>本番相当の Docker エミュレータ環境（モデルのみ claude、他は本番同等）で実行して検証するのみ</strong>。コードの書き換えやデプロイはしない（判定を返すだけ）。</li>
     <li><strong>Specialist Worker</strong> は<strong>担当ミニアプリ内に限定</strong>。他アプリのデータ・他ワーカーの領域に触れない。ミニアプリ本体は<strong>サンドボックス</strong>（iframe・外部通信／localStorage 遮断、保存は <code>AF.load/save</code> 経由）。</li>
     <li>アプリ全体の利用は<strong>許可メール（ALLOWED_EMAILS ／ 管理者 allowlist）</strong>で制御（<code>backend/app/auth.py</code>）。</li>
   </ul>

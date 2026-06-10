@@ -52,11 +52,11 @@
 - [x] **status にモデル**：providers に `model_for(tier)`、`llm/gateway.py` に `model_label(tier)`、`reception/service.py` の build 記録に `model`、`control_plane/monitor.py: running_workers` に `model` を含める。
 - [x] **タイムアウト不整合の修正（発見）**：`llm_timeout_seconds` 180→**300**（ブリッジの `CLAUDE_TIMEOUT=300` より短く、フルアプリ生成が 180s 超でブリッジ完了前に stub フォールバックしていた）。
 - [x] **テスト環境 検証**：pytest 19 passed。codegen 実走で実アプリ生成（`generated_by=claude-cli`, html~10.8KB, commands=4, ~112s）、monitor に `claude-cli:pro:sonnet` 表示。
-- [ ] **本番デプロイ＋検証**：`gcloud run deploy --source` → `/health`=200・`generated_by="gemini"`・monitor に Gemini モデル名（**未実施／要承認**）。
+- [ ] **本番デプロイ＋検証**：全フェーズのテスト確認完了後にまとめて実施（§5）。Phase 0 分の本番確認項目：`/health`=200・`generated_by="gemini"`・monitor に Gemini モデル名。
 
 ### Phase 1 — デプロイ前ゲート（Reviewer ＋ Tester）
 - [ ] **Reviewer**：`backend/app/agents/reviewer.md`（規約=code-conventions と同一規範）＋ `backend/app/workers/reviewer.py`。入力=生成物、出力=`{verdict: ok|needs_revision, findings[]}`（FLASH）。
-- [ ] **Tester**：`backend/app/workers/tester.py`。生成HTMLをサンドボックス実行（**実行基盤は要決定**：ヘッドレスブラウザ or 軽量ロード＋LLM判定）。出力=`{verdict: pass|fail, checks[], errors[]}`。
+- [ ] **Tester**：`backend/app/workers/tester.py`。生成アプリを**本番相当の Docker エミュレータ**（`docker-compose.dev`＝Firestore エミュレータ＋backend、**モデルのみ claude**）で実働させ検証。出力=`{verdict: pass|fail, checks[], errors[]}`。
 - [ ] **パイプライン組込**：`reception/service.py: _run_codegen` / `orchestrator/service.py: plan_and_register` を、生成→**Tester＋Reviewer 通過→pending 登録**に。どちらか NG は再生成（差し戻しループ、自動回数で打ち切らない）。
 - [ ] **可視化**：検証/レビューの開始・結果を会話（Receptor 経由）に流す。
 - [ ] テスト追加：ゲート通過/差し戻しの単体テスト。
@@ -85,7 +85,10 @@
 
 ## 3. 環境展開と検証サイクル（各フェーズ共通）
 
-各フェーズは必ず次の 5 ステップで進める（テスト環境で実装・検証 → 本番へ展開・検証）。
+> **方針（確定）：本番デプロイは全フェーズのテスト環境動作確認が完了してから一括で行う。**
+> 各フェーズはまず「テスト環境で実装・検証」まで進め、本番（提出 URL）への反映は最後にまとめて実施する。
+
+各フェーズは次のステップで進める（当面はステップ 1–2 まで／3–4 は全フェーズ完了後）。
 
 | # | ステップ | 環境 | 手段（参照） |
 |---|---|---|---|
@@ -138,6 +141,6 @@ curl -s $URL/api/orchestrator/health ; echo
 - フロント（Firebase Hosting）は `npm run build` → `firebase deploy --only hosting`。バックエンドと**前方/後方互換**を保って順次反映。
 
 ## 6. 留意・未決
-- **Tester 実行基盤**：本番 Cloud Run で生成HTMLを実行する手段（Playwright 等）を置くか、軽量版（ロード＋静的＋LLM判定）にするか。Phase 1 着手時に決定。
+- ~~**Tester 実行基盤**~~（決定済み）：**Docker 内に用意した「本番相当エミュレータ」環境**（`docker-compose.dev` 相当＝Firestore エミュレータ＋backend）で生成アプリを実働させて検証する。**LLM プロバイダのみ claude に差し替え**（コスト節約）、それ以外は本番同等。本番（Cloud Run）デプロイ前に本番同等条件で動作確認できる。
 - **R6（Orchestrator 肥大／多エージェントの必然性）**：Phase 3 でサブワーカー分割の是非を判断（Tester 追加で多エージェント性は前進済み）。
 - **N・閾値・リトライ回数**：タイムアウト N=2、失敗自動リトライ 1〜2 回、固着検出の閾値は実装時に定数化（後で調整可）。
