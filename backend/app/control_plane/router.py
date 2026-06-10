@@ -59,6 +59,22 @@ def stop_all() -> dict:
     return monitor.stop_all()
 
 
+@router.get("/history/{project_id}")
+def history(project_id: str, limit: int = 100) -> dict:
+    """User-facing change history: who/what/when/why, newest first (from audit_logs)."""
+    return {"project_id": project_id, "history": registry.list_history(project_id, limit)}
+
+
+@router.get("/versions/{project_id}/{feature}")
+def versions(project_id: str, feature: str) -> dict:
+    """Published version stack for a feature (rollback targets), oldest→newest."""
+    vs = registry.list_versions(project_id, feature)
+    # Don't ship full HTML in the list view; just metadata.
+    meta = [{"seq": v.get("seq"), "action": v.get("action"), "created_at": v.get("created_at"),
+             "title": (v.get("manifest") or {}).get("title")} for v in vs]
+    return {"project_id": project_id, "feature": feature, "versions": meta}
+
+
 @router.post("/reset")
 def reset() -> dict:
     """DEV ONLY: wipe all app data and return to the initial main-chat-only state."""

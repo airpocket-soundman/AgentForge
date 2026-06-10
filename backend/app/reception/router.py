@@ -11,7 +11,7 @@ Responsibilities:
 """
 from fastapi import APIRouter
 
-from app.control_plane import approvals
+from app.control_plane import approvals, registry
 from app.models.reception import ChatMessage, MessageIn, ReceptionReply
 from app.reception import service
 
@@ -154,13 +154,20 @@ def post_message(body: MessageIn) -> ReceptionReply:
             reply_text = "承認できる設計がありません。先に作りたい機能を伝えてください。"
 
     elif intent == "rollback":
-        disabled = approvals.disable_active_features(body.project_id)
-        if disabled:
-            disabled_feature = disabled[0]
-            labels = "、".join(service.feature_label(f) for f in disabled)
-            reply_text = f"「{labels}」を無効化しました（ロールバック）。データは保持しています。"
+        # 巻き戻し: undo the most recent change by restoring the previous version
+        # (linear, no branching). Targets the last-changed feature.
+        feature = registry.get_last_changed(body.project_id)
+        if not feature:
+            reply_text = "戻せる変更がありません。"
         else:
-            reply_text = "無効化できる有効な機能がありません。"
+            res = approvals.rollback_feature(body.project_id, feature)
+            title = service.feature_title(body.project_id, feature)
+            if res.get("status") == "disabled":
+                disabled_feature = feature
+                reply_text = f"「{title}」を巻き戻しました（作成前に戻し、無効化）。"
+            else:
+                disabled_feature = None
+                reply_text = f"「{title}」を直前の版に巻き戻しました。"
 
     else:
         # Substantive request: the ORCHESTRATOR decides new-vs-edit-vs-chat and the

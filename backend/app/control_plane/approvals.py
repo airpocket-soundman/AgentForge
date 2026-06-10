@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
+from app.control_plane import registry
 from app.control_plane.registry import _audit
 from app.firestore import get_db
 
@@ -113,6 +114,7 @@ def approve(approval_id: str) -> dict:
     title = {"task": "タスク管理", "pdf_memo": "PDFメモ"}.get(feature, feature)
     gv_ref = db.collection("generated_views").document(f"{project_id}_{feature}")
     gv = gv_ref.get()
+    gvd = None
     if gv.exists:
         gv_ref.set({"status": "active", "updated_at": _now_iso()}, merge=True)
         gvd = gv.to_dict()
@@ -130,8 +132,13 @@ def approve(approval_id: str) -> dict:
         merge=True,
     )
 
+    # Snapshot the now-published state for 巻き戻し, and mark it the latest change.
+    if gvd is not None:
+        registry.snapshot_version(project_id, feature, gvd, "publish")
+    registry.set_last_changed(project_id, feature)
+
     appr_ref.set({"status": "approved", "decided_at": _now_iso()}, merge=True)
-    _audit("approval.approved", approval_id, {"task_id": task_id, "feature": feature})
+    _audit("approval.approved", approval_id, {"task_id": task_id, "feature": feature}, project_id=project_id)
     return {"approval_id": approval_id, "status": "approved", "feature": feature, "project_id": project_id}
 
 
@@ -158,8 +165,61 @@ def publish_edit(project_id: str, feature: str, manifest: dict) -> dict:
         },
         merge=True,
     )
-    _audit("generated_view.edited", f"{project_id}:{feature}", {"title": manifest.get("title")})
+    registry.snapshot_version(project_id, feature, manifest, "edit")
+    registry.set_last_changed(project_id, feature)
+    _audit("generated_view.edited", f"{project_id}:{feature}", {"title": manifest.get("title")}, project_id=project_id)
     return {"project_id": project_id, "feature": feature, "status": "active"}
+
+
+def plan_rollback(versions: list) -> tuple[dict | None, str]:
+    """Pure decision for 巻き戻し (linear, no branching). Given the version stack,
+    return (restored_manifest, result) where result is one of:
+      "none"      — no versions to roll back
+      "disabled"  — only one version (undo creation → disable, restore nothing)
+      "restored"  — restore the previous version's manifest
+    The caller pops the current (top) version regardless."""
+    if not versions:
+        return None, "none"
+    remaining = versions[:-1]
+    if not remaining:
+        return None, "disabled"
+    return remaining[-1].get("manifest"), "restored"
+
+
+def rollback_feature(project_id: str, feature: str) -> dict:
+    """巻き戻し: undo the most recent publish of a feature by restoring the previous
+    version (linear, no branching). If only one version exists, undoing the creation
+    soft-disables the feature. Falls back to soft-disable when no version history."""
+    versions = registry.list_versions(project_id, feature)
+    if not versions:
+        return {**disable_feature(project_id, feature), "rolled_back_to": None}
+
+    registry.pop_version(project_id, feature)  # drop the current (top) version
+    remaining = versions[:-1]
+    db = get_db()
+    gv_ref = db.collection("generated_views").document(f"{project_id}_{feature}")
+
+    if not remaining:  # undoing the very first version = "this feature never existed"
+        gv_ref.set({"status": "disabled", "updated_at": _now_iso()}, merge=True)
+        _feature_state_ref(project_id).set({feature: "disabled", "updated_at": _now_iso()}, merge=True)
+        _audit("feature.rolled_back", f"{project_id}:{feature}",
+               {"result": "creation_undone"}, project_id=project_id)
+        return {"project_id": project_id, "feature": feature, "status": "disabled", "rolled_back_to": None}
+
+    prev = remaining[-1]["manifest"]
+    gv_ref.set({**prev, "project_id": project_id, "status": "active", "updated_at": _now_iso()}, merge=True)
+    _feature_state_ref(project_id).set(
+        {
+            feature: "active",
+            f"{feature}_title": prev.get("title") or feature,
+            f"{feature}_theme": prev.get("theme", "default") or "default",
+            "updated_at": _now_iso(),
+        },
+        merge=True,
+    )
+    _audit("feature.rolled_back", f"{project_id}:{feature}",
+           {"to_seq": remaining[-1]["seq"]}, project_id=project_id)
+    return {"project_id": project_id, "feature": feature, "status": "active", "rolled_back_to": remaining[-1]["seq"]}
 
 
 def reject(approval_id: str) -> dict:
@@ -175,7 +235,7 @@ def reject(approval_id: str) -> dict:
 def disable_feature(project_id: str, feature: str) -> dict:
     """Rollback: soft-disable a feature (never delete). Mirrors the '戻して' demo."""
     _feature_state_ref(project_id).set({feature: "disabled", "updated_at": _now_iso()}, merge=True)
-    _audit("feature.disabled", f"{project_id}:{feature}", {"reason": "user_rollback"})
+    _audit("feature.disabled", f"{project_id}:{feature}", {"reason": "user_rollback"}, project_id=project_id)
     return {"project_id": project_id, "feature": feature, "status": "disabled"}
 
 

@@ -64,11 +64,12 @@
 - [x] **タイムアウト方針（能力↔時間トレードオフ）**：`llm_timeout_seconds` 300→**600**、bridge `CLAUDE_TIMEOUT` 300→**600**、Receptor の `_PHASE_BUDGET` codegen/editing 130→**300**。高能力モデルの長考を短く打ち切らない（停止判断はユーザー）。
 - [ ] **happy-path クリーン通過のライブ採取**：本日はブリッジ（claude セッション）遅延で 300s 窓内に未採取。ブリッジが軽いとき or 本番 Gemini（高速）で確認。pass ロジックは単体テスト済み。
 
-### Phase 2 — 版管理・巻き戻し・変更履歴
-- [ ] **版スナップショット**：`control_plane/approvals.py: approve` で、公開する HTML/設定を版として保存（`generated_views` のサブコレクション or Cloud Storage＋Firestore ポインタ）。
-- [ ] **巻き戻し再定義**：現行の `disable_active_features` ベースを、**直前版を再有効化**する処理に置換（`approvals`/`registry`）。会話「戻して」を版復元に接続（`reception/router.py`）。分岐なし・直線。
-- [ ] **変更履歴 API**：`control_plane/router.py` に `GET /api/control-plane/history`（`audit_logs` を「いつ・誰が・何を・なぜ」で整形）。
-- [ ] フロント：変更履歴ビュー（後続）。
+### Phase 2 — 版管理・巻き戻し・変更履歴 — ✅ テスト環境で実装・検証
+- [x] **版スナップショット**：`registry.snapshot_version`／`list_versions`／`pop_version`（`feature_versions/{pid}_{feat}` に線形スタック）。`approvals.approve`（新規公開）と `publish_edit`（改変公開）で push。`_RESET_COLLECTIONS` に追加。
+- [x] **巻き戻し再定義**：`approvals.rollback_feature`＝直前版を再有効化（純粋ロジック `plan_rollback`）。版が1つだけなら作成取り消し＝無効化。`reception/router.py` の「戻して」を `registry.get_last_changed` の対象 feature に対する版巻き戻しへ接続（分岐なし・直線）。
+- [x] **変更履歴 API**：`GET /api/control-plane/history/{project_id}`（`audit_logs` に `project_id` を付与し時系列・newest-first）。`GET /api/control-plane/versions/{project_id}/{feature}`（版メタ一覧）。
+- [x] **テスト**：`tests/test_versioning.py`（純粋ロジック4件）＋ 全 **30 passed**。エミュレータ実走で v1→v2公開→巻き戻し(v1復元)→再巻き戻し(無効化)→history を確認（VERDICT: PASS）。
+- [ ] フロント：変更履歴／版ビューの UI（後続）。
 
 ### Phase 3 — ワーカー基盤（構造・最大の山）
 - [ ] **worker レジストリ＋status**：Firestore に worker 種別・状態（活動/待機/停止）・**model**・**最終更新時刻**。`monitor` を build 単位から worker 単位へ拡張。

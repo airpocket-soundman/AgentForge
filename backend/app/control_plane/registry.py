@@ -25,18 +25,77 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _audit(action: str, target: str, detail: dict | None = None) -> None:
+def _audit(action: str, target: str, detail: dict | None = None, project_id: str | None = None) -> None:
     log_id = f"log_{uuid.uuid4().hex[:12]}"
     get_db().collection("audit_logs").document(log_id).set(
         {
             "log_id": log_id,
             "action": action,
             "target": target,
+            "project_id": project_id,  # for the user-facing change history (filterable)
             "detail": detail or {},
             "actor": "orchestrator",  # SA-scoped actor; refined in Phase 5
             "created_at": _now_iso(),
         }
     )
+
+
+# --- Mini-app version snapshots (for 巻き戻し) -------------------------------
+# A linear stack of published states per feature (no branching). The live state
+# is the top of the stack; rollback pops it and restores the previous version.
+
+def _versions_ref(project_id: str, feature: str):
+    return get_db().collection("feature_versions").document(f"{project_id}_{feature}")
+
+
+def snapshot_version(project_id: str, feature: str, manifest: dict, action: str) -> int:
+    """Push the just-published manifest onto the feature's version stack."""
+    ref = _versions_ref(project_id, feature)
+    snap = ref.get()
+    versions = (snap.to_dict() or {}).get("versions", []) if snap.exists else []
+    seq = (versions[-1]["seq"] + 1) if versions else 1
+    versions.append({"seq": seq, "manifest": manifest, "action": action, "created_at": _now_iso()})
+    ref.set({"project_id": project_id, "feature": feature, "versions": versions}, merge=True)
+    return seq
+
+
+def list_versions(project_id: str, feature: str) -> list[dict]:
+    snap = _versions_ref(project_id, feature).get()
+    return (snap.to_dict() or {}).get("versions", []) if snap.exists else []
+
+
+def pop_version(project_id: str, feature: str) -> None:
+    """Remove the top (current) version after a rollback."""
+    ref = _versions_ref(project_id, feature)
+    snap = ref.get()
+    versions = (snap.to_dict() or {}).get("versions", []) if snap.exists else []
+    if versions:
+        versions.pop()
+        ref.set({"versions": versions}, merge=True)
+
+
+def set_last_changed(project_id: str, feature: str) -> None:
+    """Track the most recently created/edited feature (target of bare 「戻して」)."""
+    get_db().collection("feature_states").document(project_id).set(
+        {"last_changed_feature": feature, "updated_at": _now_iso()}, merge=True
+    )
+
+
+def get_last_changed(project_id: str) -> str | None:
+    snap = get_db().collection("feature_states").document(project_id).get()
+    return (snap.to_dict() or {}).get("last_changed_feature") if snap.exists else None
+
+
+def list_history(project_id: str, limit: int = 100) -> list[dict]:
+    """User-facing change history: audit log entries for a project, newest first."""
+    out: list[dict] = []
+    for d in get_db().collection("audit_logs").stream():
+        x = d.to_dict() or {}
+        target = str(x.get("target") or "")
+        if x.get("project_id") == project_id or target.startswith(f"{project_id}:") or target.startswith(f"{project_id}_"):
+            out.append(x)
+    out.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return out[:limit]
 
 
 def create_task_run(plan: WorkPlan, current_step: str, progress_message: str) -> None:
@@ -140,6 +199,7 @@ _RESET_COLLECTIONS = [
     "app_tasks",
     "feature_states",
     "generated_views",
+    "feature_versions",
     "app_entities",
     "app_state",
     "feature_chats",
