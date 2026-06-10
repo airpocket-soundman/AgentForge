@@ -135,6 +135,11 @@
 
   <h2>11. Reviewer チェックリスト</h2>
   <p class="lead">Reviewer は各項目を判定し、1つでも不適合があれば <code>needs_revision</code> を返す（指摘は <code>findings</code> に列挙）。</p>
+  <div class="callout warn">
+    <strong>誤検知しないこと：</strong> <code>has_worker</code> は生成物 JSON（マニフェスト）のフィールドではない
+    （パイプラインが view 登録時に付与する別フラグ）。「生成物に <code>has_worker</code> が無い」「チャット欄が無い」を
+    <strong>規約違反として指摘しない</strong>。チャットは下部の別パネルがシェルから提供され、生成 HTML には含めないのが正。
+  </div>
   <table class="tbl">
     <tr><th>#</th><th>判定項目</th><th>不適合の例</th></tr>
     <tr><td>1</td><td>出力が規定 JSON・<code>html</code> が実体の完結 HTML</td><td>コードフェンス付き／説明文が <code>html</code> に混入</td></tr>
@@ -144,8 +149,7 @@
     <tr><td>5</td><td>要求機能を実際に動く形で実装（代替・省略なし）</td><td>「お絵描き」がフォーム＋一覧になっている</td></tr>
     <tr><td>6</td><td>テーマは4種のみ・<code>feature</code> は英小文字</td><td>独自テーマ／スラッグに日本語</td></tr>
     <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code></td><td>タッチで操作不能</td></tr>
-    <tr><td>8</td><td>機能画面に Specialist Worker チャット（<code>has_worker</code>）の整合</td><td>不要指定が無いのに <code>has_worker=false</code></td></tr>
-    <tr><td>8b</td><td><strong>生成 HTML 内にチャット／メッセージ入力／AI アシスタント UI を含まない</strong>（アプリチャットは下部の別パネル）</td><td>html にチャット欄・送信ボタン付き入力欄・「アシスタント」等の会話 UI が入っている</td></tr>
+    <tr><td>8</td><td><strong>生成 HTML 内にチャット／メッセージ入力／AI アシスタント UI を含まない</strong>（アプリチャットは下部の別パネル）</td><td>html にチャット欄・送信ボタン付き入力欄・「アシスタント」等の会話 UI が入っている</td></tr>
     <tr><td>9</td><td>生成 API の <code>side_effect_level</code> が適切</td><td>更新系を <code>read</code> 宣言</td></tr>
   </table>
 
