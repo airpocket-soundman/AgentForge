@@ -176,6 +176,21 @@ def is_cancel(text: str) -> bool:
     return len(t) <= 20 and any(k in t for k in _CANCEL_PHRASES)
 
 
+# Timeout 3-choice replies (workers.html §3(b)): ② wait / ③ stop & retry.
+_WAIT_KEYWORDS = ("もう少し待", "もうすこし待", "待つ", "まつ", "待ち", "待って", "そのまま", "継続", "wait", "②")
+_RETRY_KEYWORDS = ("再トライ", "リトライ", "やり直", "やりなお", "再試行", "もう一回", "もういちど", "再生成", "retry", "③")
+
+
+def is_wait(text: str) -> bool:
+    t = _normalize_short(text)
+    return len(t) <= 20 and any(k in t for k in _WAIT_KEYWORDS)
+
+
+def is_retry(text: str) -> bool:
+    t = _normalize_short(text)
+    return len(t) <= 20 and any(k in t for k in _RETRY_KEYWORDS)
+
+
 def get_flow(project_id: str) -> dict:
     snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
     data = (snap.to_dict() or {}) if snap.exists else {}
@@ -250,7 +265,7 @@ def start_edit(
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"))
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0)
     threading.Thread(
         target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
     ).start()
@@ -437,6 +452,35 @@ def recover_build(project_id: str, reason: str = "") -> None:
     _set_build(conversation_id_for(project_id), status=_BUILD_ERROR, error=(reason[:300] or "recovered"))
 
 
+# Timeout (stall) control — Receptor judges and the USER decides (workers.html §3b).
+_TIMEOUT_FORCE_STOP_N = 2  # after N timeouts, Receptor force-stops and just reports
+
+
+def bump_timeout(project_id: str) -> int:
+    """Record one more timeout judgment for the running build; return the new count."""
+    n = int(current_build(project_id).get("timeout_count", 0)) + 1
+    _set_build(conversation_id_for(project_id), timeout_count=n)
+    return n
+
+
+def retry_build(project_id: str) -> str:
+    """③ stop & retry: stop the current run and re-kick it from the last good stage
+    (reuses the saved flow — design proposal / approved plan are not thrown away)."""
+    build = current_build(project_id)
+    phase = build.get("phase")
+    recover_build(project_id, "user retry")
+    flow = get_flow(project_id)
+    goal = flow.get("goal") or build.get("goal") or ""
+    if phase == "codegen" and flow.get("plan"):
+        start_codegen(project_id, goal, flow["plan"])
+        return "codegen"
+    if phase == "editing" and flow.get("feature"):
+        start_edit(project_id, flow["feature"], goal)
+        return "editing"
+    start_plan(project_id, goal)
+    return "planning"
+
+
 def building_status_reply(project_id: str, text: str, diag: dict) -> str:
     """The reception worker INVESTIGATES the pipeline (diagnose_build) and explains
     the real situation in its own words — it reasons over the diagnostic facts with
@@ -539,7 +583,7 @@ def start_plan(
     """Generate (or revise) a design proposal in the background, then post it."""
     conversation_id = conversation_id_for(project_id)
     phase = "revising" if (feedback and previous) else "planning"
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase))
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase), timeout_count=0)
     threading.Thread(
         target=_run_plan, args=(project_id, goal, feedback, previous, images), daemon=True
     ).start()
@@ -579,7 +623,7 @@ def _run_plan(
 def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"))
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"), timeout_count=0)
     threading.Thread(
         target=_run_codegen, args=(project_id, goal, plan), daemon=True
     ).start()

@@ -49,32 +49,45 @@ def post_message(body: MessageIn) -> ReceptionReply:
     build = service.current_build(body.project_id)
     if build.get("status") == "designing":
         diag = service.diagnose_build(body.project_id)
-        # Escape hatch: cancel even while a build is running (busy-guard otherwise
-        # blocks every message, including 「キャンセル」).
+
+        def _busy_reply(text: str, intent: str, building: bool) -> ReceptionReply:
+            r = ChatMessage(role="assistant", text=text)
+            service.append_message(conversation_id, r)
+            worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)
+            return ReceptionReply(conversation_id=conversation_id, reply=r, detected_intent=intent, building=building)
+
+        # ① 停止 (escape hatch — busy-guard otherwise blocks every message)
         if service.is_cancel(body.text):
             service.recover_build(body.project_id, "user cancelled")
             service.clear_flow(body.project_id)
-            reply = ChatMessage(role="assistant", text="作業を中止しました。新しいご依頼をどうぞ。")
-            service.append_message(conversation_id, reply)
-            return ReceptionReply(conversation_id=conversation_id, reply=reply, detected_intent="cancel", building=False)
-        # Diagnosed as stuck (no progress past the phase budget) → unlock.
-        if diag["health"] == "stuck":
-            service.recover_build(body.project_id, f"stuck at {diag.get('phase')} for {diag['total_sec']}s")
-            reply = ChatMessage(
-                role="assistant",
-                text=(
-                    f"{diag['total_sec']} 秒以上応答がなく、処理が停止した可能性があります。"
-                    "安全のため解除しました。お手数ですが、もう一度ご依頼ください"
-                    "（直前のプランは保持しています）。"
-                ),
+            return _busy_reply("作業を中止しました。新しいご依頼をどうぞ。", "cancel", False)
+        # ③ 停止して再トライ (resume from the last good stage)
+        if service.is_retry(body.text):
+            service.retry_build(body.project_id)
+            return _busy_reply("停止して、直前の成功段階から再トライします。進捗はこの画面に表示されます。", "retry", True)
+        # ② もう少し待つ
+        if service.is_wait(body.text):
+            return _busy_reply(f"承知しました。このままお待ちください（経過 {diag.get('total_sec', 0)} 秒・生成中）。", "waiting", True)
+
+        # Receptor judges timeout (slow/stuck). Don't auto-kill — ask the user; after
+        # N timeouts, force-stop and just report (workers.html §3(b)).
+        if diag["health"] in ("slow", "stuck"):
+            count = service.bump_timeout(body.project_id)
+            if count >= service._TIMEOUT_FORCE_STOP_N:
+                service.recover_build(body.project_id, f"force-stop after {count} timeouts")
+                return _busy_reply(
+                    f"{count} 回タイムアウトしたため、安全のため強制停止しました（経過 {diag['total_sec']} 秒）。"
+                    "直前のプランは保持しています。もう一度ご依頼ください。",
+                    "force_stopped", False,
+                )
+            return _busy_reply(
+                f"処理が想定より時間がかかっています（経過 {diag['total_sec']} 秒）。どうしますか？\n"
+                "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」",
+                "timeout_prompt", True,
             )
-            service.append_message(conversation_id, reply)
-            return ReceptionReply(conversation_id=conversation_id, reply=reply, detected_intent="recovered", building=False)
-        reply = ChatMessage(role="assistant", text=service.building_status_reply(body.project_id, body.text, diag))
-        service.append_message(conversation_id, reply)
-        return ReceptionReply(
-            conversation_id=conversation_id, reply=reply, detected_intent="busy", building=True
-        )
+
+        # progressing → normal, grounded status reply
+        return _busy_reply(service.building_status_reply(body.project_id, body.text, diag), "busy", True)
 
     # Attachments: text/data files are inlined into the request; images go to the
     # LLM for vision. Intent/feature resolution still keys off the typed text only.

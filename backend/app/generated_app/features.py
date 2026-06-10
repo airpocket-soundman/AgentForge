@@ -6,8 +6,9 @@ the entities behind the view). It does NOT create or restructure features.
 
 Changing the feature itself (its UI, fields, layout, code) is the MAIN chat's job
 (the Orchestrator pipeline). If the user asks the feature worker for a structural
-change, it declines and points them to the main chat — so a feature can never
-accidentally spawn/duplicate or surface a build preview from its own panel.
+change, it DETECTS it and FORWARDS the request to the main chat pipeline
+(Receptor → Orchestrator) so the user doesn't have to re-ask (spec G3) — a feature
+never restructures itself directly, but the request isn't dropped either.
 
 Conversation is stored in feature_chats/{project}_{feature}. The worker can be
 turned off per feature (feature_states.{feature}_worker = false).
@@ -212,6 +213,28 @@ def _apply_entity_ops(project_id: str, feature: str, ops: list[dict]) -> list[di
 _STRUCTURE_REDIRECT = "「{title}」自体の変更（見た目・項目・機能の追加/削除など）はメインチャットからご依頼ください。ここでは、この機能の中身の操作を担当します。"
 
 
+def _route_to_main(project_id: str, text: str, feature: str, title: str) -> str:
+    """Hand a structural-change request off to the main chat pipeline (Receptor →
+    Orchestrator), so the user doesn't have to re-ask there. Spec G3: the Specialist
+    Worker DETECTS and FORWARDS (not just declines)."""
+    from app.reception import service as reception
+
+    try:
+        res = reception.handle_request(project_id, text, hint_feature=feature)
+        action = res.get("action")
+        if action in ("edit", "create"):
+            kind_ja = "改修" if action == "edit" else "新規作成"
+            return (
+                f"「{title}」自体の変更はメインチャットの担当なので、メインチャットへ取り次ぎました"
+                f"（{kind_ja}として処理を開始）。メインチャットで設計案・進捗をご確認ください。"
+            )
+        if action == "rate_limited":
+            return "ただいま処理が混み合っています。少し待ってから、メインチャットでご依頼ください。"
+    except Exception:  # noqa: BLE001 — fall back to pointing the user to the main chat
+        pass
+    return _STRUCTURE_REDIRECT.format(title=title)
+
+
 def _respond_content(
     project_id: str, feature: str, text: str, history: list[dict], manifest: dict
 ) -> tuple[str, list[dict], dict | None]:
@@ -259,7 +282,7 @@ def _respond_content(
         category = data.get("category", "chat")
         reply = str(data.get("reply", "")).strip()
         if category == "structure":
-            return reply or _STRUCTURE_REDIRECT.format(title=title), [], None
+            return _route_to_main(project_id, text, feature, title), [], None
         if category == "content":
             cmd = data.get("command") or {}
             name = cmd.get("name") if isinstance(cmd, dict) else None
@@ -299,7 +322,7 @@ def _respond_content(
     category = data.get("category", "chat")
     reply = str(data.get("reply", "")).strip()
     if category == "structure":
-        return reply or _STRUCTURE_REDIRECT.format(title=title), [], None
+        return _route_to_main(project_id, text, feature, title), [], None
     if category == "content":
         changed = _apply_entity_ops(project_id, feature, data.get("ops") or [])
         if changed:

@@ -81,11 +81,13 @@
 - [x] **テスト**：protocol 5・context 4（純粋）＝計 **39 passed**。
 - [ ] **後続（より大きな構造変更）**：全パイプラインを worker_bus 経由の**非同期 request/report＋停止中 wake-up** に載せ替え／**Orchestrator を関数群からセッション化**（R6：UI/API/検証のサブワーカー分割の是非）。今は contract と status 基盤まで。
 
-### Phase 4 — 体験（UX）
-- [ ] **Specialist 構造変更ルーティング**：`generated_app/*` のアプリチャットで構造変更を検知し、メインチャット（Receptor→Orchestrator）へ取り次ぐ。
-- [ ] **タイムアウト3択UX**：`reception` の `diagnose_build` を、自動解除ではなく **①停止/②待つ/③停止して再トライ（直前成功段階から）** の確認に。**N=2** で強制停止＋報告。
-- [ ] **透明性**：自動判定・内部情報を Receptor 経由で詳しくフィードバック。
-- [ ] **ステータスモニターUI**：worker 一覧＋状態＋**使用モデル**表示。
+### Phase 4 — 体験（UX）— ✅ バックエンド実装・検証／UI はフロント後続
+- [x] **Specialist 構造変更ルーティング**：`generated_app/features.py` の `_route_to_main`。アプリチャットで構造変更（category=structure）を検知したら、`reception.handle_request(hint_feature=feature)` で**メインチャット（Receptor→Orchestrator）へ自動転送**（従来の「誘導文のみ」から「取り次ぎ」へ）。
+- [x] **タイムアウト3択UX**：`reception/router` の busy 経路を、自動解除ではなく **①停止／②もう少し待つ／③停止して再トライ（`retry_build` が直前成功段階から再開）** に。slow/stuck を Receptor が判定→ユーザー確認、**N=2（`_TIMEOUT_FORCE_STOP_N`）で強制停止＋報告**。`is_wait`/`is_retry`/`bump_timeout`/`retry_build` 追加。
+- [x] **透明性**：自動判定・内部情報は §4 ルールどおり Receptor 経由で会話に出力（進捗・検証/レビュー・タイムアウト・自動アクション）。
+- [x] **ステータスモニター（API）**：`GET /api/control-plane/workers` が `registry`（種別・状態・**model**・stale）を返す（Phase 3a）。
+- [x] **テスト**：timeout 検出器4件。全 **43 passed**。
+- [ ] **ステータスモニター UI（フロント）**：React で worker 一覧＋状態＋使用モデルを描画（API は提供済み）。変更履歴/版ビューと併せてフロント実装は後続。
 
 ---
 
