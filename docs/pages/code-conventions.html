@@ -18,6 +18,10 @@
     <code>ui_designer.md</code> と<strong>同一の規範</strong>です。差異が出たら<strong>本ページを正</strong>とし、
     両者を一致させてください。<a href="workers.html">ワーカー定義（workers.html）</a> の Reviewer から参照されます。
   </div>
+  <div class="callout good">
+    <strong>静的な規約適合は Reviewer、動的な「実際に動くか」の検証は Tester</strong>（workers.html）が担当します。
+    本ページは主に Reviewer の判定基準（静的規約）。Tester は生成物を実行して起動・主要操作・エラー有無・要求充足を確かめます。
+  </div>
 
   <h2>1. 生成物の形式</h2>
   <ul>
@@ -87,11 +91,30 @@
   </ul>
 
   <h2>9. 生成 API / データ規約</h2>
+
+  <h3>パス・メソッド・副作用レベル</h3>
   <ul>
-    <li>API は <code>path</code>（<code>/api/app/...</code>）・<code>method</code>（GET/POST/PATCH/DELETE）・
-      <code>side_effect_level</code>（<code>read</code>/<code>low</code>/<code>medium</code>/<code>high</code>）を宣言する。</li>
-    <li>読み取りは <code>read</code>、作成・更新は副作用レベルを正しく付与（監査・承認の粒度に使う）。</li>
-    <li>データはミニアプリ単位で分離（他ミニアプリのデータに触れない）。</li>
+    <li>パスは <code>/api/app/&lt;feature&gt;/&lt;resource&gt;</code> の形（<strong>feature スラッグで名前空間化</strong>）。<code>api_id</code> は <code>snake_case</code>。</li>
+    <li>各 API は <code>method</code>・<code>side_effect_level</code> を宣言する（承認・監査の粒度に使う）。</li>
+  </ul>
+  <table class="tbl">
+    <tr><th>メソッド</th><th>用途</th><th>side_effect_level</th></tr>
+    <tr><td><code>GET</code></td><td>一覧・取得</td><td><code>read</code></td></tr>
+    <tr><td><code>POST</code></td><td>作成</td><td><code>low</code>（外部呼び出し・課金を伴うなら <code>medium</code>/<code>high</code>）</td></tr>
+    <tr><td><code>PATCH</code> / <code>PUT</code></td><td>更新</td><td><code>low</code></td></tr>
+    <tr><td><code>DELETE</code></td><td>削除</td><td><code>medium</code></td></tr>
+  </table>
+
+  <h3>データ分離</h3>
+  <ul>
+    <li>データは<strong>ミニアプリ単位でスコープ</strong>（<code>feature</code> で名前空間化）。<strong>他ミニアプリのデータに触れない</strong>。</li>
+    <li>サーバ側保存はミニアプリ単位（HTML アプリは <code>AF.load/save</code>、API 型は <code>feature</code> 付きのコレクション）。</li>
+  </ul>
+
+  <h3>入出力フォーマット</h3>
+  <ul>
+    <li>JSON。<strong>キーは <code>snake_case</code></strong>。一覧は <code>{ "items": [...], "next": &lt;cursor|null&gt; }</code>。</li>
+    <li>エラーは適切な HTTP ステータス＋ <code>{ "error": { "code", "message" } }</code>。サーバは入力をスキーマ検証する。</li>
   </ul>
 
   <h2>10. リポジトリ本体の開発規約（Python / TS）</h2>
