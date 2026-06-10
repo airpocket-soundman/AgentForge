@@ -119,7 +119,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 service.start_codegen(body.project_id, flow["goal"], flow["plan"])
                 building = True
                 reply_text = (
-                    "プランを承認しました。AIワーカーがコードを生成します（数十秒〜1分）。\n"
+                    "プランを承認しました。AIワーカーがコードを生成します。\n"
                     "完了するとここにプレビューが表示されます。"
                 )
         else:
@@ -128,7 +128,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 body.project_id, flow["goal"], feedback=goal_text, previous=flow["plan"], images=images
             )
             building = True
-            reply_text = "修正を反映して設計案を作り直します…（数秒）"
+            reply_text = "修正を反映して設計案を作り直します。"
 
     # === Stage: code is BUILT, awaiting publish ===========================
     elif stage == "built":
@@ -185,22 +185,13 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 reply_text = f"「{title}」を直前の版に巻き戻しました。"
 
     else:
-        # Substantive request: the ORCHESTRATOR decides new-vs-edit-vs-chat and the
-        # SAME pipeline runs (create → design proposal; edit → regenerate existing).
-        res = service.handle_request(body.project_id, goal_text, images=images)
-        if res["action"] == "edit":
-            building = True
-            reply_text = f"「{service.feature_title(body.project_id, res['feature'])}」の修正版を作成しています…（数十秒）"
-        elif res["action"] == "create":
-            building = True
-            reply_text = "設計案を作成しています…（数秒）。少しお待ちください。"
-        elif res["action"] == "rate_limited":
-            reply_text = (
-                f"短時間に実行が集中しています（直近{res.get('count', '')}回）。"
-                "トークン保護のため一時停止しました。少し待ってからもう一度お試しください。"
-            )
-        else:
-            reply_text = service.compose_reply(body.text, None)
+        # Substantive request. Classification calls an LLM, so run it (and the
+        # routing) in the background and acknowledge IMMEDIATELY — the Receptor does
+        # only light work synchronously. The background then posts progress/results
+        # (build) or a conversational reply (chat).
+        service.handle_request_bg(body.project_id, goal_text, images=images)
+        building = True
+        reply_text = "受け付けました。内容を確認して進めます。"
 
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
     service.append_message(conversation_id, assistant_msg)

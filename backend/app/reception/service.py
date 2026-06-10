@@ -279,7 +279,7 @@ def _run_edit(
 
     worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("editing"))
     try:
-        _progress(conversation_id, "✏️ 修正版を生成しています…（数十秒）")
+        _progress(conversation_id, "✏️ 修正版を生成しています…")
         snap = get_db().collection("generated_views").document(f"{project_id}_{feature}").get()
         cur = (snap.to_dict() or {}) if snap.exists else {}
         plan = {
@@ -374,6 +374,67 @@ def handle_request(
         start_plan(project_id, pipeline_goal, images=images)
         return {"action": "create", "feature": None, "building": True}
     return {"action": "chat", "feature": None, "building": False}
+
+
+def handle_request_bg(
+    project_id: str, goal: str, images: list[dict] | None = None, hint_feature: str | None = None
+) -> None:
+    """Run classify+route on a background thread so the Receptor can answer instantly.
+
+    Classification calls an LLM, so doing it synchronously made the 'immediate' ack
+    slow. The Receptor now acknowledges at once; this thread classifies and either
+    kicks the build (which posts its own progress) or posts a chat reply."""
+    threading.Thread(
+        target=_handle_request_worker, args=(project_id, goal, images, hint_feature), daemon=True
+    ).start()
+
+
+def _handle_request_worker(
+    project_id: str, goal: str, images: list[dict] | None, hint_feature: str | None
+) -> None:
+    conversation_id = conversation_id_for(project_id)
+    try:
+        res = handle_request(project_id, goal, images=images, hint_feature=hint_feature)
+        if res["action"] == "chat":
+            append_message(conversation_id, ChatMessage(role="assistant", text=_receptor_chat(project_id, goal)))
+        elif res["action"] == "rate_limited":
+            append_message(
+                conversation_id,
+                ChatMessage(role="assistant", text="短時間に実行が集中しています。少し時間をおいて、もう一度お願いします。"),
+            )
+        # create/edit post their own progress + results via start_plan/start_edit.
+    except Exception as exc:  # noqa: BLE001
+        append_message(
+            conversation_id,
+            ChatMessage(role="assistant", text=f"受付の処理中にエラーが発生しました: {str(exc)[:200]}"),
+        )
+
+
+def _receptor_chat(project_id: str, text: str) -> str:
+    """Receptor's conversational reply — LLM-generated (its own words), not a fixed
+    template. Falls back to a minimal line only when no LLM is reachable."""
+    from app import agents
+    from app.llm.gateway import ModelTier, get_llm
+
+    llm = get_llm()
+    if llm.enabled:
+        snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
+        msgs = (snap.to_dict() or {}).get("messages", []) if snap.exists else []
+        history = "\n".join(f"{m.get('role')}: {(m.get('text') or '')[:160]}" for m in msgs[-6:]) or "（履歴なし）"
+        prompt = (
+            f"{agents.load('reception')}\n\n"
+            "あなたは受付AIワーカー（Receptor）。ユーザーと自然に、簡潔に会話してください。"
+            "機能の作成・改変が必要そうなら『作って／直して』と言ってもらえれば進める、と一言添えてよい。"
+            "定型文の繰り返しは避け、相手の発言に即して答えること。\n\n"
+            f"直近の会話:\n{history}\n\nユーザー: {text}\n受付の返答:"
+        )
+        try:
+            out = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            pass
+    return compose_reply(text, None)
 
 
 def guard_run(project_id: str) -> tuple[bool, int]:
@@ -698,7 +759,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
     worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("codegen"), task_id=corr)
     try:
-        _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…（数十秒）")
+        _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
         manifest = orchestrator.build_app(req, design_plan=plan)
         passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
         attempts = 1
