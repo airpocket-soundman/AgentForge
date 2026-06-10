@@ -35,5 +35,7 @@
 - **Orchestrator は最大 3 並列**。満杯時の新規命令は FIFO 待機キュー。**同一ミニアプリの同時改変はロック**（禁止）。
 - 各ワーカーの基本プロンプトには **絶対ルール＋デフォルトルール＋使用 API 仕様マニュアル**を含める。
 - レセプターは**軽い処理のみ**で即応。
+- **権限境界**：ワーカーは自分の権限を増やせない／別ワーカーを勝手に作れない。Orchestrator は Secret/IAM を触らず副作用は Tool Gateway 経由・スキーマ検証。Reviewer は判定のみ。Specialist Worker は担当ミニアプリ内に限定（iframe サンドボックス）。
+- **モデル割当**：FLASH＝Receptor／分類・計画／Reviewer／Specialist Worker、PRO＝コード生成（HTML/API）。ID は `*_FLASH_MODEL` / `*_PRO_MODEL` で切替。
 
 その他の運用ドキュメント: [ENVIRONMENT.md](ENVIRONMENT.md)（環境・テスト実行）, [DEPLOY.md](DEPLOY.md)（デプロイ）。

@@ -306,5 +306,48 @@
       </td>
     </tr>
   </table>
+
+  <h2>9. コンテキストの保存と再開</h2>
+  <p class="lead">
+    ワーカーは非常駐（不要時は休止）なので、文脈はワーカー内に持たず <strong>Firestore に保存</strong>し、
+    起動のたびに最小限を読み直します（rehydrate）。肥大化は<strong>コンパクト化</strong>で防ぎます。
+  </p>
+  <table class="tbl">
+    <tr><th>項目</th><th>方針</th></tr>
+    <tr><td>保存先</td><td>ワーカー／作業ごとに Firestore に保存（会話は <code>conversations</code>、各実行は <code>worker_runs</code>、定義は <code>worker_definitions</code>）。大きな生成物は Cloud Storage に置き参照のみ保持。</td></tr>
+    <tr><td>保存する中身</td><td>直近の対話、判断ログ、現在の作業状態（<code>task_id</code>・段階）、<strong>整理済み要約</strong>、ユーザー設定／好み。</td></tr>
+    <tr><td>再開（rehydrate）</td><td>起動時に <code>context_refs</code>（最小ポインタ）から必要分だけ読み直す。毎回フルロードしない。</td></tr>
+    <tr><td>コンパクト化</td><td>対話・ログが閾値（件数/トークン）を超えたら、古い生ログを<strong>要約に畳んで生ログを破棄</strong>する。要約は更新・維持する。</td></tr>
+  </table>
+  <div class="callout">
+    実装の先行例：ミニアプリの Specialist Worker は毎ターン<strong>「整理済み要約（organized summary）」</strong>を維持・更新している（<code>backend/app/generated_app/task_worker.py</code>）。これを全ワーカー共通のコンパクト化方式の雛形とする。
+  </div>
+
+  <h2>10. 権限と安全境界</h2>
+  <ul>
+    <li>ワーカーは<strong>自分の権限を増やせない</strong>。<strong>別ワーカーを勝手に作れない</strong>（Specialist Worker の設定は Orchestrator の定められた役割の範囲内でのみ行う）。</li>
+    <li><strong>Orchestrator</strong> はデプロイはするが、<strong>Secret を読まない・IAM を触らない</strong>。副作用操作はすべて <strong>Tool Gateway 経由</strong>、出力は<strong>スキーマ検証</strong>。</li>
+    <li><strong>Reviewer</strong> は<strong>判定（読み取り）のみ</strong>。コードの書き換えやデプロイはしない。</li>
+    <li><strong>Specialist Worker</strong> は<strong>担当ミニアプリ内に限定</strong>。他アプリのデータ・他ワーカーの領域に触れない。ミニアプリ本体は<strong>サンドボックス</strong>（iframe・外部通信／localStorage 遮断、保存は <code>AF.load/save</code> 経由）。</li>
+    <li>アプリ全体の利用は<strong>許可メール（ALLOWED_EMAILS ／ 管理者 allowlist）</strong>で制御（<code>backend/app/auth.py</code>）。</li>
+  </ul>
+
+  <h2>11. モデル割当（コスト方針）</h2>
+  <p class="lead">
+    「理解・軽い処理＝小型（FLASH）／重いコード生成＝上位（PRO）」を基本とします。
+    モデル ID はプロバイダ設定で切替（ローカル: <code>CLAUDE_FLASH_MODEL</code>/<code>CLAUDE_PRO_MODEL</code>、
+    本番: <code>GEMINI_FLASH_MODEL</code>/<code>GEMINI_PRO_MODEL</code>）。
+  </p>
+  <table class="tbl">
+    <tr><th>ワーカー / タスク</th><th>Tier</th><th>理由</th></tr>
+    <tr><td>Receptor（会話・取次・即応）</td><td><code>FLASH</code></td><td>軽量・低レイテンシ最優先。</td></tr>
+    <tr><td>Orchestrator（分類・計画立案）</td><td><code>FLASH</code></td><td>判断は軽量モデルで足りる。</td></tr>
+    <tr><td>Orchestrator（コード生成：HTML/API）</td><td><code>PRO</code></td><td>完成品の生成は上位モデル。</td></tr>
+    <tr><td>Reviewer（規約レビュー）</td><td><code>FLASH</code></td><td>規約適合の判定は軽量で可（必要時のみ PRO）。</td></tr>
+    <tr><td>Specialist Worker（アプリ内 NL 処理）</td><td><code>FLASH</code></td><td>境界 LLM（小型）。入出力の構造化が主。</td></tr>
+  </table>
+  <div class="callout warn">
+    現状、コード生成経路は <code>PRO</code> 呼び出しを 2 回行っている（計画再生成＋本生成）。Orchestrator の正式ワーカー化に合わせ、<strong>PRO 呼び出しは本生成 1 回に集約</strong>する（速度・コスト改善）。
+  </div>
 </body>
 </html>
