@@ -58,6 +58,7 @@ def running_workers() -> list[dict]:
             "goal": (build.get("goal") or "")[:80],
             "total_sec": total,
             "health": _health(build.get("phase"), total),
+            "model": build.get("model"),
         })
     out.sort(key=lambda w: w["total_sec"], reverse=True)
     return out

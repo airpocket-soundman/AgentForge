@@ -46,11 +46,13 @@
 
 ## 2. フェーズ別チェックリスト
 
-### Phase 0 — すぐ直せる（設定・小、低リスク）
-- [ ] **PRO=Opus 正準の明文化**：`backend/app/config.py` のコメント/既定方針を「PRO 正準=Opus、demo は override」に。`docker-compose.dev.yml` の `CLAUDE_PRO_MODEL=sonnet` は override コメントを付けて維持。
-- [ ] **codegen 二重 PRO 解消**：`backend/app/orchestrator/service.py` `plan_and_register` で `generate_plan(req)` の PRO 呼び出しをやめ、承認済み `design_plan`（＋決定的 `_stub_plan`）から `WorkPlan` を組む。PRO は `ui_designer.design` の 1 回のみ。
-- [ ] **status にモデル**：`reception/service.py` の `_set_build` 等に使用モデル名を載せ、`control_plane/monitor.py: running_workers` の出力に含める。
-- [ ] 動作確認：[ENVIRONMENT.md](ENVIRONMENT.md) §2(C) の pytest が緑。codegen が体感で短縮。
+### Phase 0 — すぐ直せる（設定・小、低リスク）— ✅ テスト環境で検証済み
+- [x] **PRO=Opus 正準の明文化**：`backend/app/config.py` のコメントを「PRO 正準=Opus、demo は sonnet override」に。`docker-compose.dev.yml` の `CLAUDE_PRO_MODEL=sonnet` は override として維持。
+- [x] **codegen 二重 PRO 解消**：`orchestrator/service.py` `plan_and_register` を、`generate_plan(req)`（PRO）廃止 → 決定的 `_stub_plan` 骨格 ＋ 承認済み `design_plan` から組む。PRO は `ui_designer.design` の 1 回のみ。
+- [x] **status にモデル**：providers に `model_for(tier)`、`llm/gateway.py` に `model_label(tier)`、`reception/service.py` の build 記録に `model`、`control_plane/monitor.py: running_workers` に `model` を含める。
+- [x] **タイムアウト不整合の修正（発見）**：`llm_timeout_seconds` 180→**300**（ブリッジの `CLAUDE_TIMEOUT=300` より短く、フルアプリ生成が 180s 超でブリッジ完了前に stub フォールバックしていた）。
+- [x] **テスト環境 検証**：pytest 19 passed。codegen 実走で実アプリ生成（`generated_by=claude-cli`, html~10.8KB, commands=4, ~112s）、monitor に `claude-cli:pro:sonnet` 表示。
+- [ ] **本番デプロイ＋検証**：`gcloud run deploy --source` → `/health`=200・`generated_by="gemini"`・monitor に Gemini モデル名（**未実施／要承認**）。
 
 ### Phase 1 — デプロイ前ゲート（Reviewer ＋ Tester）
 - [ ] **Reviewer**：`backend/app/agents/reviewer.md`（規約=code-conventions と同一規範）＋ `backend/app/workers/reviewer.py`。入力=生成物、出力=`{verdict: ok|needs_revision, findings[]}`（FLASH）。

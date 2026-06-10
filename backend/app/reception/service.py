@@ -112,6 +112,16 @@ def _set_build(conversation_id: str, **fields) -> None:
     )
 
 
+# Heavy code generation (codegen/editing) runs on the PRO tier; lighter steps
+# (planning/revising) on FLASH. Record which model is in use so the status
+# monitor can show it (spec: status includes the model in use).
+def _model_for_phase(phase: str) -> str:
+    from app.llm.gateway import ModelTier, model_label
+
+    tier = ModelTier.PRO if phase in ("codegen", "editing") else ModelTier.FLASH
+    return model_label(tier)
+
+
 # --- Two-stage flow state (stored on the conversation doc) ------------------
 # stage: "idle" -> "plan" (proposal under review) -> "built" (code ready to publish)
 # The user reviews/revises the PLAN in natural language; only on approval is code
@@ -239,7 +249,7 @@ def start_edit(
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso())
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"))
     threading.Thread(
         target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
     ).start()
@@ -508,7 +518,7 @@ def start_plan(
     """Generate (or revise) a design proposal in the background, then post it."""
     conversation_id = conversation_id_for(project_id)
     phase = "revising" if (feedback and previous) else "planning"
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso())
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase))
     threading.Thread(
         target=_run_plan, args=(project_id, goal, feedback, previous, images), daemon=True
     ).start()
@@ -545,7 +555,7 @@ def _run_plan(
 def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso())
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"))
     threading.Thread(
         target=_run_codegen, args=(project_id, goal, plan), daemon=True
     ).start()

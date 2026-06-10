@@ -35,9 +35,15 @@ class Settings(BaseSettings):
     # claude-cli talks to a host bridge wrapping `claude -p` (LOCAL only; saves
     # Gemini cost). Not reachable on Cloud Run. See scripts/claude_bridge.py.
     claude_bridge_url: str = "http://host.docker.internal:8765/generate"
-    claude_flash_model: str = ""  # "" = bridge/session default
-    claude_pro_model: str = ""    # "" = bridge/session default
-    llm_timeout_seconds: int = 180
+    # Capability tiers (canonical): FLASH = haiku, PRO = opus (matches Gemini
+    # Flash/Pro). docker-compose.dev overrides PRO->sonnet for demo speed (opus is
+    # slow for full-app generation) — an env override, not the tier definition.
+    claude_flash_model: str = ""  # "" = bridge/session default (canonical: haiku)
+    claude_pro_model: str = ""    # "" = bridge/session default (canonical: opus)
+    # Read timeout for an LLM call. Full-app PRO generation can take minutes;
+    # keep this >= the host bridge's CLAUDE_TIMEOUT (300) so we don't give up
+    # before the bridge does and fall back to a stub page.
+    llm_timeout_seconds: int = 300
 
     # --- HTTP / CORS ---
     # Comma-separated list of allowed origins for the browser SPA. Includes the

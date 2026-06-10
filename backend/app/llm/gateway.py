@@ -39,3 +39,12 @@ def get_llm() -> LLMProvider:
     name = select_provider_name(s.llm_provider, s.app_env)
     provider_cls = _REGISTRY.get(name, GeminiProvider)
     return provider_cls()
+
+
+def model_label(tier: ModelTier) -> str:
+    """Human-readable model in use for a tier, e.g. "claude-cli:pro:sonnet" or
+    "gemini:flash:gemini-flash-latest". Used by the status monitor."""
+    llm = get_llm()
+    model_for = getattr(llm, "model_for", None)
+    model = (model_for(tier) if callable(model_for) else "") or "default"
+    return f"{llm.name}:{tier.value}:{model}"

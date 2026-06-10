@@ -26,6 +26,10 @@ class ClaudeCliProvider:
     def enabled(self) -> bool:
         return bool(self._url)
 
+    def model_for(self, tier: ModelTier) -> str:
+        """Configured model id for a tier ("" when using the CLI/session default)."""
+        return self._models.get(tier) or ""
+
     def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH, images=None) -> str:
         import httpx  # local import keeps module import cheap
 

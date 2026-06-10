@@ -23,6 +23,10 @@ class GeminiProvider:
     def enabled(self) -> bool:
         return bool(self._api_key)
 
+    def model_for(self, tier: ModelTier) -> str:
+        """Configured Gemini model id for a tier."""
+        return self._models.get(tier) or ""
+
     def _ensure_client(self):
         if self._client is None:
             from google import genai  # local import keeps module import cheap

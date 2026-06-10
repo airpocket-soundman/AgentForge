@@ -12,5 +12,8 @@ class StubProvider:
     def enabled(self) -> bool:
         return False
 
+    def model_for(self, tier: ModelTier) -> str:
+        return ""
+
     def generate(self, prompt: str, tier: ModelTier = ModelTier.FLASH, images=None) -> str:
         return f"[stub:{tier.value}] :: {prompt[:120]}"
