@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
-import { getWorkers, stopAllWorkers, type RunningWorker, type WorkerUsage } from "../api";
+import {
+  getHistory,
+  getWorkers,
+  stopAllWorkers,
+  type HistoryEntry,
+  type RunningWorker,
+  type WorkerRegistryEntry,
+  type WorkerUsage,
+} from "../api";
 
-// Status monitor: which background workers are running right now (across all
-// sessions), this project's run-rate usage (loop guard), and a global stop.
+// Status monitor: the worker registry (type/status/model), the background builds
+// running right now, this project's run-rate usage (loop guard), the change
+// history (who/what/when), and a global stop.
 const PHASE_LABEL: Record<string, string> = {
   planning: "設計案",
   revising: "設計案修正",
@@ -14,18 +23,38 @@ const HEALTH_LABEL: Record<string, string> = {
   slow: "🟡 遅延",
   stuck: "🔴 停止の可能性",
 };
+const STATUS_LABEL: Record<string, string> = {
+  active: "🟢 活動中",
+  idle: "🟡 待機中",
+  stopped: "⚪ 停止中",
+};
+// Human-readable labels for the audit actions shown in the change history.
+const ACTION_LABEL: Record<string, string> = {
+  "generated_view.pending": "生成（承認待ち）",
+  "approval.approved": "公開（有効化）",
+  "approval.rejected": "却下",
+  "generated_view.edited": "改変を公開",
+  "feature.rolled_back": "巻き戻し",
+  "feature.disabled": "無効化",
+  "feature.worker_toggled": "ワーカー切替",
+  "system.reset": "初期化",
+};
 
 export function StatusView({ onBack }: { onBack: () => void }) {
+  const [registry, setRegistry] = useState<WorkerRegistryEntry[]>([]);
   const [workers, setWorkers] = useState<RunningWorker[]>([]);
   const [usage, setUsage] = useState<WorkerUsage | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState(false);
 
   async function load() {
     try {
-      const r = await getWorkers();
-      setWorkers(r.workers);
-      setUsage(r.usage);
+      const [w, h] = await Promise.all([getWorkers(), getHistory(undefined, 50)]);
+      setRegistry(w.registry ?? []);
+      setWorkers(w.workers);
+      setUsage(w.usage);
+      setHistory(h.history ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -77,9 +106,35 @@ export function StatusView({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
-      <h3 className="status-sub">起動中のワーカー（{workers.length}）</h3>
+      <h3 className="status-sub">ワーカー（{registry.length}）</h3>
+      {registry.length === 0 ? (
+        <div className="sidebar__hint">まだワーカーの稼働記録はありません。</div>
+      ) : (
+        <table className="status-table">
+          <thead>
+            <tr>
+              <th>ワーカー</th>
+              <th>状態</th>
+              <th>使用モデル</th>
+              <th>最終更新</th>
+            </tr>
+          </thead>
+          <tbody>
+            {registry.map((w) => (
+              <tr key={`${w.worker_type}:${w.project_id}`}>
+                <td>{w.worker_type}</td>
+                <td>{STATUS_LABEL[w.status] ?? w.status}{w.stale ? "（応答なし）" : ""}</td>
+                <td className="status-goal">{w.model || "—"}</td>
+                <td>{w.since_update_sec}s前</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h3 className="status-sub">起動中のバックグラウンド作業（{workers.length}）</h3>
       {workers.length === 0 ? (
-        <div className="sidebar__hint">現在、実行中のワーカーはありません。</div>
+        <div className="sidebar__hint">現在、実行中の作業はありません。</div>
       ) : (
         <table className="status-table">
           <thead>
@@ -99,6 +154,30 @@ export function StatusView({ onBack }: { onBack: () => void }) {
                 <td className="status-goal">{w.goal || "—"}</td>
                 <td>{w.total_sec}s</td>
                 <td>{HEALTH_LABEL[w.health] ?? w.health}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h3 className="status-sub">変更履歴（{history.length}）</h3>
+      {history.length === 0 ? (
+        <div className="sidebar__hint">まだ変更履歴はありません。</div>
+      ) : (
+        <table className="status-table">
+          <thead>
+            <tr>
+              <th>日時</th>
+              <th>操作</th>
+              <th>対象</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.log_id}>
+                <td>{h.created_at?.slice(0, 19).replace("T", " ") || "—"}</td>
+                <td>{ACTION_LABEL[h.action] ?? h.action}</td>
+                <td className="status-goal">{h.target || "—"}</td>
               </tr>
             ))}
           </tbody>

@@ -69,7 +69,7 @@
 - [x] **巻き戻し再定義**：`approvals.rollback_feature`＝直前版を再有効化（純粋ロジック `plan_rollback`）。版が1つだけなら作成取り消し＝無効化。`reception/router.py` の「戻して」を `registry.get_last_changed` の対象 feature に対する版巻き戻しへ接続（分岐なし・直線）。
 - [x] **変更履歴 API**：`GET /api/control-plane/history/{project_id}`（`audit_logs` に `project_id` を付与し時系列・newest-first）。`GET /api/control-plane/versions/{project_id}/{feature}`（版メタ一覧）。
 - [x] **テスト**：`tests/test_versioning.py`（純粋ロジック4件）＋ 全 **30 passed**。エミュレータ実走で v1→v2公開→巻き戻し(v1復元)→再巻き戻し(無効化)→history を確認（VERDICT: PASS）。
-- [ ] フロント：変更履歴／版ビューの UI（後続）。
+- [x] フロント：**変更履歴 UI**（StatusView に時系列テーブル）。版メタ取得 `getVersions` も用意（per-feature の版一覧 UI は任意の後続）。
 
 ### Phase 3 — ワーカー基盤（構造・最大の山）— ✅ 基盤実装・検証／一部は後続
 - [x] **worker レジストリ＋status**：`control_plane/worker_status.py`（`workers` コレクション：種別・状態 active/idle/stopped・**model**・**最終更新**）。`/api/control-plane/workers` に `registry` を追加。
@@ -90,7 +90,7 @@
 - [x] **透明性**：自動判定・内部情報は §4 ルールどおり Receptor 経由で会話に出力（進捗・検証/レビュー・タイムアウト・自動アクション）。
 - [x] **ステータスモニター（API）**：`GET /api/control-plane/workers` が `registry`（種別・状態・**model**・stale）を返す（Phase 3a）。
 - [x] **テスト**：timeout 検出器4件。全 **43 passed**。
-- [ ] **ステータスモニター UI（フロント）**：React で worker 一覧＋状態＋使用モデルを描画（API は提供済み）。変更履歴/版ビューと併せてフロント実装は後続。
+- [x] **ステータスモニター UI（フロント）**：`StatusView.tsx` に **ワーカー一覧（種別・状態・使用モデル・stale）** ＋ 起動中バックグラウンド作業 ＋ **変更履歴** の3表。`api.ts` に `getWorkers`(registry)／`getHistory`／`getVersions` 型・関数。`tsc --noEmit` 通過。
 
 ---
 

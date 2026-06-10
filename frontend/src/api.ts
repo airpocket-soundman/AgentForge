@@ -180,8 +180,47 @@ export interface WorkerUsage {
   total_blocked: number;
 }
 
-export function getWorkers(projectId = PROJECT_ID): Promise<{ workers: RunningWorker[]; usage: WorkerUsage }> {
+// Worker registry entry (status monitor): one row per worker type/project.
+export interface WorkerRegistryEntry {
+  worker_type: string;
+  project_id: string;
+  status: "active" | "idle" | "stopped" | string;
+  stale: boolean;
+  model: string | null;
+  task_id: string | null;
+  since_update_sec: number;
+}
+
+export function getWorkers(
+  projectId = PROJECT_ID,
+): Promise<{ registry: WorkerRegistryEntry[]; workers: RunningWorker[]; usage: WorkerUsage }> {
   return request(`/api/control-plane/workers?project_id=${encodeURIComponent(projectId)}`);
+}
+
+// Change history (audit timeline) — who/what/when/why.
+export interface HistoryEntry {
+  log_id: string;
+  action: string;
+  target: string;
+  project_id: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export function getHistory(projectId = PROJECT_ID, limit = 100): Promise<{ history: HistoryEntry[] }> {
+  return request(`/api/control-plane/history/${encodeURIComponent(projectId)}?limit=${limit}`);
+}
+
+// Published version stack for a feature (rollback targets).
+export interface VersionMeta {
+  seq: number;
+  action: string;
+  created_at: string;
+  title: string | null;
+}
+
+export function getVersions(feature: string, projectId = PROJECT_ID): Promise<{ versions: VersionMeta[] }> {
+  return request(`/api/control-plane/versions/${encodeURIComponent(projectId)}/${encodeURIComponent(feature)}`);
 }
 
 // Stop ALL running background workers across sessions (release every locked chat).
