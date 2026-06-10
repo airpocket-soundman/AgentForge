@@ -71,13 +71,13 @@
     <tr><th>ワーカー（公式名）</th><th>役割</th><th>運用ルール</th></tr>
     <tr>
       <td><span class="pill blue">Receptor</span><br>レセプター</td>
-      <td>メインチャットの受付。ユーザーとの会話を担当し、ユーザーの指示・承認・実行命令を Orchestrator に取り次ぐ。</td>
+      <td>メインチャットの受付。ユーザーとの会話を担当し、ユーザーの指示・承認・実行命令を Orchestrator に取り次ぐ。<strong>実行中パイプラインの進捗を監視し、タイムアウトを判定してユーザーに停止可否を確認する。</strong></td>
       <td>メインチャットで会話するのは Receptor のみ。<strong>軽い処理のみ</strong>を受け持ち即応する。</td>
     </tr>
     <tr>
       <td><span class="pill green">Orchestrator</span><br>オーケストレーター</td>
-      <td>ミニアプリ制作・改変パイプラインの統括。設計・改変計画の立案、コード作成（HTML作成・API作成・Specialist Worker の設定）、レビュー依頼、デプロイを行う。</td>
-      <td><strong>最大 3 つまで同時稼働可能</strong>（複数タスクの同時進行のため）。</td>
+      <td>ミニアプリ制作・改変パイプラインの統括。設計・改変計画の立案、コード作成（HTML作成・API作成・Specialist Worker の設定）、レビュー依頼、デプロイを行う。<strong>作業の合間に進捗（開始・失敗・リトライ）を Receptor へ随時報告する。</strong></td>
+      <td><strong>ユーザー（プロジェクト）単位で最大 3 つまで同時稼働</strong>（複数タスクの同時進行のため）。</td>
     </tr>
     <tr>
       <td><span class="pill yellow">Reviewer</span><br>レビュワー</td>
@@ -86,7 +86,7 @@
     </tr>
     <tr>
       <td><span class="pill blue">Specialist Worker</span><br>専門ワーカー</td>
-      <td>個々のミニアプリを扱う。ミニアプリごとに設定される。</td>
+      <td>個々のミニアプリの<strong>中身（データ・表示）を扱う</strong>。ミニアプリごとに設定される。<strong>担当外の構造変更（新機能・項目追加など）を頼まれたら検知し、メインチャットへ取り次ぐ。</strong></td>
       <td>Orchestrator がミニアプリ制作時に設定する。</td>
     </tr>
   </table>
@@ -96,6 +96,95 @@
     統括は <strong>Orchestrator</strong>。Receptor を起点に、設計 → 実行命令 → コード作成 →
     レビュー → デプロイの順で進みます。
   </p>
+
+  <h3>フロー図（アプリ制作・改変指示）</h3>
+  <div class="svg-wrap">
+    <svg viewBox="0 0 820 822" width="820" height="822" role="img" aria-label="アプリ制作・改変フロー">
+      <defs>
+        <marker id="fa" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
+        </marker>
+      </defs>
+
+      <!-- main step boxes -->
+      <!-- R1 User -->
+      <rect x="120" y="64" width="380" height="48" rx="8" fill="#f1f3f4" stroke="#5f6368" stroke-width="1.4" />
+      <text x="310" y="93" text-anchor="middle" fill="#202124" style="font:12px sans-serif">① ユーザー：「作って／直して」と指示</text>
+      <!-- R2 Receptor -->
+      <rect x="120" y="134" width="380" height="48" rx="8" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.4" />
+      <text x="310" y="163" text-anchor="middle" fill="#202124" style="font:12px sans-serif">② Receptor：受付し Orchestrator へ取り次ぐ</text>
+      <!-- R3 Orchestrator plan -->
+      <rect x="120" y="204" width="380" height="48" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.4" />
+      <text x="310" y="233" text-anchor="middle" fill="#202124" style="font:12px sans-serif">③ Orchestrator：設計案を作成〔FLASH〕</text>
+      <!-- R4 Receptor present -->
+      <rect x="120" y="274" width="380" height="48" rx="8" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.4" />
+      <text x="310" y="303" text-anchor="middle" fill="#202124" style="font:12px sans-serif">④ Receptor：設計案をユーザーへ提示</text>
+      <!-- R5 User approve -->
+      <rect x="120" y="344" width="380" height="48" rx="8" fill="#f1f3f4" stroke="#5f6368" stroke-width="1.4" />
+      <text x="310" y="373" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑤ ユーザー：確認 →「これで作って」で承認</text>
+      <!-- R6 Orchestrator code -->
+      <rect x="120" y="414" width="380" height="48" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.4" />
+      <text x="310" y="433" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑥ Orchestrator：コード作成〔PRO〕</text>
+      <text x="310" y="451" text-anchor="middle" fill="#5f6368" style="font:10.5px sans-serif">HTML・API・専門ワーカー設定</text>
+      <!-- R7 review request -->
+      <rect x="120" y="484" width="380" height="48" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.4" />
+      <text x="310" y="513" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑦ Orchestrator → Reviewer：レビュー依頼</text>
+      <!-- R8 Reviewer -->
+      <rect x="120" y="554" width="380" height="48" rx="8" fill="#fef7e0" stroke="#f9ab00" stroke-width="1.4" />
+      <text x="310" y="583" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑧ Reviewer：コード規約で適合判定〔FLASH〕</text>
+      <!-- R9 deploy preview then stop -->
+      <rect x="120" y="624" width="380" height="48" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.4" />
+      <text x="310" y="653" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑨ Orchestrator：プレビューをデプロイ → 停止</text>
+      <!-- R10 publish approval (human) -->
+      <rect x="120" y="694" width="380" height="48" rx="8" fill="#f1f3f4" stroke="#5f6368" stroke-width="1.4" />
+      <text x="310" y="713" text-anchor="middle" fill="#202124" style="font:12px sans-serif">⑩ ユーザー：「反映して」で承認〔人間承認〕</text>
+      <text x="310" y="731" text-anchor="middle" fill="#5f6368" style="font:10.5px sans-serif">→ Receptor / Control Plane が公開・有効化</text>
+
+      <!-- down arrows -->
+      <line x1="310" y1="112" x2="310" y2="132" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="182" x2="310" y2="202" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="252" x2="310" y2="272" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="322" x2="310" y2="342" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="392" x2="310" y2="412" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="462" x2="310" y2="482" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="532" x2="310" y2="552" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="602" x2="310" y2="622" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+      <line x1="310" y1="672" x2="310" y2="692" stroke="#5f6368" stroke-width="1.6" marker-end="url(#fa)" />
+
+      <!-- loop: revision of plan (R5 -> R3) -->
+      <polyline points="120,368 85,368 85,228 120,228" fill="none" stroke="#5f6368" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#fa)" />
+      <text x="72" y="300" text-anchor="middle" fill="#5f6368" transform="rotate(-90 72 300)" style="font:10.5px sans-serif">修正指示なら作り直し</text>
+
+      <!-- loop: needs_revision (R8 -> R6) -->
+      <polyline points="120,578 85,578 85,438 120,438" fill="none" stroke="#e37400" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#fa)" />
+      <text x="72" y="508" text-anchor="middle" fill="#e37400" transform="rotate(-90 72 508)" style="font:10.5px sans-serif">needs_revision：差し戻し</text>
+
+      <!-- side note A: progress report -->
+      <line x1="500" y1="438" x2="528" y2="438" stroke="#1a73e8" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#fa)" />
+      <rect x="528" y="410" width="280" height="74" rx="8" fill="#fff" stroke="#1a73e8" stroke-width="1.2" stroke-dasharray="4,3" />
+      <text x="540" y="430" fill="#1456b8" style="font:700 11px sans-serif">進捗報告（途中経過）</text>
+      <text x="540" y="449" fill="#202124" style="font:10.5px sans-serif">開始 / 失敗 / リトライを</text>
+      <text x="540" y="465" fill="#202124" style="font:10.5px sans-serif">Orchestrator → Receptor → ユーザー</text>
+
+      <!-- side note B: timeout -->
+      <line x1="500" y1="578" x2="528" y2="560" stroke="#f9ab00" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#fa)" />
+      <rect x="528" y="504" width="280" height="120" rx="8" fill="#fff" stroke="#f9ab00" stroke-width="1.2" stroke-dasharray="4,3" />
+      <text x="540" y="524" fill="#b06000" style="font:700 11px sans-serif">タイムアウト判定 = Receptor</text>
+      <text x="540" y="543" fill="#202124" style="font:10.5px sans-serif">ユーザーへ確認し従う:</text>
+      <text x="540" y="561" fill="#202124" style="font:10.5px sans-serif">① 停止 ／ ② もう少し待つ</text>
+      <text x="540" y="577" fill="#202124" style="font:10.5px sans-serif">③ 停止して再度トライ</text>
+      <text x="540" y="601" fill="#202124" style="font:10.5px sans-serif">2 回で Receptor が強制停止し報告のみ</text>
+
+      <!-- legend -->
+      <g style="font:11px sans-serif" fill="#202124">
+        <rect x="120" y="770" width="14" height="14" rx="3" fill="#f1f3f4" stroke="#5f6368" /><text x="140" y="781">ユーザー</text>
+        <rect x="220" y="770" width="14" height="14" rx="3" fill="#e8f0fe" stroke="#1a73e8" /><text x="240" y="781">Receptor</text>
+        <rect x="330" y="770" width="14" height="14" rx="3" fill="#e6f4ea" stroke="#34a853" /><text x="350" y="781">Orchestrator</text>
+        <rect x="470" y="770" width="14" height="14" rx="3" fill="#fef7e0" stroke="#f9ab00" /><text x="490" y="781">Reviewer</text>
+      </g>
+    </svg>
+    <div class="fig-cap">図 3-1. アプリ制作・改変フロー。設計案はユーザー承認（⑤）を経てコード化し、デプロイ前に必ず Reviewer を通す。⑨でプレビューをデプロイして Orchestrator は停止し、⑩のユーザー承認「反映して」で Control Plane が公開・有効化する。進捗・レビュー状況は Receptor 経由でユーザーへ共有。停滞時のタイムアウトは Receptor が判定しユーザーが選択する。</div>
+  </div>
 
   <h3>Orchestrator の役割</h3>
   <ol>
@@ -108,32 +197,88 @@
     </li>
   </ol>
 
+  <h3>進捗報告（Orchestrator → Receptor → ユーザー）</h3>
+  <p>
+    Orchestrator は、Receptor の指示を受けて<strong>設計やコーディングを行う合間に、可能な限り Receptor へ進捗を報告</strong>する。
+    Receptor はそれを<strong>ユーザーへ報告</strong>する。これによりユーザーは「いま何が起きているか」をリアルタイムに把握できる。
+  </p>
+  <ul>
+    <li><strong>何を始めるか</strong>（例：設計開始、HTML 生成開始、API 作成開始、レビュー依頼）</li>
+    <li><strong>何を失敗したか</strong>（例：生成失敗、レビュー不適合）</li>
+    <li><strong>何をリトライしているか</strong>（例：指摘を反映して再生成中）</li>
+    <li>その他、節目ごとの状況</li>
+  </ul>
+  <p class="lead">※ これらは作業途中の<strong>進捗報告（interim report）</strong>であり、作業完了時の最終報告（<code>status=ok</code> 等）とは別。報告経路はワーカー間プロトコル（§7）に従う。</p>
+
   <h3>レビューのループ（デプロイ前）</h3>
   <ol>
     <li>Orchestrator はデプロイ前に <strong>Reviewer へレビューを依頼</strong>する。</li>
     <li>Reviewer は<strong>コード規約</strong>への適合を判定する。</li>
     <li>問題があれば指摘し、Orchestrator に<strong>やり直しを命じる</strong>。</li>
     <li>Orchestrator はその結果を受けて<strong>再度コーディング</strong>を進める。</li>
-    <li>問題がなくなったらデプロイする。</li>
+    <li>問題がなくなったら<strong>プレビューとしてデプロイ</strong>し、Orchestrator は<strong>停止</strong>する。</li>
   </ol>
 
-  <h4>差し戻しループの停止条件（無限ループ防止）</h4>
+  <h3>公開（有効化）の承認 ― 人間ゲート</h3>
+  <p>
+    デプロイは<strong>プレビュー</strong>（まだ本公開ではない）。<strong>ユーザーが「反映して」で承認</strong>すると、
+    <strong>Receptor 経由で Control Plane が公開・有効化</strong>する。<strong>この有効化に Orchestrator は不要</strong>（再起動しない）。
+  </p>
   <ul>
-    <li>1つの作業（<code>task_id</code>）での <strong>レビュー差し戻しは最大 3 回</strong>まで。</li>
-    <li>3 回連続で不適合の場合、Orchestrator は自動修正を打ち切り、<strong>Receptor 経由でユーザーにエスカレーション</strong>する（「コード規約に適合させられませんでした。指示の調整をお願いします」）。</li>
-    <li>各レビュー1回には<strong>タイムアウト</strong>を設ける。Reviewer から時間内に報告が無ければ、その回は失敗扱い（リトライ回数を1消費）。</li>
-    <li>この上限は<strong>1作業内のリトライ制御</strong>。短時間に実行が集中したときに止める既存の runaway guard とは別レイヤ。</li>
+    <li>人間の承認ゲートは2つ：<strong>①設計承認（「これで作って」）</strong>＝コード化に進む、<strong>②公開承認（「反映して」）</strong>＝有効化する。</li>
+    <li>承認しなければプレビューのまま。破棄も選べる。AI は<strong>勝手に本公開しない</strong>（安全側）。</li>
+    <li><strong>公開のたびに、その版（HTML・設定のスナップショット）を保存</strong>する。これが「巻き戻し」（§8）で直前の版へ即時に戻す土台になる。</li>
+  </ul>
+  <div class="callout">
+    <strong>レビューの可視化：</strong> <strong>レビューの開始</strong>（Orchestrator → Reviewer の依頼）と
+    <strong>レビュー結果</strong>（合否・指摘）は <strong>Receptor にも共有</strong>され、
+    <strong>Receptor からユーザーへ報告</strong>する。ユーザーは常に「いまレビュー中か／何を指摘されたか」を
+    メインチャットで把握できる。
+  </div>
+
+  <h4>差し戻しループとタイムアウトの制御</h4>
+  <p>2 種類の制御を分けて扱う。</p>
+
+  <p><strong>(a) 品質ループ（Reviewer 差し戻し）</strong> ― 時間ではなく品質の繰り返し。</p>
+  <ul>
+    <li>コードが規約に不適合なら、Reviewer は <code>needs_revision</code> を返し、Orchestrator が作り直す。</li>
+    <li>この繰り返し自体を<strong>自動回数で打ち切らない</strong>（止めるかどうかは下記タイムアウト制御＝ユーザー判断に委ねる）。</li>
+  </ul>
+
+  <p><strong>(b) タイムアウト／停滞の制御 ― 判定は Receptor、停止判断はユーザー。</strong></p>
+  <ul>
+    <li><strong>タイムアウトで自動的に Orchestrator を止めない。</strong> タイムアウト（＝想定時間を超えた・停滞している）は
+      <strong>Receptor が判定</strong>する（Receptor はユーザー側の見張り役。<strong>監視はステータスを購読するだけの軽量な処理</strong>で、重い処理は持たない）。</li>
+    <li>タイムアウト時、Receptor は<strong>ユーザーにループ停止の可否を確認</strong>し、ユーザーの指示に従う。選択肢：
+      <ul>
+        <li><strong>① 停止</strong>（作業を中止する）</li>
+        <li><strong>② もう少し待つ</strong>（そのまま続行し、再度様子を見る）</li>
+        <li><strong>③ 停止して再度トライ</strong>（<strong>直前の成功した段階から再開</strong>。確定済みの設計案や扱いかけのコードを活かし、最初からやり直さない）</li>
+      </ul>
+    </li>
+    <li><strong>タイムアウトが 2 回（N=2）に達したら、Receptor が強制停止</strong>し、結果を<strong>報告するのみ</strong>（以降はユーザーに確認しない）。</li>
+    <li><strong>自動判定でアクションを取ったとき（タイムアウトのリトライ、自動リトライ、強制停止など）は、その都度 Receptor 経由でユーザーに報告する</strong>（黙って自動処理しない）。</li>
+  </ul>
+  <p class="lead">※ これらは<strong>1 作業（<code>task_id</code>）内の制御</strong>。短時間に実行が集中したときに自動で一時停止する安全装置（runaway guard）とは別レイヤ。</p>
+
+  <h4>失敗（エラー）時の経路</h4>
+  <ul>
+    <li>コード生成やデプロイが失敗（report <code>status=failed</code>）したら、Orchestrator は<strong>短い自動リトライ</strong>を行う（暫定 1〜2 回）。</li>
+    <li>それでも失敗する場合は、<strong>Receptor 経由でユーザーに報告して停止</strong>する（中断）。</li>
+    <li>失敗したのは<strong>プレビュー</strong>なので、<strong>公開済みの版は影響を受けない</strong>。</li>
+    <li>これは実行時エラー（<code>failed</code>）の扱い。Reviewer の品質差し戻し（<code>needs_revision</code>＝自動回数で打ち切らない）とは別レイヤ。</li>
   </ul>
 
   <h3>並列実行とタスク管理</h3>
   <ul>
-    <li>Orchestrator は<strong>最大 3 つ</strong>まで同時稼働。各作業は <code>task_id</code> で識別し、ステータスモニターに表示する。</li>
+    <li>Orchestrator は<strong>ユーザー（プロジェクト）単位で最大 3 つ</strong>まで同時稼働（他ユーザーと枠を共有しない）。各作業は <code>task_id</code> で識別し、ステータスモニターに表示する。</li>
     <li>3 枠が埋まっているときの新規実行命令は<strong>待機キュー（FIFO）</strong>に入れる。空きが出たら先頭から割り当てる。Receptor は<strong>順番待ちであることをユーザーに伝える</strong>。</li>
     <li><strong>同一ミニアプリ（同じ feature）への同時改変は禁止（ロック）。</strong> すでに改変中の場合、その feature への新規依頼は、その作業の完了を待つ。</li>
   </ul>
 
-  <div class="callout">
-    <strong>コード規約：</strong> Reviewer が判定の基準とする「このアプリの中で定めたコード規約」は別ドキュメントで定義します（<em>記載予定</em>）。定まり次第ここからリンクします。
+  <div class="callout good">
+    <strong>コード規約：</strong> Reviewer が判定の基準とする「このアプリの中で定めたコード規約」は
+    <a href="code-conventions.html">コード規約（Reviewer 判定基準）</a> で定義しています。
   </div>
 
   <h2>4. 共通の運用ルール</h2>
@@ -142,11 +287,14 @@
     <li>連携は<strong>定められたルールに基づく「指示」と「報告」</strong>のみで行う。</li>
     <li>メインチャットでユーザーと会話するのは <strong>Receptor のみ</strong>。</li>
     <li>Orchestrator は<strong>デプロイ前に必ず Reviewer のレビューを通す</strong>。</li>
-    <li>Orchestrator は<strong>最大 3 並列</strong>。</li>
+    <li>Orchestrator は<strong>ユーザー（プロジェクト）単位で最大 3 並列</strong>。</li>
     <li><strong>各ワーカーは不要時は休止する</strong>（非常駐）。</li>
     <li>各ワーカーは<strong>コンテキストを保存するファイルを持ち</strong>、再開時にそれを読んでコンテキストを理解する。</li>
     <li>コンテキストは<strong>適宜コンパクト化</strong>する。</li>
     <li><strong>Receptor は軽い処理のみ</strong>を受け持ち、可能な限りユーザーに早く回答する。</li>
+    <li><strong>透明性（重要）：内部情報はなるべく詳しくユーザーへフィードバックする。</strong>
+      進捗・判断・自動アクション（リトライ・強制停止等）・失敗理由・使用モデル・レビュー指摘などを、
+      <strong>Receptor 経由でユーザーへ詳しく伝える</strong>。黙って自動処理しない。</li>
   </ul>
 
   <h2>5. ワーカーのライフサイクルとステータス</h2>
@@ -164,8 +312,9 @@
 
   <h3>記録と起動・停止の仕組み（API 駆動）</h3>
   <ul>
-    <li>各ワーカーは<strong>ステータスを変更するタイミングで、自分のステータスを記録する</strong>（そのための記録 API を使う）。</li>
+    <li>各ワーカーは<strong>ステータスを変更するタイミングで、自分のステータスを記録する</strong>（そのための記録 API を使う）。記録には<strong>使用中のモデル種別（FLASH/PRO・具体モデル名）も含める</strong>（ステータスモニターに表示する）。</li>
     <li>各ワーカーを<strong>起動・停止させる API</strong> を用意し、<strong>他のワーカーからの操作で自動的に起動・停止</strong>する。</li>
+    <li><strong>基本は待ち＋ウェイクアップは回収用</strong>：依頼を出した送り手は結果を<strong>待機中</strong>で待つ。万一<strong>誤って停止</strong>していたら、受け手が状態を確認して<strong>起動 API で起こしてから報告を送る</strong>（ポーリングはしない）。</li>
   </ul>
 
   <h3>ワーカー別の起動・停止トリガー</h3>
@@ -181,9 +330,9 @@
     <tr>
       <td><span class="pill green">Orchestrator</span></td>
       <td>Receptor から指示を受けたとき</td>
-      <td>考えたり処理しているとき／各ワーカーからの指示を受けて考えているとき</td>
+      <td>考えたり処理しているとき／Reviewer などからの報告を受けて考えているとき</td>
       <td>指示やリプライを待っているとき</td>
-      <td>新規アプリのデプロイ、またはアプリ改変後のデプロイが完了したとき</td>
+      <td><strong>プレビューのデプロイが完了したとき</strong>（公開・有効化はユーザー承認後に Control Plane が行い、Orchestrator は関与しない）</td>
     </tr>
     <tr>
       <td><span class="pill yellow">Reviewer</span></td>
@@ -200,11 +349,35 @@
       <td>ミニアプリ画面が非表示／閉じられ、行っていた処理が完了したとき</td>
     </tr>
   </table>
+  <div class="callout">
+    <strong>待機中とウェイクアップの関係：</strong> 依頼を出して結果を待つのは<strong>待機中</strong>（フローが厳密なので、何を待つか分かっており
+    ポーリング不要）。<strong>停止は本来の待ち方ではない</strong>。万一、待っている送り手が誤って停止していた場合に備え、
+    受け手が報告前に状態を確認して<strong>起こす（ウェイクアップ）</strong>のがフォールバック（§7）。
+  </div>
+  <div class="callout">
+    <strong>アプリ閉鎖中の挙動：</strong> ビルド中にユーザーが Web アプリを閉じても（Receptor は停止）、
+    <strong>Orchestrator はバックグラウンドで作業を継続</strong>する（進捗・レビュー・結果は会話／ステータスに永続化）。
+    <strong>再オープン時に Receptor が rehydrate</strong> し、その間の進捗・レビュー・結果を<strong>まとめてユーザーへ報告</strong>する。
+    タイムアウト判定は<strong>閉鎖中は休止</strong>し、再開時に再開する。
+  </div>
 
   <h2>6. 各ワーカーの基本プロンプト</h2>
+  <p>2 種類のルールを区別して定める。</p>
+  <table class="tbl">
+    <tr><th>種別</th><th>意味</th><th>ユーザー指示との関係</th></tr>
+    <tr>
+      <td><strong>絶対ルール</strong></td>
+      <td>そのワーカーが常に守る不変の規範（安全・権限境界・規約適合など）。</td>
+      <td><strong>ユーザー指示でも上書きできない</strong>。</td>
+    </tr>
+    <tr>
+      <td><strong>デフォルトルール</strong></td>
+      <td>指示がないときに従う既定の振る舞い。</td>
+      <td><strong>ユーザーからの指示があれば、それと相反しても構わない（ユーザー指示を優先）。</strong></td>
+    </tr>
+  </table>
   <ul>
-    <li>絶対に守るルールと、<strong>指示がないときに守るデフォルトルール</strong>を定める。</li>
-    <li>そのワーカーが使用する <strong>API の仕様マニュアル</strong>を含める。</li>
+    <li>そのワーカーが使用する <strong>API の仕様マニュアル</strong>を基本プロンプトに含める。</li>
     <li>（随時追加）</li>
   </ul>
 
@@ -224,7 +397,7 @@
     <tr><td><code>intent</code></td><td>依頼の種類。例：<code>plan</code> / <code>build</code> / <code>edit</code> / <code>review</code> / <code>operate</code>。</td></tr>
     <tr><td><code>payload</code></td><td><code>intent</code> ごとの定型データ（JSON Schema 準拠）。</td></tr>
     <tr><td><code>context_refs</code></td><td>必要な文脈への<strong>最小ポインタ</strong>。本体は各ワーカーが Firestore から取得（rehydrate）。</td></tr>
-    <tr><td><code>deadline_sec</code></td><td>この指示のタイムアウト。</td></tr>
+    <tr><td><code>deadline_sec</code></td><td>この指示の<strong>想定所要時間（目安）</strong>。Receptor が<strong>停滞（タイムアウト）判定に使うヒント</strong>で、超過しても受け手は<strong>自動失効しない</strong>（停止可否はユーザーが選ぶ。§3(b)）。</td></tr>
   </table>
 
   <h3>報告（report）メッセージ</h3>
@@ -242,16 +415,21 @@
 
   <h3>やり取りのルール</h3>
   <ul>
-    <li>通信は<strong>非同期</strong>。受け手は着手時にステータスを<strong>活動中</strong>へ変え、完了時に報告を返す。</li>
-    <li>送り手はワーカー非常駐のため、<strong>ステータス監視／ポーリング</strong>で完了を知る（相関は <code>task_id</code> ＋ <code>in_reply_to</code>）。</li>
+    <li>通信は<strong>非同期</strong>。受け手は着手時にステータスを<strong>活動中</strong>へ変え、完了時に報告を書く。</li>
+    <li><strong>基本は「待ち」。</strong> フローを厳密に定めるので、依頼を出した送り手は<strong>何を待つかが分かっており、結果を待つ（待機中）</strong>。
+      <strong>ポーリングで探し回る必要はない。</strong></li>
+    <li><strong>ウェイクアップはフォールバック（誤って停止した時の回収）。</strong> 受け手は報告を送る前に<strong>送り手の状態を確認</strong>し、
+      <strong>停止していれば起動 API で起こしてから送る</strong>。起こされた送り手は保存済みコンテキストを <strong>rehydrate</strong> し、
+      <code>task_id</code> ＋ <code>in_reply_to</code> で対応する指示を特定して再開する。</li>
     <li>指示・報告は<strong>必ずスキーマ検証</strong>。通らない指示は着手せず <code>rejected</code> を即返す。</li>
+    <li><strong>進捗報告（interim report）</strong>：長い作業の途中でも、受け手は<strong>節目ごとに進捗を送る</strong>（最終報告とは別の途中経過）。特に Orchestrator は Receptor へ随時送り、Receptor がユーザーへ伝える。</li>
     <li>（intent ごとの <code>payload</code>/<code>result</code> スキーマ詳細は随時追加）</li>
   </ul>
 
   <h2>8. 機能区分</h2>
 
   <h3>固定機能</h3>
-  <p class="lead">※ 現行実装に準拠（Control Plane）。</p>
+  <p class="lead">※ 多くは現行実装に準拠（Control Plane）。ただし「巻き戻し」は新仕様（版を戻す）のため要実装。</p>
   <table class="tbl">
     <tr><th>機能</th><th>内容</th><th>現行実装</th></tr>
     <tr>
@@ -261,7 +439,7 @@
     </tr>
     <tr>
       <td>ステータスモニター</td>
-      <td>ワーカーリストの表示と、各ワーカーのステータス（活動中／待機中／停止中）の表示。</td>
+      <td>ワーカーリストの表示と、各ワーカーのステータス（活動中／待機中／停止中）の表示。あわせて<strong>各ワーカーが使用中のモデル種別（FLASH / PRO、および具体的なモデル名）も表示</strong>する。</td>
       <td><code>GET /api/control-plane/monitor</code></td>
     </tr>
     <tr>
@@ -271,8 +449,10 @@
     </tr>
     <tr>
       <td>巻き戻し</td>
-      <td>有効な機能（ミニアプリ）を<strong>論理的に無効化（ソフト無効化）</strong>する。<strong>削除はせずデータは保持</strong>するため、再有効化で戻せる。会話では「戻して」で実行。</td>
-      <td><code>approvals.disable_active_features</code>（監査 <code>feature.disabled / user_rollback</code>）</td>
+      <td><strong>メインチャットが行った直近の制作・改変を取り消し、改変前の状態に戻す（その改変を「なかったことにする」）。</strong>
+        <strong>分岐は考えない</strong>（直線的な履歴を、直前のものから順に取り消すだけ）。
+        <strong>公開ごとに保存した版</strong>を使い、直前の版を<strong>即時に再有効化</strong>する（LLM 不使用・決定的）。</td>
+      <td>要実装：<strong>公開ごとに版（スナップショット）を保存する版ストア</strong>＋直前版の再有効化（Control Plane・Orchestrator/LLM 不要）</td>
     </tr>
     <tr>
       <td>初期化</td>
@@ -281,8 +461,8 @@
     </tr>
   </table>
   <div class="callout warn">
-    「巻き戻し」と「初期化」は別物。<strong>巻き戻し＝可逆（無効化のみ・データ保持）</strong>、
-    <strong>初期化＝不可逆の全削除（DEV 専用）</strong>。
+    「巻き戻し」と「初期化」は別物。<strong>巻き戻し＝メインの改変を1つ取り消し、直前の版へ戻す（分岐は扱わない・直線的）</strong>、
+    <strong>初期化＝全削除でゼロから（DEV 専用・不可逆）</strong>。
   </div>
 
   <h3>可変機能</h3>
@@ -303,6 +483,8 @@
         アプリの中の<strong>データ処理や API 操作</strong>を受け持つ。
         アプリごとに Specialist Worker を作り、アプリチャットからの指示を受けて
         <strong>そのアプリ内に限って</strong>作業を行う。
+        <strong>構造変更（新機能・項目追加など）は担当外</strong>。頼まれたら Specialist Worker が検知し、
+        <strong>メインチャット（Receptor → Orchestrator）へ取り次ぐ</strong>（ユーザーは境界を意識しなくてよい）。
       </td>
     </tr>
   </table>
@@ -318,6 +500,7 @@
     <tr><td>保存する中身</td><td>直近の対話、判断ログ、現在の作業状態（<code>task_id</code>・段階）、<strong>整理済み要約</strong>、ユーザー設定／好み。</td></tr>
     <tr><td>再開（rehydrate）</td><td>起動時に <code>context_refs</code>（最小ポインタ）から必要分だけ読み直す。毎回フルロードしない。</td></tr>
     <tr><td>コンパクト化</td><td>対話・ログが閾値（件数/トークン）を超えたら、古い生ログを<strong>要約に畳んで生ログを破棄</strong>する。要約は更新・維持する。</td></tr>
+    <tr><td>ミニアプリの版</td><td><strong>公開のたびに版（HTML・設定のスナップショット）を保存</strong>し、巻き戻しの土台にする（直線的・分岐なし）。大きな HTML は Cloud Storage、ポインタを Firestore。</td></tr>
   </table>
   <div class="callout">
     実装の先行例：ミニアプリの Specialist Worker は毎ターン<strong>「整理済み要約（organized summary）」</strong>を維持・更新している（<code>backend/app/generated_app/task_worker.py</code>）。これを全ワーカー共通のコンパクト化方式の雛形とする。
@@ -335,17 +518,51 @@
   <h2>11. モデル割当（コスト方針）</h2>
   <p class="lead">
     「理解・軽い処理＝小型（FLASH）／重いコード生成＝上位（PRO）」を基本とします。
-    モデル ID はプロバイダ設定で切替（ローカル: <code>CLAUDE_FLASH_MODEL</code>/<code>CLAUDE_PRO_MODEL</code>、
-    本番: <code>GEMINI_FLASH_MODEL</code>/<code>GEMINI_PRO_MODEL</code>）。
+    FLASH / PRO の<strong>階層はプロバイダによらず共通</strong>で、各環境のモデルにマッピングします。
   </p>
+
+  <h3>プロバイダ（環境別）</h3>
+  <p><strong>開発・デモでは claude CLI のセッションを用い、本番では Gemini を使う。</strong></p>
   <table class="tbl">
-    <tr><th>ワーカー / タスク</th><th>Tier</th><th>理由</th></tr>
-    <tr><td>Receptor（会話・取次・即応）</td><td><code>FLASH</code></td><td>軽量・低レイテンシ最優先。</td></tr>
-    <tr><td>Orchestrator（分類・計画立案）</td><td><code>FLASH</code></td><td>判断は軽量モデルで足りる。</td></tr>
-    <tr><td>Orchestrator（コード生成：HTML/API）</td><td><code>PRO</code></td><td>完成品の生成は上位モデル。</td></tr>
-    <tr><td>Reviewer（規約レビュー）</td><td><code>FLASH</code></td><td>規約適合の判定は軽量で可（必要時のみ PRO）。</td></tr>
-    <tr><td>Specialist Worker（アプリ内 NL 処理）</td><td><code>FLASH</code></td><td>境界 LLM（小型）。入出力の構造化が主。</td></tr>
+    <tr><th>環境</th><th>プロバイダ</th><th>FLASH</th><th>PRO</th></tr>
+    <tr>
+      <td>開発 / デモ</td>
+      <td>claude CLI セッション（ホストブリッジ経由）</td>
+      <td><code>CLAUDE_FLASH_MODEL</code>（haiku）</td>
+      <td><code>CLAUDE_PRO_MODEL</code>（正準 opus／デモは速度優先で sonnet 可）</td>
+    </tr>
+    <tr>
+      <td>本番（Cloud Run）</td>
+      <td>Gemini</td>
+      <td><code>GEMINI_FLASH_MODEL</code></td>
+      <td><code>GEMINI_PRO_MODEL</code></td>
+    </tr>
   </table>
+  <p class="lead">※ 開発でローカルの claude セッションを使うのは Gemini API コストの節約のため。ステータスモニターには、その時々の<strong>実モデル名</strong>が表示される（§8）。</p>
+  <p>ティアは<strong>能力帯で揃える</strong>。各プロバイダの同等モデルに対応させる（FLASH＝軽量、PRO＝最上位）。</p>
+  <table class="tbl">
+    <tr><th>Tier（能力帯）</th><th>Claude</th><th>Gemini</th></tr>
+    <tr><td><code>FLASH</code>（軽量・高速）</td><td><code>haiku</code>（claude-haiku-4-5）</td><td>Gemini Flash（<code>gemini-flash-latest</code>）</td></tr>
+    <tr><td><code>PRO</code>（最上位）</td><td><strong><code>opus</code>（claude-opus-4-8）</strong></td><td>Gemini Pro（<code>gemini-pro-latest</code>）</td></tr>
+  </table>
+  <div class="callout warn">
+    <strong>PRO の正準は Opus ↔ Gemini Pro（同等の最上位）。</strong> Sonnet ではない。
+    ただし<strong>開発・デモに限り</strong>、Opus はフルアプリ生成が遅いため、<strong>速度優先で PRO を <code>sonnet</code>（claude-sonnet-4-6）に格下げする運用を許容</strong>する（<code>CLAUDE_PRO_MODEL=sonnet</code>）。これはティア定義の変更ではなく、環境別オーバーライド。
+  </div>
+
+  <p>ワーカー別の割当:</p>
+  <table class="tbl">
+    <tr><th>ワーカー / タスク</th><th>Tier</th></tr>
+    <tr><td>Receptor（会話・取次・即応）</td><td><code>FLASH</code></td></tr>
+    <tr><td>Orchestrator（分類・計画立案）</td><td><code>FLASH</code></td></tr>
+    <tr><td>Orchestrator（コード生成：HTML/API）</td><td><code>PRO</code></td></tr>
+    <tr><td>Reviewer（規約レビュー）</td><td><code>FLASH</code></td></tr>
+    <tr><td>Specialist Worker（アプリ内 NL 処理）</td><td><code>FLASH</code></td></tr>
+  </table>
+  <p class="lead">
+    ※ モデルは設定値（<code>CLAUDE_FLASH_MODEL</code>/<code>CLAUDE_PRO_MODEL</code>、
+    <code>GEMINI_FLASH_MODEL</code>/<code>GEMINI_PRO_MODEL</code>）で切替。Gemini は <code>*-latest</code> 既定（バージョン固定も可）。
+  </p>
   <div class="callout warn">
     現状、コード生成経路は <code>PRO</code> 呼び出しを 2 回行っている（計画再生成＋本生成）。Orchestrator の正式ワーカー化に合わせ、<strong>PRO 呼び出しは本生成 1 回に集約</strong>する（速度・コスト改善）。
   </div>

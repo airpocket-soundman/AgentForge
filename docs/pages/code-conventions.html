@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>コード規約（Reviewer 判定基準）</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body class="doc">
+  <h1>コード規約（Reviewer 判定基準）</h1>
+  <p class="lead">
+    <strong>Reviewer</strong> がデプロイ前に適合を判定する基準です。主対象は <strong>Orchestrator が生成する
+    ミニアプリのコード</strong>（HTML / API / 操作ツール）。末尾にリポジトリ本体（Python/TS）の開発規約も併記します。
+  </p>
+
+  <div class="callout">
+    この規約は、実行時にワーカーへ注入される <code>backend/app/agents/policy.md</code> /
+    <code>ui_designer.md</code> と<strong>同一の規範</strong>です。差異が出たら<strong>本ページを正</strong>とし、
+    両者を一致させてください。<a href="workers.html">ワーカー定義（workers.html）</a> の Reviewer から参照されます。
+  </div>
+
+  <h2>1. 生成物の形式</h2>
+  <ul>
+    <li>アプリ型（<code>kind=app</code>）は<strong>単一の完結した HTML</strong>。出力は JSON のみ
+      （<code>feature</code> / <code>title</code> / <code>description</code> / <code>theme</code> /
+      <code>html</code> / <code>commands</code>）。<strong>前後の説明やコードフェンスを付けない</strong>。</li>
+    <li><code>html</code> は <code>&lt;!DOCTYPE html&gt;</code> から始まり、<strong>構造タグ＋閉じタグを持つ実体</strong>であること。
+      謝罪文・説明文・空文字を <code>html</code> に入れない（公開対象は「動くアプリ」）。</li>
+  </ul>
+
+  <h2>2. 自己完結・サンドボックス</h2>
+  <ul>
+    <li><code>&lt;style&gt;</code> と <code>&lt;script&gt;</code> を内包し、<strong>外部 CDN・外部通信なしで単体動作</strong>する。</li>
+    <li><strong>使用禁止</strong>：<code>localStorage</code> / <code>cookie</code> / <code>fetch</code> / 外部通信 / 別ウィンドウ。</li>
+    <li>状態保存は<strong><code>AF.load()</code> / <code>AF.save()</code> のみ</strong>（サーバ側にミニアプリ単位で永続化）。
+      保存が不要なアプリ（お絵描き・電卓・時計等）は AF を使わない。</li>
+  </ul>
+
+  <h2>3. 操作ツール契約（MCP 形式・必須）</h2>
+  <ul>
+    <li>HTML 内に <code>window.applyAgentCommand = function(name, args){ ... }</code> を実装。
+      <code>name</code> に応じて中身（描画・テキスト・データ等）を実際に変更し、必要なら <code>AF.save</code> を呼ぶ。
+      <strong>未知の <code>name</code> は無視（安全側）</strong>。</li>
+    <li><strong>変更可能な主要プロパティを網羅的にツール化</strong>する（ユーザーが言いそうな操作を広めに）。</li>
+    <li>公開した操作を <code>commands</code>（<code>[{name, description, inputSchema}]</code>）に列挙。
+      <code>name</code> は <code>applyAgentCommand</code> と一致、<code>inputSchema</code> は引数の JSON Schema。</li>
+    <li>純粋表示のみのアプリは <code>commands</code> を空配列にしてよい。</li>
+  </ul>
+
+  <h2>4. UI / UX</h2>
+  <ul>
+    <li><code>body</code> は <code>margin:0</code> でビューポートいっぱいに広げ、モダンで見やすく、ボタンは押しやすく。</li>
+    <li>入力は<strong>マウスとタッチの両対応</strong>（<code>pointer</code> イベント推奨）。</li>
+    <li>見た目は<strong>テーマで一貫</strong>させる：<code>default</code> / <code>warm</code> / <code>forest</code> / <code>ocean</code> の4種のみ。
+      ユーザー指示が曖昧なら内容に最も近いもの、指定が無ければ <code>default</code>。<strong>独自テーマ（生CSSの作り込み）で統一感を壊さない</strong>。</li>
+  </ul>
+
+  <h2>5. 機能の忠実性</h2>
+  <ul>
+    <li>ユーザーが求めた機能を<strong>省略せず「実際に動く形で」</strong>実装する。
+      フォーム＋一覧で代替したり、機能を削ったりしない。</li>
+    <li>例：「お絵描き」→ 実際に描ける（ペン/消しゴム/色/太さ/Undo/全消去 等）。「電卓」→ 実際に計算できる。
+      「タスク管理」→ 追加・完了・削除ができ保存される。「〇×ゲーム」→ 実際に遊べる。</li>
+  </ul>
+
+  <h2>6. 命名・テーマ</h2>
+  <ul>
+    <li><code>feature</code> スラッグは<strong>英小文字</strong>（<code>[a-z0-9_]</code>）。例：<code>paint</code> / <code>calculator</code> / <code>task_manager</code>。</li>
+    <li><code>theme</code> は前述の4種のみ。</li>
+  </ul>
+
+  <h2>7. ワーカー標準（生成 view）</h2>
+  <ul>
+    <li>機能画面には<strong>機能 AI ワーカー（Specialist Worker）への指示入力エリア（アプリチャット）を既定で含める</strong>
+      （<code>has_worker=true</code>）。ユーザーが「ワーカー不要」等を明示した場合のみ <code>false</code>。</li>
+    <li>編集可能な要素（チェック／メモ／フォーム）は<strong>対応する永続化 API にバインド</strong>する。</li>
+    <li>ミニアプリ自体の作成・構造変更はメインチャット専任。Specialist Worker は<strong>中身の編集のみ</strong>（担当外の構造変更をしない）。構造変更を頼まれたら<strong>検知してメインチャット（Receptor → Orchestrator）へ取り次ぐ</strong>。</li>
+  </ul>
+
+  <h2>8. 安全・権限（生成時）</h2>
+  <ul>
+    <li>AI は生成物を <strong>pending 登録するのみ</strong>。active 化・本番反映・rollback は<strong>人間の承認</strong>を要する
+      （Control Plane 経由・全操作を監査）。</li>
+    <li>副作用操作はすべて <strong>Tool Gateway 経由</strong>、出力は<strong>スキーマ検証</strong>。</li>
+    <li>安定・決定的な操作は <strong>API 化（CRUD 等・LLM 不使用）</strong>。自然言語での運用・整理・設定変更は Specialist Worker に委ねる
+      （境界 LLM ＋ 決定的 API ＋ 動的 UI）。</li>
+  </ul>
+
+  <h2>9. 生成 API / データ規約</h2>
+  <ul>
+    <li>API は <code>path</code>（<code>/api/app/...</code>）・<code>method</code>（GET/POST/PATCH/DELETE）・
+      <code>side_effect_level</code>（<code>read</code>/<code>low</code>/<code>medium</code>/<code>high</code>）を宣言する。</li>
+    <li>読み取りは <code>read</code>、作成・更新は副作用レベルを正しく付与（監査・承認の粒度に使う）。</li>
+    <li>データはミニアプリ単位で分離（他ミニアプリのデータに触れない）。</li>
+  </ul>
+
+  <h2>10. リポジトリ本体の開発規約（Python / TS）</h2>
+  <ul>
+    <li>Python：<code>from __future__ import annotations</code>・型注釈・モジュール docstring を付ける。
+      <strong>router（HTTP）と service（ロジック）を分離</strong>。データは pydantic モデル。</li>
+    <li><strong>LLM 到達不可・解析失敗時は必ず決定的フォールバック</strong>でパイプラインを止めない
+      （広域 except は <code>// noqa: BLE001</code> を付し、握りつぶしでなくフォールバックに繋ぐ）。</li>
+    <li>ワーカーの<strong>公式名は英語</strong>（Receptor / Orchestrator / Reviewer / Specialist Worker）。</li>
+    <li>テストは Docker 上の pytest（手順はリポジトリ直下の <code>ENVIRONMENT.md</code> §2(C)）。</li>
+  </ul>
+
+  <h2>11. Reviewer チェックリスト</h2>
+  <p class="lead">Reviewer は各項目を判定し、1つでも不適合があれば <code>needs_revision</code> を返す（指摘は <code>findings</code> に列挙）。</p>
+  <table class="tbl">
+    <tr><th>#</th><th>判定項目</th><th>不適合の例</th></tr>
+    <tr><td>1</td><td>出力が規定 JSON・<code>html</code> が実体の完結 HTML</td><td>コードフェンス付き／説明文が <code>html</code> に混入</td></tr>
+    <tr><td>2</td><td>外部通信なしで自己完結・サンドボックス禁止 API 不使用</td><td><code>fetch</code>/外部CDN/<code>localStorage</code> 使用</td></tr>
+    <tr><td>3</td><td>保存が必要なら <code>AF.load/save</code> を使用</td><td><code>localStorage</code> に保存している</td></tr>
+    <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合（主要操作を網羅）</td><td>ツール未実装／<code>commands</code> と名前不一致／操作が乏しい</td></tr>
+    <tr><td>5</td><td>要求機能を実際に動く形で実装（代替・省略なし）</td><td>「お絵描き」がフォーム＋一覧になっている</td></tr>
+    <tr><td>6</td><td>テーマは4種のみ・<code>feature</code> は英小文字</td><td>独自テーマ／スラッグに日本語</td></tr>
+    <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code></td><td>タッチで操作不能</td></tr>
+    <tr><td>8</td><td>機能画面に Specialist Worker チャット（<code>has_worker</code>）の整合</td><td>不要指定が無いのに <code>has_worker=false</code></td></tr>
+    <tr><td>9</td><td>生成 API の <code>side_effect_level</code> が適切</td><td>更新系を <code>read</code> 宣言</td></tr>
+  </table>
+
+  <div class="callout warn">
+    本ページは随時拡充します（API 詳細スキーマ・命名規則の追加など）。更新時は <code>policy.md</code> /
+    <code>ui_designer.md</code> との一致を保つこと。
+  </div>
+</body>
+</html>
