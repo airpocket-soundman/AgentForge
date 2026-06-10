@@ -40,10 +40,13 @@ class Settings(BaseSettings):
     # slow for full-app generation) — an env override, not the tier definition.
     claude_flash_model: str = ""  # "" = bridge/session default (canonical: haiku)
     claude_pro_model: str = ""    # "" = bridge/session default (canonical: opus)
-    # Read timeout for an LLM call. Full-app PRO generation can take minutes;
-    # keep this >= the host bridge's CLAUDE_TIMEOUT (300) so we don't give up
-    # before the bridge does and fall back to a stub page.
-    llm_timeout_seconds: int = 300
+    # Read timeout for an LLM call. High-capability models (PRO) trade quality for
+    # time: full-app generation legitimately takes minutes, and the deploy-time
+    # gate adds more calls. Keep this generous (and >= the host bridge's
+    # CLAUDE_TIMEOUT) so we don't give up on a good-but-slow result and stub it.
+    # Long thinking is expected; the user controls stopping ("もう少し待つ"), not a
+    # tight auto-timeout (workers.html §3(b)).
+    llm_timeout_seconds: int = 600
 
     # --- HTTP / CORS ---
     # Comma-separated list of allowed origins for the browser SPA. Includes the

@@ -18,6 +18,8 @@ BUILTIN_WORKERS = [
     {"id": "reception", "instruction_file": "reception.md"},
     {"id": "orchestrator", "instruction_file": "orchestrator.md"},
     {"id": "ui_designer", "instruction_file": "ui_designer.md"},
+    {"id": "reviewer", "instruction_file": "reviewer.md"},
+    {"id": "tester", "instruction_file": "tester.md"},
     {"id": "feature_worker", "instruction_file": "feature_worker.md"},
 ]
 

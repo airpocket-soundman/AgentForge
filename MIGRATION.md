@@ -54,12 +54,15 @@
 - [x] **テスト環境 検証**：pytest 19 passed。codegen 実走で実アプリ生成（`generated_by=claude-cli`, html~10.8KB, commands=4, ~112s）、monitor に `claude-cli:pro:sonnet` 表示。
 - [ ] **本番デプロイ＋検証**：全フェーズのテスト確認完了後にまとめて実施（§5）。Phase 0 分の本番確認項目：`/health`=200・`generated_by="gemini"`・monitor に Gemini モデル名。
 
-### Phase 1 — デプロイ前ゲート（Reviewer ＋ Tester）
-- [ ] **Reviewer**：`backend/app/agents/reviewer.md`（規約=code-conventions と同一規範）＋ `backend/app/workers/reviewer.py`。入力=生成物、出力=`{verdict: ok|needs_revision, findings[]}`（FLASH）。
-- [ ] **Tester**：`backend/app/workers/tester.py`。生成アプリを**本番相当の Docker エミュレータ**（`docker-compose.dev`＝Firestore エミュレータ＋backend、**モデルのみ claude**）で実働させ検証。出力=`{verdict: pass|fail, checks[], errors[]}`。
-- [ ] **パイプライン組込**：`reception/service.py: _run_codegen` / `orchestrator/service.py: plan_and_register` を、生成→**Tester＋Reviewer 通過→pending 登録**に。どちらか NG は再生成（差し戻しループ、自動回数で打ち切らない）。
-- [ ] **可視化**：検証/レビューの開始・結果を会話（Receptor 経由）に流す。
-- [ ] テスト追加：ゲート通過/差し戻しの単体テスト。
+### Phase 1 — デプロイ前ゲート（Reviewer ＋ Tester）— ✅ テスト環境で実装・検証
+- [x] **Reviewer**：`agents/reviewer.md`＋`workers/reviewer.py`。静的規約チェック＋LLM（FLASH）→ `{verdict: ok|needs_revision, findings[]}`。
+- [x] **Tester**：`agents/tester.md`＋`workers/tester.py`。本番相当 Docker エミュレータ（モデルのみ claude）で、ロード可否＋構造＋commands結線の静的検証＋LLM（FLASH）の要求充足判定 → `{verdict: pass|fail, checks[], errors[]}`。（ヘッドレス実走は後続拡張）
+- [x] **パイプライン組込**：`orchestrator/service.py` を `build_app`/`register_app` に分割。`reception/service.py: _run_codegen`・`_run_edit` で 生成→**ゲート（Tester+Reviewer を並列実行）**→通過で `register_app`、NG は feedback 付きで再生成（Phase 1 は `_GATE_MAX_ATTEMPTS=2` で暫定バウンド／Phase 4 でタイムアウト・ユーザー制御へ）。
+- [x] **可視化**：検証/レビューの「実行中」「合否・指摘」を会話（system メッセージ）に出力。
+- [x] **テスト**：`tests/test_gates.py`（7件）。pytest **26 passed**。
+- [x] **ライブ確認**：ゲートが実走し、**壊れた生成物（HTML途中切れ）を検知して差し戻し**→ built 到達・指摘報告を確認。
+- [x] **タイムアウト方針（能力↔時間トレードオフ）**：`llm_timeout_seconds` 300→**600**、bridge `CLAUDE_TIMEOUT` 300→**600**、Receptor の `_PHASE_BUDGET` codegen/editing 130→**300**。高能力モデルの長考を短く打ち切らない（停止判断はユーザー）。
+- [ ] **happy-path クリーン通過のライブ採取**：本日はブリッジ（claude セッション）遅延で 300s 窓内に未採取。ブリッジが軽いとき or 本番 Gemini（高速）で確認。pass ロジックは単体テスト済み。
 
 ### Phase 2 — 版管理・巻き戻し・変更履歴
 - [ ] **版スナップショット**：`control_plane/approvals.py: approve` で、公開する HTML/設定を版として保存（`generated_views` のサブコレクション or Cloud Storage＋Firestore ポインタ）。

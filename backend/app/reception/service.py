@@ -270,9 +270,23 @@ def _run_edit(
             "title": cur.get("title") or feature,
             "theme": cur.get("theme", "default"),
         }
-        manifest = ui_designer.design(
-            instruction, plan=plan, current_html=cur.get("html") or None, images=images
-        )
+        cur_html = cur.get("html") or None
+
+        def _build(extra: str | None = None):
+            instr = instruction if not extra else (
+                f"{instruction}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{extra}"
+            )
+            return ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+
+        manifest = _build()
+        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"))
+        attempts = 1
+        while not passed and attempts < _GATE_MAX_ATTEMPTS:
+            attempts += 1
+            _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
+            manifest = _build(_gate_feedback(gates))
+            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"))
+
         cand = manifest.model_dump(mode="json")
         _set_flow(
             conversation_id,
@@ -283,16 +297,17 @@ def _run_edit(
             candidate=cand,
         )
         _progress(conversation_id, _check_report(cand))
-        append_message(
-            conversation_id,
-            ChatMessage(
-                role="assistant",
-                text=(
-                    f"✏️「{plan['title']}」の修正版を作成しました。下のプレビューで確認できます。\n"
-                    "問題なければ「反映して」で更新します。"
-                ),
-            ),
-        )
+        if passed:
+            text = (
+                f"✏️「{plan['title']}」の修正版を作成しました（検証・レビュー通過）。下のプレビューで確認できます。\n"
+                "問題なければ「反映して」で更新します。"
+            )
+        else:
+            text = (
+                f"✏️「{plan['title']}」の修正版を作成しましたが、指摘が残っています:\n" + _gate_feedback(gates) + "\n"
+                "確認のうえ「反映して」で更新するか、直したい点を返信してください。"
+            )
+        append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
     except Exception as exc:  # noqa: BLE001
         append_message(
@@ -363,10 +378,12 @@ _PHASE_LABELS = {
 }
 
 # Per-phase time budget (seconds). Past the budget → "slow"; well past → "stuck".
-# Non-resident workers can't be pinged directly, so the build record's timestamps
-# are the observable: a long gap with status still "designing" means the worker
-# (or its LLM call) likely died, leaving the chat locked.
-_PHASE_BUDGET = {"planning": 40, "revising": 40, "codegen": 130, "editing": 130}
+# These are only HINTS for the Receptor's "is it stuck?" judgment — they never
+# auto-kill (the user decides via ①stop/②wait/③retry; workers.html §3(b)). High-
+# capability models (PRO) legitimately take minutes, and codegen also runs the
+# deploy-time gate (Tester+Reviewer, plus a possible rebuild), so the budgets are
+# generous to avoid crying "stuck" on a good-but-slow run.
+_PHASE_BUDGET = {"planning": 60, "revising": 60, "codegen": 300, "editing": 300}
 _STUCK_FACTOR = 2.5
 
 
@@ -561,16 +578,66 @@ def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     ).start()
 
 
+# --- Deploy-time gate: Tester (runs / meets intent) + Reviewer (conventions) ---
+# Phase 1 bounds the quality loop; Phase 4 replaces the bound with the
+# timeout-based, user-controlled stop (workers.html §3(b)).
+_GATE_MAX_ATTEMPTS = 2
+
+
+def _run_gates(conversation_id: str, goal: str, manifest: dict) -> tuple[bool, dict]:
+    """Run Tester + Reviewer on a generated manifest; post the result to chat.
+
+    The two are independent, so run them concurrently to halve the gate's latency."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.workers import reviewer, tester
+
+    _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約レビュー）を実行中…")
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        t_fut = ex.submit(tester.verify, manifest, goal)
+        r_fut = ex.submit(reviewer.review, manifest, goal)
+        tv = t_fut.result()
+        rv = r_fut.result()
+    passed = tv.get("verdict") == "pass" and rv.get("verdict") == "ok"
+    _progress(conversation_id, _gate_report(tv, rv))
+    return passed, {"tester": tv, "reviewer": rv}
+
+
+def _gate_report(tv: dict, rv: dict) -> str:
+    t = "✅" if tv.get("verdict") == "pass" else "⚠️"
+    r = "✅" if rv.get("verdict") == "ok" else "⚠️"
+    lines = [f"🔎 動作検証 {t} ／ 規約レビュー {r}"]
+    for e in tv.get("errors", []):
+        lines.append(f"・[動作] {e}")
+    for f in rv.get("findings", []):
+        lines.append(f"・[規約] {f}")
+    return "\n".join(lines)
+
+
+def _gate_feedback(gates: dict) -> str:
+    items = [f"[動作] {e}" for e in gates["tester"].get("errors", [])]
+    items += [f"[規約] {f}" for f in gates["reviewer"].get("findings", [])]
+    return "\n".join(items) or "（指摘なし）"
+
+
 def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.models.orchestrator import PlanRequest
     from app.orchestrator import service as orchestrator
 
+    req = PlanRequest(project_id=project_id, goal=goal)
     try:
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…（数十秒）")
-        result = orchestrator.plan_and_register(
-            PlanRequest(project_id=project_id, goal=goal), design_plan=plan
-        )
+        manifest = orchestrator.build_app(req, design_plan=plan)
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"))
+        attempts = 1
+        while not passed and attempts < _GATE_MAX_ATTEMPTS:
+            attempts += 1
+            _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
+            manifest = orchestrator.build_app(req, design_plan=plan, feedback=_gate_feedback(gates))
+            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"))
+
+        result = orchestrator.register_app(req, manifest)
         feat = result.plan.feature
         snap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
         candidate = snap.to_dict() if snap.exists else None
@@ -585,16 +652,17 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             candidate=candidate,
         )
         _progress(conversation_id, _check_report(candidate))
-        append_message(
-            conversation_id,
-            ChatMessage(
-                role="assistant",
-                text=(
-                    "✅ コードが完成しました。下のプレビューで動作を確認できます。\n"
-                    "問題なければ「反映して」で公開します（左メニューに追加されます）。"
-                ),
-            ),
-        )
+        if passed:
+            text = (
+                "✅ 検証・レビューを通過しました。下のプレビューで動作を確認できます。\n"
+                "問題なければ「反映して」で公開します（左メニューに追加されます）。"
+            )
+        else:
+            text = (
+                "⚠️ 検証・レビューで指摘が残っています:\n" + _gate_feedback(gates) + "\n"
+                "プレビューで確認のうえ「反映して」で公開するか、直したい点を返信してください。"
+            )
+        append_message(conversation_id, ChatMessage(role="assistant", text=text))
         _set_build(conversation_id, status=_BUILD_DONE)
     except Exception as exc:  # noqa: BLE001
         append_message(

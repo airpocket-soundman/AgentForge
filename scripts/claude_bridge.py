@@ -16,7 +16,7 @@ Env:
     CLAUDE_BRIDGE_PORT  default 8765
     CLAUDE_BRIDGE_HOST  default 0.0.0.0  (must be reachable from the container; dev only)
     CLAUDE_CMD          default "claude"
-    CLAUDE_TIMEOUT      default 300 (seconds per call)
+    CLAUDE_TIMEOUT      default 600 (seconds per call; full-app PRO gen can take minutes)
 
 Request JSON:  {"prompt": "...", "tier": "flash|pro", "model": "<optional>"}
 Response JSON: {"text": "..."}  (or {"error": "..."} with HTTP 500)
@@ -35,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 PORT = int(os.environ.get("CLAUDE_BRIDGE_PORT", "8765"))
 HOST = os.environ.get("CLAUDE_BRIDGE_HOST", "0.0.0.0")
 CLAUDE_CMD = os.environ.get("CLAUDE_CMD", "claude")
-TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "300"))
+TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "600"))  # full-app PRO gen can take minutes
 
 _MIME_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "image/gif": ".gif"}
 
