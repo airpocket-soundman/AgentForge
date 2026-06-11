@@ -88,6 +88,22 @@ export function ChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [building, stage, preview]);
 
+  // Background tabs freeze setInterval, so a build that finished while the user
+  // was on another tab wouldn't appear until a manual reload. Re-sync immediately
+  // whenever the tab becomes visible / regains focus.
+  useEffect(() => {
+    const resync = () => {
+      if (document.visibilityState === "visible") void loadState();
+    };
+    document.addEventListener("visibilitychange", resync);
+    window.addEventListener("focus", resync);
+    return () => {
+      document.removeEventListener("visibilitychange", resync);
+      window.removeEventListener("focus", resync);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function send(text: string, attachments: Attachment[] = []) {
     // The chat stays usable while a background build runs — the reception worker
     // replies with status. Only block on an in-flight POST (sending).
