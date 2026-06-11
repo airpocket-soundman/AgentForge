@@ -586,7 +586,7 @@
       <td>開発 / デモ</td>
       <td>claude CLI セッション（ホストブリッジ経由）</td>
       <td><code>CLAUDE_FLASH_MODEL</code>（haiku）</td>
-      <td><code>CLAUDE_PRO_MODEL</code>（正準 opus／デモは速度優先で sonnet 可）</td>
+      <td><code>CLAUDE_PRO_MODEL</code>（opus）</td>
     </tr>
     <tr>
       <td>本番（Cloud Run）</td>
@@ -603,8 +603,10 @@
     <tr><td><code>PRO</code>（最上位）</td><td><strong><code>opus</code>（claude-opus-4-8）</strong></td><td>Gemini Pro（<code>gemini-pro-latest</code>）</td></tr>
   </table>
   <div class="callout warn">
-    <strong>PRO の正準は Opus ↔ Gemini Pro（同等の最上位）。</strong> Sonnet ではない。
-    ただし<strong>開発・デモに限り</strong>、Opus はフルアプリ生成が遅いため、<strong>速度優先で PRO を <code>sonnet</code>（claude-sonnet-4-6）に格下げする運用を許容</strong>する（<code>CLAUDE_PRO_MODEL=sonnet</code>）。これはティア定義の変更ではなく、環境別オーバーライド。
+    <strong>PRO の正準は Opus ↔ Gemini Pro（同等の最上位）。Sonnet ではない。</strong>
+    開発・デモも <code>CLAUDE_PRO_MODEL=opus</code> を既定とする（能力帯を本番と揃え、生成品質を担保するため）。
+    Opus はフルアプリ生成が遅いが、タイムアウトは十分に長く（600s）、停止はユーザーが選べる（②もう少し待つ）。
+    どうしても速度を優先したい場合のみ一時的に <code>sonnet</code> へ下げる選択肢はあるが、既定にはしない。
   </div>
 
   <p>ワーカー別の割当:</p>

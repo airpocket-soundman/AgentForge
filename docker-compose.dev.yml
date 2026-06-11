@@ -40,10 +40,11 @@ services:
       # Force another provider here if needed: LLM_PROVIDER=stub | gemini
       APP_ENV: local
       CLAUDE_BRIDGE_URL: http://host.docker.internal:8765/generate
-      # Speed: route heavy codegen (PRO tier) to Sonnet and light steps (FLASH:
-      # classify/specialist worker) to Haiku, instead of the CLI default (Opus),
-      # which is slow for full-app generation. Blank = CLI default.
-      CLAUDE_PRO_MODEL: sonnet
+      # Capability tiers (canonical): PRO = Opus (matches Gemini Pro — code
+      # generation quality), FLASH = Haiku (matches Gemini Flash — light steps).
+      # Opus is slower for full-app generation, but the timeout is generous (600s)
+      # and the user controls waiting (②もう少し待つ), so we use the proper tier.
+      CLAUDE_PRO_MODEL: opus
       CLAUDE_FLASH_MODEL: haiku
       # LLM_PROVIDER: stub   # uncomment to run fully offline without the bridge
     # Optional: drop GEMINI_API_KEY=... into backend/.env (gitignored) to test

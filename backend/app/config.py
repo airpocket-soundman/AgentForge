@@ -36,8 +36,9 @@ class Settings(BaseSettings):
     # Gemini cost). Not reachable on Cloud Run. See scripts/claude_bridge.py.
     claude_bridge_url: str = "http://host.docker.internal:8765/generate"
     # Capability tiers (canonical): FLASH = haiku, PRO = opus (matches Gemini
-    # Flash/Pro). docker-compose.dev overrides PRO->sonnet for demo speed (opus is
-    # slow for full-app generation) — an env override, not the tier definition.
+    # Flash/Pro). docker-compose.dev sets these explicitly (PRO=opus, FLASH=haiku)
+    # so dev quality matches prod's tier; opus is slower but the LLM timeout is
+    # generous and the user controls waiting.
     claude_flash_model: str = ""  # "" = bridge/session default (canonical: haiku)
     claude_pro_model: str = ""    # "" = bridge/session default (canonical: opus)
     # Read timeout for an LLM call. High-capability models (PRO) trade quality for
