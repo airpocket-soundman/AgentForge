@@ -68,11 +68,25 @@ def _recent_messages(project_id: str, n: int = 8) -> list[dict]:
     return (data.get("messages") or [])[-n:]
 
 
+# Feasibility/inquiry phrasings — a question, not an actionable instruction. These
+# stay with the Receptor (chat) to clarify, even if a feature name / edit word
+# appears ("タスク管理を変更できますか？" is a question, not "変更して").
+_FEASIBILITY_Q = (
+    "できますか", "できます？", "できる？", "可能ですか", "可能？", "可能でしょうか",
+    "してもらえますか", "してもらえる", "変えられますか", "変更できますか", "追加できますか",
+    "どんなこと", "何ができ", "なにができ", "とは何", "使い方", "教えて",
+)
+
+
 def _classify_stub(goal: str, actives: dict[str, str], hint_feature: str | None) -> dict:
     text = goal.lower()
-    # An explicitly named existing feature → edit it.
+    # A feasibility question / inquiry → chat (Receptor clarifies; don't dispatch).
+    if any(q in goal for q in _FEASIBILITY_Q):
+        return {"action": "chat", "feature": None}
+    # An explicitly named existing feature WITH an actual edit instruction → edit.
+    has_edit_word = any(k in text for k in _EDIT_HINT_KEYWORDS)
     for slug, title in actives.items():
-        if (title and title in goal) or slug in text:
+        if ((title and title in goal) or slug in text) and has_edit_word:
             return {"action": "edit", "feature": slug}
     is_edit = any(k in text for k in _EDIT_HINT_KEYWORDS)
     is_build = any(k in text for k in _BUILD_HINT_KEYWORDS)
@@ -117,9 +131,14 @@ def classify_request(project_id: str, goal: str, hint_feature: str | None = None
         f"現在アクティブな機能:\n{feature_lines}{hint}\n\n"
         f"直近の会話:\n{history_text}\n\n"
         f"今回のユーザーの要求（原文）: {goal}\n\n"
-        "判定ルール: 既存機能の見た目/動作の変更・追加・修正なら edit（feature にその slug）。"
-        "新しい別機能の作成なら create。相談・質問・使い方なら chat。"
-        "画面ヒントがあっても新規作成を望む内容なら create を優先。\n"
+        "判定ルール（重要）:\n"
+        "- edit/create にするのは、**何を・どう**作る/変えるかが具体的で、すぐ着手できる依頼のときだけ。\n"
+        "  ・既存機能の具体的な変更・追加・修正 → edit（feature にその slug）。\n"
+        "  ・新しい別機能の具体的な作成 → create。\n"
+        "- **『〜できますか？』『〜したい（具体策が未定）』『何ができる？』など、可否の確認・相談・"
+        "要望の打診で、作る/変える内容がまだ定まっていないものは chat。** 機能名が出ていても、質問・相談なら chat"
+        "（名前が出た＝着手、ではない）。chat のときは Orchestrator に投げず、レセプターが内容を具体化する。\n"
+        "- 画面ヒントがあっても新規作成を望む内容なら create を優先。\n"
         "context_note: 履歴から判断した『対象や前提の明確化』だけを書く（例: 指示語が指す機能、"
         "前回の続きである旨）。ユーザーの原文の言い換え・要約・改変は禁止。無ければ空文字。\n"
         'JSONのみで出力: {"action": "create|edit|chat", "feature": "<edit時のslug/空>", "context_note": "<補足/空>"}'

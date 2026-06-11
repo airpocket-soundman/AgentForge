@@ -428,12 +428,24 @@ def _receptor_chat(project_id: str, text: str) -> str:
         snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
         msgs = (snap.to_dict() or {}).get("messages", []) if snap.exists else []
         history = "\n".join(f"{m.get('role')}: {(m.get('text') or '')[:160]}" for m in msgs[-6:]) or "（履歴なし）"
+        _states = _active_features(project_id)
+        _meta = ("_worker", "_theme", "_title")
+        feats = "、".join(
+            _states.get(f"{k}_title") or k
+            for k, v in _states.items()
+            if v == "active" and not any(k.endswith(s) for s in _meta) and k not in ("updated_at", "last_changed_feature")
+        ) or "（まだ無し）"
         prompt = (
             f"{agents.load('reception')}\n\n"
-            "あなたは受付AIワーカー（Receptor）。ユーザーと自然に、簡潔に会話してください。"
-            "機能の作成・改変が必要そうなら『作って／直して』と言ってもらえれば進める、と一言添えてよい。"
-            "定型文の繰り返しは避け、相手の発言に即して答えること。\n\n"
-            f"直近の会話:\n{history}\n\nユーザー: {text}\n受付の返答:"
+            "あなたは受付AIワーカー（Receptor）。軽い処理のみで即応し、ユーザーと自然に簡潔に会話します。\n"
+            "重要な役割：ユーザーの意図が『機能の作成・改変』っぽいが、まだ**何を・どう**するかが具体的でないときは、"
+            "いきなり制作チーム（Orchestrator）に投げず、**具体化する質問を返す**。\n"
+            "  例:『タスク管理を変更できますか？』→『できます。どこをどう変えたいですか？（例：項目の追加、表示順、"
+            "色分け、集計の追加 など）』のように、選択肢を添えて尋ねる。\n"
+            "十分に具体的（作るもの/変える箇所と内容が明確）になったら、『では◯◯を作ります／直します』と確認し、"
+            "ユーザーがそれで良ければ実際の作業に入る、と伝える。\n"
+            "ただの雑談・質問にはそのまま簡潔に答える。定型文の繰り返しは避ける。\n\n"
+            f"現在ある機能: {feats}\n直近の会話:\n{history}\n\nユーザー: {text}\n受付の返答:"
         )
         try:
             out = llm.generate(prompt, tier=ModelTier.FLASH).strip()
