@@ -126,6 +126,30 @@ export function GeneratedView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [building]);
 
+  // The live app can change out from under this view (republished from the main
+  // chat, or a re-create reusing the same feature slug). Refetch the manifest when
+  // a build finishes so the iframe shows the LATEST published version, not a stale one.
+  useEffect(() => {
+    if (!building) getView(feature).then(setManifest).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [building, feature]);
+
+  // Background tabs freeze polling; re-sync (live app + conversation) on return.
+  useEffect(() => {
+    const resync = () => {
+      if (document.visibilityState !== "visible") return;
+      getView(feature).then(setManifest).catch(() => {});
+      void loadAll();
+    };
+    document.addEventListener("visibilitychange", resync);
+    window.addEventListener("focus", resync);
+    return () => {
+      document.removeEventListener("visibilitychange", resync);
+      window.removeEventListener("focus", resync);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feature]);
+
   async function sendWorker() {
     const text = input.trim();
     if (!text || sending) return;
