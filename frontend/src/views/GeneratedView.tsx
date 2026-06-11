@@ -282,7 +282,7 @@ export function GeneratedView({
                 ))}
                 {building && (
                   <div className="bubble bubble--assistant bubble--pending">
-                    🤖 指示を反映しています…（数十秒）
+                    🤖 指示を反映しています…
                   </div>
                 )}
                 {error && <div className="error">{error}</div>}

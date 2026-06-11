@@ -137,14 +137,17 @@ export function ChatView({
 
   // Drive the spinner by the ACTIVE phase, not the flow stage: the stage stays
   // "plan" during code generation, so keying off stage mislabels codegen as 設計案.
+  // No fixed time estimates — generation time varies (high-capability models).
   const spinnerText =
-    phase === "codegen"
-      ? "🤖 AIワーカーがコードを生成しています…（数十秒〜1分／他の画面に移動しても続きます）"
-      : phase === "editing"
-        ? "🤖 修正版を作成しています…（数十秒）"
-        : phase === "revising"
-          ? "🤖 設計案を修正しています…（数秒）"
-          : "🤖 設計案を作成しています…（数秒）";
+    phase === "receiving"
+      ? "🤖 ご依頼を整理しています…"
+      : phase === "codegen"
+        ? "🤖 AIワーカーがコードを生成しています…（他の画面に移動しても続きます）"
+        : phase === "editing"
+          ? "🤖 修正版を作成しています…"
+          : phase === "revising"
+            ? "🤖 設計案を修正しています…"
+            : "🤖 設計案を作成しています…";
 
   return (
     <div className="chatview">
