@@ -128,6 +128,7 @@ def _model_for_phase(phase: str) -> str:
 # The user reviews/revises the PLAN in natural language; only on approval is code
 # generated; a final 「反映して」 publishes (activates) it.
 _STAGE_IDLE = "idle"
+_STAGE_CONFIRM = "confirm"  # Receptor restated the request; awaiting user OK to dispatch
 _STAGE_PLAN = "plan"
 _STAGE_BUILT = "built"
 
@@ -400,21 +401,102 @@ def _handle_request_worker(
     project_id: str, goal: str, images: list[dict] | None, hint_feature: str | None
 ) -> None:
     conversation_id = conversation_id_for(project_id)
+    from app.orchestrator import service as orchestrator
+
+    # Keep a build record "designing" while the Receptor classifies / writes its
+    # restatement (both call an LLM), so the chat keeps polling and shows the result.
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="receiving", goal=goal,
+               started_at=_now_iso(), model=_model_for_phase("planning"), timeout_count=0)
     try:
-        res = handle_request(project_id, goal, images=images, hint_feature=hint_feature)
-        if res["action"] == "chat":
+        decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
+        action = decision.get("action")
+        feature = decision.get("feature")
+        note = (decision.get("context_note") or "").strip()
+        pipeline_goal = f"{goal}\n\n[文脈（過去の会話から補足）] {note}" if note else goal
+        if action in ("edit", "create"):
+            # Don't dispatch yet — the Receptor restates what it will ask the
+            # Orchestrator and waits for the user's OK (then start_confirm path).
+            _start_confirm(project_id, action, feature, pipeline_goal, images=images)
+        else:
             append_message(conversation_id, ChatMessage(role="assistant", text=_receptor_chat(project_id, goal)))
-        elif res["action"] == "rate_limited":
-            append_message(
-                conversation_id,
-                ChatMessage(role="assistant", text="短時間に実行が集中しています。少し時間をおいて、もう一度お願いします。"),
-            )
-        # create/edit post their own progress + results via start_plan/start_edit.
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
             ChatMessage(role="assistant", text=f"受付の処理中にエラーが発生しました: {str(exc)[:200]}"),
         )
+    finally:
+        _set_build(conversation_id, status=_BUILD_DONE)
+
+
+# --- Restate & confirm BEFORE dispatching to the Orchestrator -----------------
+# The Receptor consolidates the request, restates it for the user, and only on the
+# user's OK does it dispatch (start_plan / start_edit). Stored on the flow at
+# stage="confirm": mode=action(create|edit), feature=edit target, goal=instruction.
+
+def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
+                   images: list[dict] | None = None) -> None:
+    conversation_id = conversation_id_for(project_id)
+    restate = _confirm_restatement(project_id, action, feature, goal)
+    # Keep attachments with the pending request so they survive to dispatch.
+    _set_flow(conversation_id, stage=_STAGE_CONFIRM, mode=action, goal=goal, feature=feature)
+    if images:
+        get_db().collection(_COLLECTION).document(conversation_id).set(
+            {"flow": {"pending_images": images}}, merge=True
+        )
+    append_message(conversation_id, ChatMessage(role="assistant", text=restate))
+
+
+def start_confirm_bg(project_id: str, action: str, feature: str | None, goal: str) -> None:
+    """Re-run the restatement in the background (used when the user revises at the
+    confirm stage), so the HTTP reply stays instant."""
+    threading.Thread(target=_start_confirm, args=(project_id, action, feature, goal), daemon=True).start()
+
+
+def _confirm_restatement(project_id: str, action: str, feature: str | None, goal: str) -> str:
+    """The Receptor's restatement of what it will ask the Orchestrator + a request
+    to confirm. LLM-generated (its own words); minimal fallback when offline."""
+    from app import agents
+    from app.llm.gateway import ModelTier, get_llm
+
+    target = (f"既存機能「{feature_title(project_id, feature)}」の改修"
+              if action == "edit" and feature else "新しい機能の作成")
+    llm = get_llm()
+    if llm.enabled:
+        prompt = (
+            f"{agents.load('reception')}\n\n"
+            "あなたは受付（Receptor）。これから制作チーム（Orchestrator）に渡す依頼内容を、"
+            "ユーザーに復唱して確認します。次の依頼を1〜3文で具体的に要約して復唱し、最後に必ず\n"
+            "『この内容で制作を依頼してよいですか？修正があれば教えてください。よければ「お願い」とお送りください。』\n"
+            "と添えてください。誇張や勝手な追加はせず、ユーザーの意図に忠実に。\n\n"
+            f"種別: {target}\n依頼（原文＋文脈）:\n{goal}\n\n受付の復唱:"
+        )
+        try:
+            out = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            pass
+    return (
+        f"承知しました。次の内容で進めます（{target}）:\n{goal}\n\n"
+        "この内容で制作を依頼してよいですか？修正があれば教えてください。よければ「お願い」とお送りください。"
+    )
+
+
+def dispatch_confirmed(project_id: str) -> dict:
+    """Dispatch the confirmed request to the Orchestrator (called on the user's OK
+    at the confirm stage). Returns {"action", "feature"}."""
+    flow = get_flow(project_id)
+    action = flow.get("mode")
+    feature = flow.get("feature")
+    instruction = flow.get("goal") or ""
+    snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
+    images = ((snap.to_dict() or {}).get("flow") or {}).get("pending_images") if snap.exists else None
+    clear_flow(project_id)  # reset; start_* will set the build/flow
+    if action == "edit" and feature:
+        start_edit(project_id, feature, instruction, images=images)
+        return {"action": "edit", "feature": feature}
+    start_plan(project_id, instruction, images=images)
+    return {"action": "create", "feature": None}
 
 
 def _receptor_chat(project_id: str, text: str) -> str:

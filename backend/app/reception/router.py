@@ -103,8 +103,34 @@ def post_message(body: MessageIn) -> ReceptionReply:
     disabled_feature: str | None = None
     building = False
 
+    # === Stage: Receptor restated the request, awaiting user's OK to dispatch ==
+    if stage == "confirm":
+        if service.is_cancel(body.text):
+            service.clear_flow(body.project_id)
+            reply_text = "承知しました。依頼を取りやめました。新しいご依頼をどうぞ。"
+        elif service.is_plan_ok(body.text):
+            allowed, count = service.guard_run(body.project_id)
+            if not allowed:
+                reply_text = (
+                    f"短時間に実行が集中しています（直近{count}回）。少し待ってから「お願い」と送ってください。"
+                )
+            else:
+                res = service.dispatch_confirmed(body.project_id)
+                building = True
+                reply_text = (
+                    "承知しました。制作チーム（Orchestrator）に依頼しました。"
+                    "進捗はこの画面に表示されます。"
+                )
+        else:
+            # Anything else = a correction; re-consolidate and re-confirm.
+            service.start_confirm_bg(
+                body.project_id, flow.get("mode", "create"), flow.get("feature"),
+                (flow.get("goal") or "") + "\n\n[ユーザーの修正・追記] " + goal_text,
+            )
+            reply_text = "承知しました。内容を更新して、もう一度確認します…"
+
     # === Stage: a design PROPOSAL is under review =========================
-    if stage == "plan":
+    elif stage == "plan":
         if service.is_cancel(body.text):
             service.clear_flow(body.project_id)
             reply_text = "設計をキャンセルしました。新しく機能を依頼してください。"
