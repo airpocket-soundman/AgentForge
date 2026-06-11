@@ -85,6 +85,14 @@ def approve(approval_id: str) -> dict:
     project_id = data["project_id"]
     task_id = data["task_id"]
 
+    # Guard: never publish an unfinished (stub) generation, even if one was left
+    # pending (e.g. created while the LLM was unreachable). Only working apps publish.
+    _ts = db.collection("task_runs").document(task_id).get()
+    _feat = (_ts.to_dict() or {}).get("feature", "unknown") if _ts.exists else "unknown"
+    _gv = db.collection("generated_views").document(f"{project_id}_{_feat}").get()
+    if _gv.exists and (_gv.to_dict() or {}).get("generated_by") == "stub":
+        raise HTTPException(status_code=409, detail="生成が未完成（仮ページ）のため公開できません。作り直してください。")
+
     # Promote the registered artifacts: pending -> active.
     _set_registry_status("api_registry", data.get("target_apis", []), "active")
     _set_registry_status("ui_view_registry", data.get("target_views", []), "active")
@@ -146,6 +154,8 @@ def publish_edit(project_id: str, feature: str, manifest: dict) -> dict:
     """Publish an edited feature: overwrite the live (active) view_manifest with the
     regenerated one, keeping the feature active. The human gate here is the user's
     preview + 「反映して」 — no new pending approval is needed for an in-place edit."""
+    if (manifest or {}).get("generated_by") == "stub":
+        raise HTTPException(status_code=409, detail="修正版が未完成（仮ページ）のため公開できません。作り直してください。")
     db = get_db()
     db.collection("generated_views").document(f"{project_id}_{feature}").set(
         {

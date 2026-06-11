@@ -306,29 +306,35 @@ def _run_edit(
             passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
 
         cand = manifest.model_dump(mode="json")
-        _set_flow(
-            conversation_id,
-            stage=_STAGE_BUILT,
-            mode="edit",
-            goal=instruction,
-            feature=feature,
-            candidate=cand,
-        )
-        _progress(conversation_id, _check_report(cand))
         if passed:
-            text = (
+            _set_flow(conversation_id, stage=_STAGE_BUILT, mode="edit",
+                      goal=instruction, feature=feature, candidate=cand)
+            _progress(conversation_id, _check_report(cand))
+            append_message(conversation_id, ChatMessage(role="assistant", text=(
                 f"✏️「{plan['title']}」の修正版を作成しました（検証・レビュー通過）。下のプレビューで確認できます。\n"
                 "問題なければ「反映して」で更新します。"
-            )
+            )))
+            worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                        detail="修正版の公開待ち（「反映して」）")
         else:
-            text = (
-                f"✏️「{plan['title']}」の修正版を作成しましたが、指摘が残っています:\n" + _gate_feedback(gates) + "\n"
-                "確認のうえ「反映して」で更新するか、直したい点を返信してください。"
-            )
-        append_message(conversation_id, ChatMessage(role="assistant", text=text))
+            # Not verified → NOT publishable. Don't enable 「反映して」; keep the live
+            # version untouched. The user can re-issue the edit instruction.
+            _set_flow(conversation_id, stage=_STAGE_IDLE)
+            _progress(conversation_id, _check_report(cand))
+            if manifest.generated_by == "stub":
+                text = (
+                    f"❌「{plan['title']}」の修正版を生成できませんでした（LLM に到達できていない可能性）。\n"
+                    "claude ブリッジ（:8765）を確認のうえ、もう一度「直して」と指示してください。現状の版はそのままです。"
+                )
+            else:
+                text = (
+                    f"❌「{plan['title']}」の修正版が要件を満たせませんでした（未完成のため公開しません）:\n" + _gate_feedback(gates) + "\n"
+                    "もう一度、直したい点を具体的に指示してください。現状の版はそのままです。"
+                )
+            append_message(conversation_id, ChatMessage(role="assistant", text=text))
+            worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                        detail="修正失敗・再指示待ち")
         _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
-                                    detail="修正版の公開待ち（「反映して」）")  # preview done
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
@@ -771,35 +777,41 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             manifest = orchestrator.build_app(req, design_plan=plan, feedback=_gate_feedback(gates))
             passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
 
-        result = orchestrator.register_app(req, manifest)
-        feat = result.plan.feature
-        snap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
-        candidate = snap.to_dict() if snap.exists else None
-        _set_flow(
-            conversation_id,
-            stage=_STAGE_BUILT,
-            mode="create",
-            goal=goal,
-            plan=plan,
-            feature=feat,
-            approval_id=result.approval_id,
-            candidate=candidate,
-        )
-        _progress(conversation_id, _check_report(candidate))
         if passed:
-            text = (
+            # Only a verified result is publishable: register it and offer 「反映して」.
+            result = orchestrator.register_app(req, manifest)
+            feat = result.plan.feature
+            snap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
+            candidate = snap.to_dict() if snap.exists else None
+            _set_flow(
+                conversation_id, stage=_STAGE_BUILT, mode="create", goal=goal, plan=plan,
+                feature=feat, approval_id=result.approval_id, candidate=candidate,
+            )
+            _progress(conversation_id, _check_report(candidate))
+            append_message(conversation_id, ChatMessage(role="assistant", text=(
                 "✅ 検証・レビューを通過しました。下のプレビューで動作を確認できます。\n"
                 "問題なければ「反映して」で公開します（左メニューに追加されます）。"
-            )
+            )))
+            worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                        detail="プレビュー公開待ち（「反映して」）")
         else:
-            text = (
-                "⚠️ 検証・レビューで指摘が残っています:\n" + _gate_feedback(gates) + "\n"
-                "プレビューで確認のうえ「反映して」で公開するか、直したい点を返信してください。"
-            )
-        append_message(conversation_id, ChatMessage(role="assistant", text=text))
+            # Not verified → NOT publishable. Do not register or offer 「反映して」.
+            # Stay at the plan stage so the user can retry (「これで作って」) or redirect.
+            _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan, feature=manifest.feature)
+            if manifest.generated_by == "stub":
+                text = (
+                    "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
+                    "claude ブリッジ（:8765）が起動しているか確認のうえ、「これで作って」で再試行してください。"
+                )
+            else:
+                text = (
+                    "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + _gate_feedback(gates) + "\n"
+                    "「これで作って」で作り直すか、設計を変えたい点を返信してください。"
+                )
+            append_message(conversation_id, ChatMessage(role="assistant", text=text))
+            worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                        detail="生成失敗・再試行待ち")
         _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
-                                    detail="プレビュー公開待ち（「反映して」）")  # deploy(preview) done
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
