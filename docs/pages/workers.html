@@ -80,7 +80,7 @@
     <tr><th>ワーカー（公式名）</th><th>役割</th><th>運用ルール</th></tr>
     <tr>
       <td><span class="pill blue">Receptor</span><br>レセプター</td>
-      <td>メインチャットの受付。ユーザーとの会話を担当し、ユーザーの指示・承認・実行命令を Orchestrator に取り次ぐ。<strong>実行中パイプラインの進捗を監視し、タイムアウトを判定してユーザーに停止可否を確認する。</strong></td>
+      <td>メインチャットの受付。ユーザーとの会話を担当し、<strong>曖昧な依頼は質問で具体化し、依頼内容を復唱してユーザーの確認（「お願い」）を得てから</strong> Orchestrator に取り次ぐ。可否質問・相談は自分で答える（投げない）。<strong>実行中パイプラインの進捗を監視し、タイムアウトを判定してユーザーに停止可否を確認する。</strong></td>
       <td>メインチャットで会話するのは Receptor のみ。<strong>軽い処理のみ</strong>を受け持ち即応する。</td>
     </tr>
     <tr>
@@ -125,7 +125,7 @@
       <text x="310" y="93" text-anchor="middle" fill="#202124" style="font:12px sans-serif">① ユーザー：「作って／直して」と指示</text>
 
       <rect x="120" y="134" width="380" height="48" rx="8" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.4" />
-      <text x="310" y="163" text-anchor="middle" fill="#202124" style="font:12px sans-serif">② Receptor：受付し Orchestrator へ取り次ぐ</text>
+      <text x="310" y="163" text-anchor="middle" fill="#202124" style="font:12px sans-serif">② Receptor：具体化・復唱→「お願い」で取り次ぐ</text>
 
       <rect x="120" y="204" width="380" height="48" rx="8" fill="#e6f4ea" stroke="#34a853" stroke-width="1.4" />
       <text x="310" y="233" text-anchor="middle" fill="#202124" style="font:12px sans-serif">③ Orchestrator：設計案を作成〔FLASH〕</text>
@@ -245,7 +245,8 @@
     <strong>Receptor 経由で Control Plane が公開・有効化</strong>する。<strong>この有効化に Orchestrator は不要</strong>（再起動しない）。
   </p>
   <ul>
-    <li>人間の承認ゲートは2つ：<strong>①設計承認（「これで作って」）</strong>＝コード化に進む、<strong>②公開承認（「反映して」）</strong>＝有効化する。</li>
+    <li>人間の承認ゲートは3つ：<strong>①受付確認（Receptor が依頼内容を復唱→「お願い」）</strong>＝Orchestrator へ依頼、
+      <strong>②設計承認（「これで作って」）</strong>＝コード化に進む、<strong>③公開承認（「反映して」）</strong>＝有効化する。</li>
     <li>承認しなければプレビューのまま。破棄も選べる。AI は<strong>勝手に本公開しない</strong>（安全側）。</li>
     <li><strong>公開のたびに、その版（HTML・設定のスナップショット）を保存</strong>する。これが「巻き戻し」（§8）で直前の版へ即時に戻す土台になる。</li>
   </ul>
@@ -531,6 +532,10 @@
         ユーザーが直接操作できるほか、<strong>Specialist Worker からも操作</strong>できる。
         Specialist Worker から操作するための <strong>API</strong> を持つ。
         Specialist Worker は、そのミニアプリが編集しているデータや API を扱う。
+        <strong>ワーカーはアプリに 1 つが標準</strong>。アプリチャット欄の表示は柔軟：
+        機能単位のオン/オフは会話（「ワーカーチャット不要」等）で即時切替、
+        <strong>画面単位の表示/非表示</strong>はアプリが <code>AF.setChatVisible()</code> で制御できる
+        （いずれもワーカー自体は付いたまま）。
       </td>
     </tr>
     <tr>
