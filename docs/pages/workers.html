@@ -284,8 +284,10 @@
 
   <p><strong>(a) 品質ループ（Tester／Reviewer 差し戻し）</strong> ― 時間ではなく品質の繰り返し。</p>
   <ul>
-    <li><strong>Tester が動作 NG</strong>、または <strong>Reviewer が規約不適合</strong>なら <code>needs_revision</code> を返し、Orchestrator が作り直す。</li>
-    <li>この繰り返し自体を<strong>自動回数で打ち切らない</strong>（止めるかどうかは下記タイムアウト制御＝ユーザー判断に委ねる）。</li>
+    <li><strong>Tester が動作 NG</strong>、または <strong>Reviewer が規約・設計不適合</strong>なら <code>needs_revision</code> を返し、Orchestrator が作り直す（まず差分修正）。</li>
+    <li><strong>自動での再生成は連続 2 回まで。</strong>それでも不適合なら、指摘を添えて<strong>ユーザーに返す</strong>
+      —— 続行（再試行／指示を変えて再依頼）するかはユーザーが決める。<strong>自動では破棄しない</strong>し、
+      未通過のまま公開もしない（トークン暴走を防ぎつつ、止める判断は常にユーザー）。</li>
   </ul>
 
   <p><strong>(b) タイムアウト／停滞の制御 ― 判定は Receptor、停止判断はユーザー。</strong></p>
