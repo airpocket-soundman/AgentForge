@@ -82,7 +82,8 @@
 - [x] **bus を実際に通す（gate）**：`worker_bus.dispatch`（検証→request ログ→**recipient を wake**（status active）→handler→report ログ→**stop**）。`_run_gates` は Orchestrator→Tester／Orchestrator→Reviewer を **dispatch 経由**で実行し、`worker_messages` に request/report を相関（`task_id`＋`in_reply_to`）付きで記録。`GET /api/control-plane/messages/{task_id}` でスレッド閲覧。
 - [x] **R6 決定**：ビルダーを UI/API へさらに分割しない。多エージェント構成は **Orchestrator（統括・bus 送信元）＋ Builder（UI Designer）＋ Tester ＋ Reviewer ＋ Specialist Worker** で十分（「AIエージェントの必然性」を満たす）。Orchestrator は bus のコーディネータとして verify/review を委任。
 - [x] **検証**：gate_report_fields 純粋3件（計 **46 passed**）＋ エミュレータ実走で dispatch（valid=ok相関／bad intent=rejected／例外=failed／thread=request・report／Tester=stopped）を **PASS**。
-- [ ] **本番進化（後続）**：完全な**プロセス外・非同期**（Cloud Tasks キュー＋ワーカーを個別起動）＋ 停止中ワーカーの実ウェイクアップ。現状は同一プロセス内で bus 契約・相関・status・wake を realize（プロトコルは本物、配送がインプロセス）。Orchestrator の完全セッション化（別プロセス）もここに含む。
+- [x] **パイプライン全体を bus 経由化**：Receptor→Orchestrator の **plan / build / edit** も `worker_bus.dispatch` で配送（`plan_*`/`build_*`/`edit_*` の corr で、内側の verify/review と同一スレッドに相関記録。handler 例外＝`failed` report→Receptor がユーザーへ ❌ 報告）。ライブスモーク PASS（thread に request/report、確認ゲート→plan 到達）。
+- [ ] **本番進化（後続・本番デプロイ設計とセット）**：完全な**プロセス外・非同期**（Cloud Tasks キュー＋ワーカーを個別 Cloud Run 起動）＋ 停止中ワーカーの実ウェイクアップ＋ Orchestrator の別プロセス・セッション化。現状はプロトコル（契約・相関・status・wake）は本物で、配送のみインプロセス。
 
 ### Phase 4 — 体験（UX）— ✅ バックエンド実装・検証／UI はフロント後続
 - [x] **Specialist 構造変更ルーティング**：`generated_app/features.py` の `_route_to_main`。アプリチャットで構造変更（category=structure）を検知したら、`reception.handle_request(hint_feature=feature)` で**メインチャット（Receptor→Orchestrator）へ自動転送**（従来の「誘導文のみ」から「取り次ぎ」へ）。

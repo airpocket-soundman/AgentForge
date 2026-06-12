@@ -294,11 +294,14 @@ def start_edit(
 def _run_edit(
     project_id: str, feature: str, instruction: str, images: list[dict] | None = None
 ) -> None:
+    """Receptor → Orchestrator 'edit' over the MCP-like bus (see _run_codegen)."""
     conversation_id = conversation_id_for(project_id)
+    from app.control_plane import worker_bus
     from app.workers import ui_designer
 
-    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("editing"))
-    try:
+    corr = f"edit_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
+
+    def _do_edit(_payload: dict) -> dict:
         _progress(conversation_id, "✏️ 修正版を生成しています…")
         snap = get_db().collection("generated_views").document(f"{project_id}_{feature}").get()
         cur = (snap.to_dict() or {}) if snap.exists else {}
@@ -315,7 +318,6 @@ def _run_edit(
             )
             return ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
 
-        corr = f"edit_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
         manifest = _build()
         passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
         attempts = 1
@@ -334,34 +336,46 @@ def _run_edit(
                 f"✏️「{plan['title']}」の修正版を作成しました（検証・レビュー通過）。下のプレビューで確認できます。\n"
                 "問題なければ「反映して」で更新します。"
             )))
-            worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
-                                        detail="修正版の公開待ち（「反映して」）")
+            return {"status": "ok", "result": {"passed": True, "feature": feature}}
+
+        # Not verified → NOT publishable. Don't enable 「反映して」; keep the live
+        # version untouched. The user can re-issue the edit instruction.
+        _set_flow(conversation_id, stage=_STAGE_IDLE)
+        _progress(conversation_id, _check_report(cand))
+        if manifest.generated_by == "stub":
+            text = (
+                f"❌「{plan['title']}」の修正版を生成できませんでした（LLM に到達できていない可能性）。\n"
+                "claude ブリッジ（:8765）を確認のうえ、もう一度「直して」と指示してください。現状の版はそのままです。"
+            )
         else:
-            # Not verified → NOT publishable. Don't enable 「反映して」; keep the live
-            # version untouched. The user can re-issue the edit instruction.
-            _set_flow(conversation_id, stage=_STAGE_IDLE)
-            _progress(conversation_id, _check_report(cand))
-            if manifest.generated_by == "stub":
-                text = (
-                    f"❌「{plan['title']}」の修正版を生成できませんでした（LLM に到達できていない可能性）。\n"
-                    "claude ブリッジ（:8765）を確認のうえ、もう一度「直して」と指示してください。現状の版はそのままです。"
-                )
-            else:
-                text = (
-                    f"❌「{plan['title']}」の修正版が要件を満たせませんでした（未完成のため公開しません）:\n" + _gate_feedback(gates) + "\n"
-                    "もう一度、直したい点を具体的に指示してください。現状の版はそのままです。"
-                )
-            append_message(conversation_id, ChatMessage(role="assistant", text=text))
-            worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
-                                        detail="修正失敗・再指示待ち")
-        _set_build(conversation_id, status=_BUILD_DONE)
-    except Exception as exc:  # noqa: BLE001
+            text = (
+                f"❌「{plan['title']}」の修正版が要件を満たせませんでした（未完成のため公開しません）:\n" + _gate_feedback(gates) + "\n"
+                "もう一度、直したい点を具体的に指示してください。現状の版はそのままです。"
+            )
+        append_message(conversation_id, ChatMessage(role="assistant", text=text))
+        return {"status": "needs_revision",
+                "result": {"passed": False, "feature": feature},
+                "findings": [_gate_feedback(gates)]}
+
+    rep = worker_bus.dispatch(
+        task_id=corr, sender="Receptor", to="Orchestrator", intent="edit",
+        payload={"feature": feature, "instruction": instruction}, handler=_do_edit,
+        project_id=project_id, model=_model_for_phase("editing"),
+    )
+    if rep.get("status") == "failed":
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text=f"❌ 修正版の作成中にエラーが発生しました: {str(exc)[:200]}"),
+            ChatMessage(role="assistant", text=f"❌ 修正版の作成中にエラーが発生しました: {(rep.get('error') or '')[:200]}"),
         )
-        _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
+        _set_build(conversation_id, status=_BUILD_ERROR, error=(rep.get("error") or "")[:300])
+        return
+    _set_build(conversation_id, status=_BUILD_DONE)
+    if rep.get("status") == "ok":
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                    detail="修正版の公開待ち（「反映して」）")
+    else:
+        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                    detail="修正失敗・再指示待ち")
 
 
 def handle_request(
@@ -834,11 +848,14 @@ def start_plan(
 def _run_plan(
     project_id: str, goal: str, feedback: str | None, previous: dict | None, images: list[dict] | None = None
 ) -> None:
+    """Receptor → Orchestrator 'plan' over the MCP-like bus (see _run_codegen)."""
     conversation_id = conversation_id_for(project_id)
+    from app.control_plane import worker_bus
     from app.workers import ui_designer
 
-    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("planning"))
-    try:
+    corr = f"plan_{uuid.uuid4().hex[:12]}"
+
+    def _do_plan(_payload: dict) -> dict:
         _progress(conversation_id, "📝 設計案を作成しています…")
         plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
         _set_flow(
@@ -849,16 +866,23 @@ def _run_plan(
             feature=plan.feature,
         )
         append_message(conversation_id, ChatMessage(role="assistant", text=_format_plan(plan)))
-        _set_build(conversation_id, status=_BUILD_DONE)
-        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
-                                    detail="設計案の承認待ち（「これで作って」）")
-    except Exception as exc:  # noqa: BLE001
+        return {"status": "ok", "result": {"feature": plan.feature}}
+
+    rep = worker_bus.dispatch(
+        task_id=corr, sender="Receptor", to="Orchestrator", intent="plan",
+        payload={"goal": goal, "revision": bool(feedback)}, handler=_do_plan,
+        project_id=project_id, model=_model_for_phase("planning"),
+    )
+    if rep.get("status") == "failed":
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text=f"❌ 設計案の作成中にエラーが発生しました: {str(exc)[:200]}"),
+            ChatMessage(role="assistant", text=f"❌ 設計案の作成中にエラーが発生しました: {(rep.get('error') or '')[:200]}"),
         )
-        _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
+        _set_build(conversation_id, status=_BUILD_ERROR, error=(rep.get("error") or "")[:300])
+        return
+    _set_build(conversation_id, status=_BUILD_DONE)
+    worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                detail="設計案の承認待ち（「これで作って」）")
 
 
 # --- Stage 2: code generation from the approved plan ------------------------
@@ -932,14 +956,20 @@ def _gate_feedback(gates: dict) -> str:
 
 
 def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
+    """Receptor → Orchestrator 'build' over the MCP-like bus. The handler is the
+    Orchestrator's work (generate → gate → register); the bus logs the request/
+    report (correlated by `corr`, same thread as the inner verify/review) and
+    drives the recipient's active→stopped status. A raised handler becomes a
+    `failed` report, which the Receptor turns into the user-facing error."""
     conversation_id = conversation_id_for(project_id)
+    from app.control_plane import worker_bus
     from app.models.orchestrator import PlanRequest
     from app.orchestrator import service as orchestrator
 
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
-    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE, model=_model_for_phase("codegen"), task_id=corr)
-    try:
+
+    def _do_build(_payload: dict) -> dict:
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
         manifest = orchestrator.build_app(req, design_plan=plan)
         passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
@@ -965,33 +995,45 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
                 "✅ 検証・レビューを通過しました。下のプレビューで動作を確認できます。\n"
                 "問題なければ「反映して」で公開します（左メニューに追加されます）。"
             )))
-            worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
-                                        detail="プレビュー公開待ち（「反映して」）")
+            return {"status": "ok", "result": {"passed": True, "feature": feat}}
+
+        # Not verified → NOT publishable. Do not register or offer 「反映して」.
+        # Stay at the plan stage so the user can retry (「これで作って」) or redirect.
+        _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan, feature=manifest.feature)
+        if manifest.generated_by == "stub":
+            text = (
+                "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
+                "claude ブリッジ（:8765）が起動しているか確認のうえ、「これで作って」で再試行してください。"
+            )
         else:
-            # Not verified → NOT publishable. Do not register or offer 「反映して」.
-            # Stay at the plan stage so the user can retry (「これで作って」) or redirect.
-            _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan, feature=manifest.feature)
-            if manifest.generated_by == "stub":
-                text = (
-                    "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
-                    "claude ブリッジ（:8765）が起動しているか確認のうえ、「これで作って」で再試行してください。"
-                )
-            else:
-                text = (
-                    "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + _gate_feedback(gates) + "\n"
-                    "「これで作って」で作り直すか、設計を変えたい点を返信してください。"
-                )
-            append_message(conversation_id, ChatMessage(role="assistant", text=text))
-            worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
-                                        detail="生成失敗・再試行待ち")
-        _set_build(conversation_id, status=_BUILD_DONE)
-    except Exception as exc:  # noqa: BLE001
+            text = (
+                "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + _gate_feedback(gates) + "\n"
+                "「これで作って」で作り直すか、設計を変えたい点を返信してください。"
+            )
+        append_message(conversation_id, ChatMessage(role="assistant", text=text))
+        return {"status": "needs_revision",
+                "result": {"passed": False, "feature": manifest.feature},
+                "findings": [_gate_feedback(gates)]}
+
+    rep = worker_bus.dispatch(
+        task_id=corr, sender="Receptor", to="Orchestrator", intent="build",
+        payload={"goal": goal, "design_plan": plan}, handler=_do_build,
+        project_id=project_id, model=_model_for_phase("codegen"),
+    )
+    if rep.get("status") == "failed":
         append_message(
             conversation_id,
-            ChatMessage(role="assistant", text=f"❌ コード生成でエラーが発生しました: {str(exc)[:200]}"),
+            ChatMessage(role="assistant", text=f"❌ コード生成でエラーが発生しました: {(rep.get('error') or '')[:200]}"),
         )
-        _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
-        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED)
+        _set_build(conversation_id, status=_BUILD_ERROR, error=(rep.get("error") or "")[:300])
+        return
+    _set_build(conversation_id, status=_BUILD_DONE)
+    if rep.get("status") == "ok":
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                    detail="プレビュー公開待ち（「反映して」）")
+    else:
+        worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
+                                    detail="生成失敗・再試行待ち")
 
 
 def conversation_state(project_id: str) -> dict:
