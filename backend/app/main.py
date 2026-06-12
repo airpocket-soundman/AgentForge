@@ -47,6 +47,16 @@ def create_app() -> FastAPI:
     # /api/admin/* require the separate admin allowlist.
     app.include_router(admin_router)
 
+    @app.on_event("startup")
+    def _reap_orphaned_builds() -> None:
+        # A dev reload / crash kills in-flight build threads; without this, their
+        # 'designing' records stay locked forever while the chat claims progress.
+        from app.reception import service as reception_service
+
+        n = reception_service.recover_orphaned_builds()
+        if n:
+            print(f"[startup] reaped {n} orphaned build(s) left by the previous process")
+
     guard = [Depends(require_allowed_user)]
     app.include_router(reception_router, dependencies=guard)
     app.include_router(orchestrator_router, dependencies=guard)

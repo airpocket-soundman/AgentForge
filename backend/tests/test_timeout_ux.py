@@ -25,3 +25,8 @@ def test_cancel_still_distinct_from_wait_retry():
 
 def test_force_stop_threshold_is_two():
     assert service._TIMEOUT_FORCE_STOP_N == 2
+
+
+def test_keep_going_counts_as_wait():
+    assert service.is_wait("もっと続けて")
+    assert service.is_wait("続行")

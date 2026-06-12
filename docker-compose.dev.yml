@@ -45,7 +45,9 @@ services:
       # Opus is slower for full-app generation, but the timeout is generous (600s)
       # and the user controls waiting (②もう少し待つ), so we use the proper tier.
       CLAUDE_PRO_MODEL: opus
-      CLAUDE_FLASH_MODEL: haiku
+      # FLASH: haiku proved too weak in practice (fabricated status text,
+      # weak classification) vs Gemini Flash's band — raise dev FLASH to sonnet.
+      CLAUDE_FLASH_MODEL: sonnet
       # LLM_PROVIDER: stub   # uncomment to run fully offline without the bridge
     # Optional: drop GEMINI_API_KEY=... into backend/.env (gitignored) to test
     # real Gemini locally. Absent -> deterministic stub when provider can't reach LLM.

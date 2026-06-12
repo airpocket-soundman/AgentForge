@@ -179,7 +179,7 @@ def is_cancel(text: str) -> bool:
 
 
 # Timeout 3-choice replies (workers.html §3(b)): ② wait / ③ stop & retry.
-_WAIT_KEYWORDS = ("もう少し待", "もうすこし待", "待つ", "まつ", "待ち", "待って", "そのまま", "継続", "wait", "②")
+_WAIT_KEYWORDS = ("もう少し待", "もうすこし待", "待つ", "まつ", "待ち", "待って", "そのまま", "継続", "続けて", "続行", "wait", "②")
 _RETRY_KEYWORDS = ("再トライ", "リトライ", "やり直", "やりなお", "再試行", "もう一回", "もういちど", "再生成", "retry", "③")
 
 
@@ -767,10 +767,55 @@ def diagnose_build(project_id: str) -> dict:
                 "last_activity": build.get("last_activity"), "error": build.get("error")}
     total = int(_age_sec(build.get("started_at") or build.get("updated_at")))
     since = int(_age_sec(build.get("updated_at")))
+    health = _silence_health(phase, since)
+    # Cross-check the EXECUTOR's liveness (worker registry). The heartbeat updates
+    # both records, so "build silent + Orchestrator not active" means the process
+    # is gone (e.g. a dev reload / crash) — report stuck immediately instead of
+    # claiming "順調" until a silence budget expires.
+    executor_alive = True
+    try:
+        for w in worker_status.list_workers(project_id):
+            if w.get("worker_type") == "Orchestrator":
+                executor_alive = (w.get("status") == "active" and not w.get("stale"))
+                break
+        else:
+            executor_alive = False
+    except Exception:  # noqa: BLE001 — registry read failure shouldn't break diagnosis
+        pass
+    if not executor_alive:
+        health = "stuck"
     return {"status": status, "phase": phase, "goal": goal,
-            "health": _silence_health(phase, since),
+            "health": health, "executor_alive": executor_alive,
             "total_sec": total, "since_update_sec": since,
             "last_activity": build.get("last_activity"), "error": build.get("error")}
+
+
+def recover_orphaned_builds() -> int:
+    """Startup reaper: any build still 'designing' when the PROCESS starts is an
+    orphan by definition (its threads died with the previous process — e.g. a dev
+    reload or a crash). Mark it failed, tell the user honestly, and stop the
+    executor's status record so chat and monitor agree from t=0."""
+    n = 0
+    try:
+        for doc in get_db().collection(_COLLECTION).stream():
+            data = doc.to_dict() or {}
+            build = data.get("build") or {}
+            if build.get("status") != _BUILD_DESIGNING:
+                continue
+            cid = doc.id
+            pid = cid[len("conv_"):] if cid.startswith("conv_") else cid
+            _set_build(cid, status=_BUILD_ERROR, error="backend restart interrupted the build",
+                       prompt_pending=False)
+            worker_status.record_status("Orchestrator", pid, worker_status.STOPPED,
+                                        detail="再起動により中断")
+            append_message(cid, ChatMessage(role="assistant", text=(
+                "⚠️ システムの再起動により、進行中の作業が中断されました（生成物は公開されていません）。\n"
+                "お手数ですが「これで作って」または依頼の再送で再開できます（設計案・要求は保持しています）。"
+            )))
+            n += 1
+    except Exception:  # noqa: BLE001 — startup must never fail because of the reaper
+        pass
+    return n
 
 
 def recover_build(project_id: str, reason: str = "") -> None:
@@ -890,11 +935,13 @@ def building_status_reply(project_id: str, text: str, diag: dict) -> str:
     total = diag.get("total_sec", 0)
     since = diag.get("since_update_sec", 0)
     health = diag.get("health")
+    alive = diag.get("executor_alive", True)
     facts = (
         f"- 対象: {goal[:80] or '（不明）'}\n"
         f"- 現在のフェーズ: {what}（{diag.get('phase')}）\n"
         f"- 最後の動き: {(diag.get('last_activity') or '（記録なし）')[:80]}\n"
         f"- 経過: 全体 {total}秒／最後の動きから {since}秒（判定は無音時間ベース）\n"
+        f"- 実行ワーカー(Orchestrator)の生存記録: {'あり（稼働中）' if alive else '途絶（プロセス停止の可能性大）'}\n"
         f"- 自動判定: {health}（progressing=順調 / slow=応答が遅い / stuck=停止の可能性）\n"
         f"- 直近のエラー: {diag.get('error') or 'なし'}"
     )
@@ -909,7 +956,9 @@ def building_status_reply(project_id: str, text: str, diag: dict) -> str:
             "下の診断結果に基づいて正直に説明してください。定型文は禁止。いまどの工程か、順調か/"
             "遅いか/止まっていそうか、ユーザーは待てばよいか・中止(「キャンセル」)すべきかを、"
             "2〜3文の簡潔な日本語で伝えます。stuck の場合は停止の可能性と再試行/キャンセルを案内し、"
-            "誇張や断定のしすぎはしないこと。\n\n"
+            "誇張や断定のしすぎはしないこと。**残り時間・完了見込み（『あと◯分』等）を推測して言わない**"
+            "（根拠が無い）。実行ワーカーの生存記録が『途絶』の場合は、絶対に『順調』と言わず、"
+            "停止している可能性が高いことと「停止して再トライ」を案内すること。\n\n"
             f"【パイプライン診断（実測）】\n{facts}\n\n"
             f"【ユーザーの発言】{text}\n\n"
             "受付ワーカーの返答:"
@@ -970,12 +1019,21 @@ def _llm_heartbeat(conversation_id: str, label: str):
     read-timeout, so a hung bridge still surfaces as `failed`). Writes only the
     build record — no chat spam."""
     stop = threading.Event()
+    project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
 
     def _beat() -> None:
         n = 0
         while not stop.wait(45):
             n += 1
-            _set_build(conversation_id, last_activity=f"{label}（実行中・約{n * 45}秒）")
+            try:
+                _set_build(conversation_id, last_activity=f"{label}（実行中・約{n * 45}秒）")
+                # Single source of truth: the SAME liveness signal feeds the worker
+                # registry, so the status monitor and the Receptor's judgment can
+                # never tell different stories about the executor.
+                worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE,
+                                            detail=f"{label}（実行中）")
+            except Exception:  # noqa: BLE001 — a transient write must not kill the beat
+                pass
 
     t = threading.Thread(target=_beat, daemon=True)
     t.start()
