@@ -40,6 +40,9 @@ export function GeneratedView({
   const [acting, setActing] = useState(false);
   // app-kind: a content command from the worker for the running app to execute.
   const [command, setCommand] = useState<AgentCommand | null>(null);
+  // Per-SCREEN app-chat visibility, driven by the app via AF.setChatVisible(bool).
+  // The worker itself stays attached (1 per app); this only shows/hides the panel.
+  const [chatVisible, setChatVisible] = useState(true);
   const cmdNonce = useRef(0);
   const threadRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
@@ -109,6 +112,7 @@ export function GeneratedView({
     setWorker(null);
     setConv(null);
     setCandidate(null);
+    setChatVisible(true); // default: shown; the app may hide it per screen
     setInput("");
     att.clear();
     getView(feature)
@@ -244,9 +248,11 @@ export function GeneratedView({
       ) : (
         // App pane / draggable divider / worker chat. Drag the divider to resize;
         // drag fully to either end to show only one side (re-draggable back).
+        // The app can hide the chat panel PER SCREEN via AF.setChatVisible(false)
+        // (the worker stays attached; only the panel is hidden — no iframe remount).
         <div className="gv-split" ref={splitRef}>
-          <div className="gv-pane gv-pane--app" style={{ flexBasis: `${appRatio * 100}%` }}>
-            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} />
+          <div className="gv-pane gv-pane--app" style={{ flexBasis: chatVisible ? `${appRatio * 100}%` : "100%" }}>
+            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatVisible={setChatVisible} />
           </div>
 
           <div
@@ -254,12 +260,13 @@ export function GeneratedView({
             role="separator"
             aria-orientation="horizontal"
             title="ドラッグで境界を移動（上下端まで動かすと一方だけ表示）"
+            style={chatVisible ? undefined : { display: "none" }}
             onPointerDown={onDragStart}
             onPointerMove={onDragMove}
             onPointerUp={onDragEnd}
           />
 
-          <div className="gv-pane gv-pane--chat">
+          <div className="gv-pane gv-pane--chat" style={chatVisible ? undefined : { display: "none" }}>
             <div className="feature-worker" onDrop={att.onDrop} onDragOver={(e) => e.preventDefault()}>
               <div className="fw-scroll" ref={threadRef}>
                 {showPreview && (
