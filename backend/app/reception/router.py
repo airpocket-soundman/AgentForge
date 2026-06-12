@@ -103,8 +103,29 @@ def post_message(body: MessageIn) -> ReceptionReply:
     disabled_feature: str | None = None
     building = False
 
+    # === Worker chat (app chat) on/off — a deterministic feature-level toggle ===
+    # Handle it directly (Receptor, light): no Orchestrator / no codegen. Works
+    # from idle or while a restatement is pending (a new command supersedes it).
+    worker_toggle = service.worker_toggle_intent(body.text)
+    if worker_toggle is not None and stage in ("idle", "confirm"):
+        if stage == "confirm":
+            service.clear_flow(body.project_id)
+        feat = service.resolve_feature(body.project_id, body.text) or registry.get_last_changed(body.project_id)
+        if not feat:
+            reply_text = "どの機能のワーカーチャットか分かりませんでした。対象の機能名を添えて、もう一度お願いします。"
+        else:
+            approvals.set_worker(body.project_id, feat, worker_toggle)
+            title = service.feature_title(body.project_id, feat)
+            if worker_toggle:
+                reply_text = f"「{title}」のアプリチャット（ワーカーチャット）を表示にしました。"
+            else:
+                reply_text = (
+                    f"「{title}」のアプリチャット（ワーカーチャット）を非表示にしました。\n"
+                    "※ ワーカーチャットは機能単位の設定です。『一覧画面だけ非表示』のように画面ごとに分けることはできません。"
+                )
+
     # === Stage: Receptor restated the request, awaiting user's OK to dispatch ==
-    if stage == "confirm":
+    elif stage == "confirm":
         if service.is_cancel(body.text):
             service.clear_flow(body.project_id)
             reply_text = "承知しました。依頼を取りやめました。新しいご依頼をどうぞ。"

@@ -229,6 +229,25 @@ def is_edit_request(text: str) -> bool:
     return any(k in text for k in _EDIT_KEYWORDS)
 
 
+# Worker chat (app chat) on/off is a deterministic FEATURE-LEVEL flag (has_worker),
+# not a code edit — the Receptor flips it directly. Detect NL instructions for it.
+_WORKER_WORDS = ("ワーカーチャット", "ワーカー", "aiワーカー", "ワーカーパネル", "チャットパネル", "チャット欄")
+_WORKER_OFF = ("不要", "いらない", "要らない", "消して", "削除", "非表示", "外して", "オフ", "off", "なくして", "省いて", "隠して")
+_WORKER_ON = ("付けて", "つけて", "表示して", "表示に", "オンに", " on", "出して", "有効", "ほしい", "欲しい")
+
+
+def worker_toggle_intent(text: str) -> bool | None:
+    """True=show / False=hide / None=not a worker-chat toggle instruction."""
+    t = text.lower()
+    if not any(w in t for w in _WORKER_WORDS):
+        return None
+    if any(w in t for w in _WORKER_OFF):
+        return False
+    if any(w in t for w in _WORKER_ON):
+        return True
+    return None
+
+
 def _active_features(project_id: str) -> dict:
     snap = get_db().collection("feature_states").document(project_id).get()
     return (snap.to_dict() or {}) if snap.exists else {}
