@@ -1,5 +1,15 @@
 """Proactive stall watch decision (pure) — VISION 柱5 / workers.html §3(b)."""
-from app.reception.service import _TIMEOUT_FORCE_STOP_N, _stall_decision
+from app.reception.service import _TIMEOUT_FORCE_STOP_N, _silence_health, _stall_decision
+
+
+def test_health_is_silence_based_not_total_time():
+    # A long-but-alive build stays "progressing": only SILENCE matters, so project
+    # size / gate-revision rounds never get mis-judged as a stall.
+    assert _silence_health("codegen", 30) == "progressing"   # heartbeat 30s ago
+    assert _silence_health("codegen", 500) == "slow"          # past 480s budget
+    assert _silence_health("codegen", 800) == "stuck"         # past budget×1.5
+    assert _silence_health("planning", 200) == "slow"         # FLASH budget 150s
+    assert _silence_health("receiving", 100) == "progressing"
 
 
 def test_healthy_run_does_nothing():

@@ -586,20 +586,32 @@ def current_build(project_id: str) -> dict:
 
 
 _PHASE_LABELS = {
+    "receiving": "受付（依頼の整理）",
     "planning": "設計案",
     "revising": "修正後の設計案",
     "codegen": "コード",
     "editing": "修正版",
 }
 
-# Per-phase time budget (seconds). Past the budget → "slow"; well past → "stuck".
-# These are only HINTS for the Receptor's "is it stuck?" judgment — they never
-# auto-kill (the user decides via ①stop/②wait/③retry; workers.html §3(b)). High-
-# capability models (PRO) legitimately take minutes, and codegen also runs the
-# deploy-time gate (Tester+Reviewer, plus a possible rebuild), so the budgets are
-# generous to avoid crying "stuck" on a good-but-slow run.
-_PHASE_BUDGET = {"planning": 60, "revising": 60, "codegen": 300, "editing": 300}
-_STUCK_FACTOR = 2.5
+# Stall judgment is SILENCE-based: "time since the last sign of life (heartbeat)",
+# NOT total elapsed time. Total scales with project size/difficulty and with
+# healthy gate-revision rounds, so a fixed total mis-judges complex builds; any
+# healthy step emits a progress heartbeat within one LLM call, so silence doesn't.
+# Budgets exceed one silent step's worst case (a single PRO call can take minutes;
+# its read-timeout is 600s — silence beyond budget×factor means the call would
+# have died anyway). These never auto-kill: the user decides ①stop/②wait/③retry.
+_SILENCE_BUDGET = {"receiving": 120, "planning": 150, "revising": 150, "codegen": 480, "editing": 480}
+_STUCK_FACTOR = 1.5
+
+
+def _silence_health(phase: str | None, since_sec: float) -> str:
+    """Pure: health from silence (sec since last heartbeat) vs the phase budget."""
+    budget = _SILENCE_BUDGET.get(phase or "planning", 300)
+    if since_sec > budget * _STUCK_FACTOR:
+        return "stuck"
+    if since_sec > budget:
+        return "slow"
+    return "progressing"
 
 
 def _age_sec(iso: str | None) -> float:
@@ -617,10 +629,10 @@ def _age_sec(iso: str | None) -> float:
 def diagnose_build(project_id: str) -> dict:
     """Actually investigate the running pipeline (not a canned reply).
 
-    Reads the build record the background worker writes and judges health from the
-    elapsed time vs the phase budget: progressing / slow / stuck. Used by the
-    reception worker to answer 'is it really running?' truthfully and to release a
-    locked chat when a worker has clearly died.
+    Judges health from SILENCE — time since the last heartbeat (every progress
+    line the pipeline posts also refreshes the build record) vs the phase's
+    silence budget. Total time is reported but never drives the judgment: it
+    legitimately grows with project size and gate-revision rounds.
     """
     build = current_build(project_id)
     status = build.get("status") or "idle"
@@ -629,18 +641,14 @@ def diagnose_build(project_id: str) -> dict:
     if status != _BUILD_DESIGNING:
         health = status if status in ("error", "done") else "idle"
         return {"status": status, "phase": phase, "goal": goal, "health": health,
-                "total_sec": 0, "since_update_sec": 0, "error": build.get("error")}
+                "total_sec": 0, "since_update_sec": 0,
+                "last_activity": build.get("last_activity"), "error": build.get("error")}
     total = int(_age_sec(build.get("started_at") or build.get("updated_at")))
     since = int(_age_sec(build.get("updated_at")))
-    budget = _PHASE_BUDGET.get(phase or "planning", 90)
-    if total > budget * _STUCK_FACTOR:
-        health = "stuck"
-    elif total > budget:
-        health = "slow"
-    else:
-        health = "progressing"
-    return {"status": status, "phase": phase, "goal": goal, "health": health,
-            "total_sec": total, "since_update_sec": since, "error": build.get("error")}
+    return {"status": status, "phase": phase, "goal": goal,
+            "health": _silence_health(phase, since),
+            "total_sec": total, "since_update_sec": since,
+            "last_activity": build.get("last_activity"), "error": build.get("error")}
 
 
 def recover_build(project_id: str, reason: str = "") -> None:
@@ -665,9 +673,10 @@ def mark_prompted(project_id: str) -> None:
 
 
 def extend_wait(project_id: str) -> None:
-    """② もう少し待つ: restart the stall clock and clear the pending prompt, so the
-    Receptor doesn't immediately re-judge the same run as stalled."""
-    _set_build(conversation_id_for(project_id), started_at=_now_iso(), prompt_pending=False)
+    """② もう少し待つ: clear the pending prompt. The write itself refreshes the
+    heartbeat (updated_at), so the silence clock restarts — the next stall
+    judgment will be #2 and force-stops."""
+    _set_build(conversation_id_for(project_id), prompt_pending=False)
 
 
 def _stall_decision(health: str, prompt_pending: bool, timeout_count: int) -> str:
@@ -680,16 +689,27 @@ def _stall_decision(health: str, prompt_pending: bool, timeout_count: int) -> st
     return "force_stop" if timeout_count + 1 >= _TIMEOUT_FORCE_STOP_N else "prompt"
 
 
+def _pipeline_snapshot(diag: dict) -> str:
+    """One-line, user-readable state of the pipeline at judgment time (透明性):
+    which stage, what it was last doing, and how long it has been silent."""
+    what = _PHASE_LABELS.get(diag.get("phase"), "作業")
+    last = (diag.get("last_activity") or "").strip()
+    head = f"工程: {what}" + (f" ／ 最後の動き: 「{last}」" if last else "")
+    return f"{head}（{diag.get('since_update_sec', 0)}秒 応答なし・全体 {diag.get('total_sec', 0)}秒）"
+
+
 def _timeout_prompt_text(diag: dict) -> str:
     return (
-        f"処理が想定より時間がかかっています（経過 {diag.get('total_sec', 0)} 秒）。どうしますか？\n"
-        "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」"
+        "⏱ パイプラインの応答が途絶えている可能性があります。\n"
+        f"{_pipeline_snapshot(diag)}\n"
+        "どうしますか？ ①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」"
     )
 
 
 def _force_stop_text(count: int, diag: dict) -> str:
     return (
-        f"{count} 回タイムアウトしたため、安全のため強制停止しました（経過 {diag.get('total_sec', 0)} 秒）。"
+        f"{count} 回タイムアウトしたため、安全のため強制停止しました。\n"
+        f"{_pipeline_snapshot(diag)}\n"
         "直前のプランは保持しています。もう一度ご依頼ください。"
     )
 
@@ -751,8 +771,9 @@ def building_status_reply(project_id: str, text: str, diag: dict) -> str:
     facts = (
         f"- 対象: {goal[:80] or '（不明）'}\n"
         f"- 現在のフェーズ: {what}（{diag.get('phase')}）\n"
-        f"- 経過: {total}秒（最終更新から {since}秒）\n"
-        f"- 自動判定: {health}（progressing=順調 / slow=想定より遅い / stuck=停止の可能性）\n"
+        f"- 最後の動き: {(diag.get('last_activity') or '（記録なし）')[:80]}\n"
+        f"- 経過: 全体 {total}秒／最後の動きから {since}秒（判定は無音時間ベース）\n"
+        f"- 自動判定: {health}（progressing=順調 / slow=応答が遅い / stuck=停止の可能性）\n"
         f"- 直近のエラー: {diag.get('error') or 'なし'}"
     )
     from app import agents
@@ -806,9 +827,12 @@ def _format_plan(plan: DesignPlan) -> str:
 # --- Stage 1: design proposal (fast) ----------------------------------------
 
 def _progress(conversation_id: str, text: str) -> None:
-    """Post a build progress/check line to the chat (role=system) so the user sees
-    what the worker is doing, in real time, not just a spinner."""
+    """Post a build progress/check line to the chat (role=system) AND heartbeat the
+    build record (last_activity + updated_at): every visible step both informs the
+    user and proves the pipeline is alive — stall judgment is silence-based, so a
+    long build that keeps reporting never gets mis-judged as stalled."""
     append_message(conversation_id, ChatMessage(role="system", text=text))
+    _set_build(conversation_id, last_activity=text[:80])
 
 
 def _check_report(candidate: dict | None) -> str:

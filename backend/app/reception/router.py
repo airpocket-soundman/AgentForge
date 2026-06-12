@@ -90,17 +90,9 @@ def post_message(body: MessageIn) -> ReceptionReply:
             count = service.bump_timeout(body.project_id)
             if count >= service._TIMEOUT_FORCE_STOP_N:
                 service.recover_build(body.project_id, f"force-stop after {count} timeouts")
-                return _busy_reply(
-                    f"{count} 回タイムアウトしたため、安全のため強制停止しました（経過 {diag['total_sec']} 秒）。"
-                    "直前のプランは保持しています。もう一度ご依頼ください。",
-                    "force_stopped", False,
-                )
+                return _busy_reply(service._force_stop_text(count, diag), "force_stopped", False)
             service.mark_prompted(body.project_id)
-            return _busy_reply(
-                f"処理が想定より時間がかかっています（経過 {diag['total_sec']} 秒）。どうしますか？\n"
-                "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」",
-                "timeout_prompt", True,
-            )
+            return _busy_reply(service._timeout_prompt_text(diag), "timeout_prompt", True)
 
         # progressing → normal, grounded status reply
         return _busy_reply(service.building_status_reply(body.project_id, body.text, diag), "busy", True)
