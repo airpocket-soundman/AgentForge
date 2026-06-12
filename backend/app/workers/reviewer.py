@@ -48,8 +48,10 @@ def _static_findings(manifest: dict) -> list[str]:
     return findings
 
 
-def review(manifest: dict, goal: str) -> dict:
-    """Review a generated manifest. Deterministic checks + LLM pass."""
+def review(manifest: dict, goal: str, design_plan: dict | None = None,
+           requirements: list[str] | None = None) -> dict:
+    """Review a generated manifest: conventions (static + LLM) AND fit to the
+    user's need — the approved design plan / the feature's pinned requirements."""
     findings = _static_findings(manifest)
 
     llm = get_llm()
@@ -63,13 +65,22 @@ def review(manifest: dict, goal: str) -> dict:
             if isinstance(html, str) and len(html) > 100000:
                 html = html[:100000] + "\n<!-- …(以下はサイズ上限で省略。末尾の閉じタグ有無で『途中で切れている』と判断しないこと) -->"
             slim = {**manifest, "html": html} if isinstance(manifest.get("html"), str) else dict(manifest)
-            prompt = "\n\n".join([
+            parts = [
                 agents.load("reviewer"),
                 agents.policy(),
                 f"ユーザー要求: {goal}",
+            ]
+            if design_plan:
+                parts.append("ユーザーが承認した設計案（実装はこれに一致すべき）:\n"
+                             + json.dumps(design_plan, ensure_ascii=False))
+            if requirements:
+                parts.append("確定要求台帳（公開済みの確定事項。壊していたら指摘）:\n"
+                             + "\n".join(f"・{r}" for r in requirements[:30]))
+            parts += [
                 "生成物(JSON):\n" + json.dumps(slim, ensure_ascii=False),
-                '規約違反・問題点だけを JSON で返す: {"findings": ["<日本語>", ...]}（無ければ空配列・JSON のみ）',
-            ])
+                '規約違反・設計/要求との不一致だけを JSON で返す: {"findings": ["<日本語>", ...]}（無ければ空配列・JSON のみ）',
+            ]
+            prompt = "\n\n".join(parts)
             raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
             if raw.startswith("```"):
                 raw = raw.strip("`").split("\n", 1)[-1]

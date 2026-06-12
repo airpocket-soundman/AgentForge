@@ -340,13 +340,13 @@ def _run_edit(
             return m
 
         manifest = _build()
-        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
             manifest = _build(_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
 
         cand = manifest.model_dump(mode="json")
         if passed:
@@ -450,13 +450,13 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
             return m
 
         manifest = _build()
-        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
             manifest = _build(_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
 
         if not passed:
             # Keep the EXISTING candidate (flow untouched); just report.
@@ -1077,11 +1077,14 @@ _GATE_MAX_ATTEMPTS = 2
 
 
 def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
-               criteria: list[str] | None = None) -> tuple[bool, dict]:
+               criteria: list[str] | None = None, design_plan: dict | None = None,
+               requirements: list[str] | None = None) -> tuple[bool, dict]:
     """Run Tester + Reviewer on a generated manifest; post the result to chat.
 
     The two are independent, so run them concurrently to halve the gate's latency.
-    `criteria` = the plan's user-approved acceptance list (Tester verifies each)."""
+    `criteria` = the plan's user-approved acceptance list (Tester verifies each);
+    `design_plan` / `requirements` let the Reviewer judge fit-to-need (the approved
+    design / the feature's pinned requirements), not just conventions."""
     from concurrent.futures import ThreadPoolExecutor
 
     from app.control_plane import worker_bus
@@ -1089,8 +1092,9 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
 
     project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
     flash = _model_for_phase("planning")  # gates run on FLASH
-    payload = {"manifest": manifest, "goal": goal, "criteria": criteria or []}
-    _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約レビュー）を実行中…")
+    payload = {"manifest": manifest, "goal": goal, "criteria": criteria or [],
+               "design_plan": design_plan, "requirements": requirements or []}
+    _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約・設計適合レビュー）を実行中…")
 
     # Orchestrator dispatches verify/review to Tester/Reviewer over the MCP-like bus
     # (request/report logged + correlated by task_id; recipient status via the bus).
@@ -1098,7 +1102,9 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
         return worker_bus.gate_report_fields(tester.verify(p["manifest"], p["goal"], criteria=p.get("criteria") or None))
 
     def _review(p):
-        return worker_bus.gate_report_fields(reviewer.review(p["manifest"], p["goal"]))
+        return worker_bus.gate_report_fields(reviewer.review(
+            p["manifest"], p["goal"], design_plan=p.get("design_plan"),
+            requirements=p.get("requirements") or None))
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         t_fut = ex.submit(worker_bus.dispatch, task_id=task_id, sender="Orchestrator", to="Tester",
@@ -1171,7 +1177,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
 
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
         manifest = _gen()
-        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria, design_plan=plan)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
@@ -1187,7 +1193,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             else:
                 _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
                 manifest = _gen(_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
+            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria, design_plan=plan)
 
         if passed:
             # Only a verified result is publishable: register it and offer 「反映して」.
