@@ -41,6 +41,9 @@ class ChatMessage(BaseModel):
 
     role: Literal["user", "assistant", "system"]
     text: str
+    # Optional inline SVG image (e.g., the plan-stage screen mock) — the frontend
+    # renders it as an <img> data URI, so scripts can never execute.
+    svg: str | None = None
     created_at: datetime = Field(default_factory=_now)
 
 

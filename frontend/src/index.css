@@ -414,5 +414,5 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .md .md-code { background: rgba(0,0,0,.06); border-radius: 4px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: .92em; }
 .md .md-pre { background: rgba(0,0,0,.06); border-radius: 8px; padding: 8px 10px; overflow-x: auto; font-size: 12px; }
 
-/* Plan-stage screen mock */
-.chat-preview .mock-frame { height: 560px; background: #f3f4fa; }
+/* Plan-stage screen mock pasted as a chat image */
+.bubble .bubble-svg { display: block; margin-top: 8px; max-width: min(420px, 100%); height: auto; border: 1px solid var(--gv-border); border-radius: 10px; background: #fff; }

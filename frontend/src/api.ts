@@ -16,6 +16,8 @@ function url(path: string): string {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   text: string;
+  // Optional inline SVG image (plan-stage screen mock) — rendered as <img>.
+  svg?: string | null;
   created_at: string;
 }
 
@@ -51,8 +53,6 @@ export interface ConversationState {
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
   pending_feature: string | null; // at "built": the feature to preview
   pending_approval_id: string | null; // at "built": the approval to publish
-  // Plan-stage screen mock (SVG): reviewed/corrected BEFORE any code is written.
-  plan_mock?: string | null;
 }
 
 export interface Task {

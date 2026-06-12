@@ -1049,10 +1049,14 @@ def _run_plan(
             plan=plan_dict,
             feature=plan.feature,
         )
-        text = _format_plan(plan)
+        append_message(conversation_id, ChatMessage(role="assistant", text=_format_plan(plan)))
         if mock:
-            text += "\n\n🎨 下に**画面イメージ（モック）**を表示しました。コードを書く前なので、見た目の修正も今のうちに指示できます。"
-        append_message(conversation_id, ChatMessage(role="assistant", text=text))
+            # The mock is a normal chat message with an inline SVG image — it sits
+            # in the conversation flow right under the proposal.
+            append_message(conversation_id, ChatMessage(
+                role="assistant", svg=mock,
+                text="🎨 画面イメージ（モック・コード作成前）です。見た目・構成の修正は、コードを書く前の今が最も手早く反映できます。",
+            ))
         return {"status": "ok", "result": {"feature": plan.feature}}
 
     rep = worker_bus.dispatch(
@@ -1288,8 +1292,6 @@ def conversation_state(project_id: str) -> dict:
         "mode": flow.get("mode", "create"),
         "pending_feature": flow.get("feature") if stage == _STAGE_BUILT else None,
         "pending_approval_id": flow.get("approval_id") if stage == _STAGE_BUILT else None,
-        # Plan-stage screen mock (SVG) — reviewed/corrected BEFORE code is written.
-        "plan_mock": ((flow.get("plan") or {}).get("mock_svg") if stage == _STAGE_PLAN else None),
     }
 
 

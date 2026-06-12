@@ -286,7 +286,12 @@ export function GeneratedView({
                 )}
 
                 {worker?.messages.map((m, i) => (
-                  <div key={i} className={`bubble bubble--${m.role}`}><MdText text={m.text} /></div>
+                  <div key={i} className={`bubble bubble--${m.role}`}>
+                    <MdText text={m.text} />
+                    {m.svg && (
+                      <img className="bubble-svg" alt="画面イメージ" src={`data:image/svg+xml;utf8,${encodeURIComponent(m.svg)}`} />
+                    )}
+                  </div>
                 ))}
                 {building && (
                   <div className="bubble bubble--assistant bubble--pending">
