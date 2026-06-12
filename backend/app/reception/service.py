@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from app.control_plane import worker_status
+from app.control_plane import registry, worker_status
 from app.firestore import get_db
 from app.models.generated import DesignPlan
 from app.models.reception import ChatMessage
@@ -312,16 +313,30 @@ def _run_edit(
         }
         cur_html = cur.get("html") or None
 
+        reqs = registry.get_requirements(project_id, feature)  # pinned past requirements
+
         def _build(extra: str | None = None):
             from app.llm.gateway import get_llm
 
             instr = instruction if not extra else (
                 f"{instruction}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{extra}"
             )
-            m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            # Patch-first: targeted SEARCH/REPLACE against the current code (fast,
+            # no unrelated regressions). Vision edits (images) need full context →
+            # skip straight to the full rewrite. Any patch miss falls back too.
+            if cur_html and not images:
+                with _llm_heartbeat(conversation_id, "✏️ 差分修正"):
+                    m = ui_designer.design_patch(instr, cur, requirements=reqs)
+                if m is not None:
+                    _progress(conversation_id, "🧩 差分パッチを適用しました")
+                    return m
+                _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
+            with _llm_heartbeat(conversation_id, "✏️ 修正版生成"):
+                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
             if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once (visible)
                 _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
-                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+                with _llm_heartbeat(conversation_id, "✏️ 修正版生成（リトライ）"):
+                    m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
             return m
 
         manifest = _build()
@@ -413,15 +428,25 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
         _progress(conversation_id, "✏️ プレビューを修正しています…")
         plan = {"feature": feature, "title": cand.get("title") or feature, "theme": cand.get("theme", "default")}
         cur_html = cand.get("html") or None
+        reqs = registry.get_requirements(project_id, feature) if feature else []
 
         def _build(extra: str | None = None):
             instr = instruction if not extra else (
                 f"{instruction}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{extra}"
             )
-            m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            if cur_html and not images:  # patch-first (see _run_edit)
+                with _llm_heartbeat(conversation_id, "✏️ 差分修正"):
+                    m = ui_designer.design_patch(instr, cand, requirements=reqs)
+                if m is not None:
+                    _progress(conversation_id, "🧩 差分パッチを適用しました")
+                    return m
+                _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
+            with _llm_heartbeat(conversation_id, "✏️ 修正版生成"):
+                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
             if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once
                 _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
-                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+                with _llm_heartbeat(conversation_id, "✏️ 修正版生成（リトライ）"):
+                    m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
             return m
 
         manifest = _build()
@@ -937,6 +962,29 @@ def _progress(conversation_id: str, text: str) -> None:
     _set_build(conversation_id, last_activity=text[:80])
 
 
+@contextmanager
+def _llm_heartbeat(conversation_id: str, label: str):
+    """Keep the heartbeat fresh DURING a long LLM call: a single PRO call can be
+    minutes of silence, which the stall watch would otherwise flag. Awaiting the
+    call is a legitimate liveness signal (the call itself is bounded by the LLM
+    read-timeout, so a hung bridge still surfaces as `failed`). Writes only the
+    build record — no chat spam."""
+    stop = threading.Event()
+
+    def _beat() -> None:
+        n = 0
+        while not stop.wait(45):
+            n += 1
+            _set_build(conversation_id, last_activity=f"{label}（実行中・約{n * 45}秒）")
+
+    t = threading.Thread(target=_beat, daemon=True)
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+
+
 def _check_report(candidate: dict | None) -> str:
     """A short human-readable summary of automatic checks on a generated artifact."""
     if not candidate:
@@ -1110,21 +1158,35 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
         once automatically — visible to the user, per spec (failed → auto-retry)."""
         from app.llm.gateway import get_llm
 
-        m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+        with _llm_heartbeat(conversation_id, "🛠 コード生成"):
+            m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
         if m.generated_by == "stub" and get_llm().enabled:
             _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
-            m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+            with _llm_heartbeat(conversation_id, "🛠 コード生成（リトライ）"):
+                m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
         return m
 
     def _do_build(_payload: dict) -> dict:
+        from app.workers import ui_designer
+
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
         manifest = _gen()
         passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
-            _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
-            manifest = _gen(_gate_feedback(gates))
+            # Repair pass: fix the cited issues with targeted patches first (fast,
+            # no unrelated regressions); fall back to a full regeneration.
+            _progress(conversation_id, f"↩️ 指摘を反映して修正しています…（{attempts}回目・まず差分パッチ）")
+            with _llm_heartbeat(conversation_id, "🛠 差分修正"):
+                patched = ui_designer.design_patch(goal, manifest.model_dump(mode="json"),
+                                                   feedback=_gate_feedback(gates))
+            if patched is not None:
+                _progress(conversation_id, "🧩 差分パッチを適用しました")
+                manifest = patched
+            else:
+                _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
+                manifest = _gen(_gate_feedback(gates))
             passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
 
         if passed:

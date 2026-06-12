@@ -86,6 +86,34 @@ def get_last_changed(project_id: str) -> str | None:
     return (snap.to_dict() or {}).get("last_changed_feature") if snap.exists else None
 
 
+# --- Requirements ledger (per feature) ----------------------------------------
+# Explicit user requirements only live inside the current HTML once published; a
+# later regeneration can silently drop them. The ledger accumulates each
+# published request (goal / acceptance items) so edit prompts can pin them.
+
+def _requirements_ref(project_id: str, feature: str):
+    return get_db().collection("feature_requirements").document(f"{project_id}_{feature}")
+
+
+def append_requirements(project_id: str, feature: str, items: list[str]) -> None:
+    clean = [str(x).strip()[:200] for x in items if str(x).strip()]
+    if not clean:
+        return
+    ref = _requirements_ref(project_id, feature)
+    snap = ref.get()
+    cur = (snap.to_dict() or {}).get("items", []) if snap.exists else []
+    for c in clean:
+        if c not in cur:
+            cur.append(c)
+    ref.set({"project_id": project_id, "feature": feature,
+             "items": cur[-30:], "updated_at": _now_iso()}, merge=True)
+
+
+def get_requirements(project_id: str, feature: str) -> list[str]:
+    snap = _requirements_ref(project_id, feature).get()
+    return (snap.to_dict() or {}).get("items", []) if snap.exists else []
+
+
 def list_history(project_id: str, limit: int = 100) -> list[dict]:
     """User-facing change history: audit log entries for a project, newest first."""
     out: list[dict] = []
@@ -200,6 +228,7 @@ _RESET_COLLECTIONS = [
     "feature_states",
     "generated_views",
     "feature_versions",
+    "feature_requirements",
     "workers",
     "worker_messages",
     "app_entities",

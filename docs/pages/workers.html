@@ -202,7 +202,7 @@
         <rect x="540" y="832" width="14" height="14" rx="3" fill="#fef7e0" stroke="#f9ab00" /><text x="560" y="843">Reviewer</text>
       </g>
     </svg>
-    <div class="fig-cap">図 3-1. アプリ制作・改変フロー。設計案はユーザー承認（⑤）を経てコード化し、デプロイ前に <strong>Tester（動作検証）と Reviewer（規約適合）</strong>の両方を通す（どちらか NG なら⑥へ差し戻し）。⑩でプレビューをデプロイして Orchestrator は停止し、⑪のユーザー承認「反映して」で Control Plane が公開・有効化する。進捗・検証・レビュー状況は Receptor 経由でユーザーへ共有。停滞時のタイムアウトは Receptor が判定しユーザーが選択する。</div>
+    <div class="fig-cap">図 3-1. アプリ制作・改変フロー。<strong>人間の承認ゲートは3つ</strong>＝②受付確認「お願い」・⑤設計承認「これで作って」・⑪公開承認「反映して」。デプロイ前に <strong>Tester（動作検証・受け入れ条件ごと✅/❌）と Reviewer（規約適合）</strong>の両方を通す（どちらか NG なら⑥へ差し戻し）。⑩でプレビューをデプロイして Orchestrator は停止し、⑪で Control Plane が公開・有効化（プレビューには修正指示で何度でも手を入れられる）。進捗・検証・レビュー状況は Receptor 経由でユーザーへ共有。停滞は Receptor が無音時間で自発判定しユーザーが選択する。</div>
   </div>
 
   <h3>Orchestrator の役割</h3>
@@ -243,6 +243,10 @@
       ユーザーは「これで作って」で条件ごと承認する。Tester は完成品を<strong>条件ごとに ✅/❌</strong> で判定し、結果はチャットに明細表示される。</li>
     <li><strong>生成失敗は自動リトライ：</strong>LLM 未到達等で生成が失敗（仮ページ）した場合、Orchestrator は
       「⚠️ リトライ中」と可視化したうえで<strong>1回自動で再生成</strong>する（それでも失敗なら報告して停止）。</li>
+    <li><strong>改変・差し戻しはまず差分パッチ：</strong>既存コードへの修正は SEARCH/REPLACE の<strong>差分パッチ</strong>で行い
+      （高速・無関係箇所のデグレ防止）、差分にできない大きな変更やパッチ不一致時のみ全体を再生成する。どちらでもゲートは必ず通す。</li>
+    <li><strong>要求台帳：</strong>公開のたびに、その依頼内容と承認済み受け入れ条件を<strong>機能ごとの台帳</strong>に蓄積し、
+      以後の改変プロンプトに「維持すべき確定要求」として注入する（過去に頼んだことが改変で勝手に消えない）。</li>
   </ul>
 
   <h3>公開（有効化）の承認 ― 人間ゲート</h3>
@@ -497,7 +501,7 @@
   <h2>8. 機能区分</h2>
 
   <h3>固定機能</h3>
-  <p class="lead">※ 多くは現行実装に準拠（Control Plane）。ただし「巻き戻し」（版を戻す）と「変更履歴」は要実装。</p>
+  <p class="lead">※ 現行実装に準拠（Control Plane）。</p>
   <table class="tbl">
     <tr><th>機能</th><th>内容</th><th>現行実装</th></tr>
     <tr>
@@ -513,7 +517,7 @@
     <tr>
       <td>変更履歴</td>
       <td><strong>「いつ・誰が・何を・なぜ」変えたか</strong>を時系列で表示（制作・改変・公開・巻き戻し・無効化など）。監査ログをユーザーが読める形で見せ、<strong>巻き戻し先の選択</strong>にも使える。DevOps の透明性の中核。</td>
-      <td>要実装（<code>audit_logs</code> をユーザー向けに整形・表示）</td>
+      <td><code>GET /api/control-plane/history/{project_id}</code>（StatusView に時系列表示。版メタは <code>/versions/...</code>）</td>
     </tr>
     <tr>
       <td>セッション終了</td>
@@ -525,7 +529,7 @@
       <td><strong>メインチャットが行った直近の制作・改変を取り消し、改変前の状態に戻す（その改変を「なかったことにする」）。</strong>
         <strong>分岐は考えない</strong>（直線的な履歴を、直前のものから順に取り消すだけ）。
         <strong>公開ごとに保存した版</strong>を使い、直前の版を<strong>即時に再有効化</strong>する（LLM 不使用・決定的）。</td>
-      <td>要実装：<strong>公開ごとに版（スナップショット）を保存する版ストア</strong>＋直前版の再有効化（Control Plane・Orchestrator/LLM 不要）</td>
+      <td><code>approvals.rollback_feature</code>（<code>feature_versions</code> の線形スタックから直前版を再有効化。会話「戻して」が直近変更の機能に適用。Orchestrator/LLM 不要）</td>
     </tr>
     <tr>
       <td>初期化</td>

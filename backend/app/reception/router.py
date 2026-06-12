@@ -192,6 +192,8 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 title = (flow.get("candidate") or {}).get("title") or service.feature_label(flow["feature"])
                 res = approvals.publish_edit(body.project_id, flow["feature"], flow["candidate"])
                 activated_feature = res["feature"]
+                # Ledger: the published edit instruction becomes a pinned requirement.
+                registry.append_requirements(body.project_id, activated_feature, [flow.get("goal") or ""])
                 service.clear_flow(body.project_id)
                 reply_text = f"「{title}」を更新しました。"
             else:
@@ -204,6 +206,12 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 else:
                     res = approvals.approve(approval_id)
                     activated_feature = res["feature"]
+                    # Ledger: the build goal + approved acceptance criteria become
+                    # pinned requirements future edits must keep holding.
+                    registry.append_requirements(
+                        body.project_id, activated_feature,
+                        [flow.get("goal") or ""] + list((flow.get("plan") or {}).get("acceptance") or []),
+                    )
                     service.clear_flow(body.project_id)
                     reply_text = f"公開しました。「{service.feature_title(body.project_id, activated_feature)}」を左メニューに追加しました。"
         elif service.is_cancel(body.text) or intent == "rollback":

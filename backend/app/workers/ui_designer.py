@@ -186,6 +186,7 @@ def design(
     plan: dict | None = None,
     current_html: str | None = None,
     images: list[dict] | None = None,
+    requirements: list[str] | None = None,
 ) -> ViewManifest:
     """Build a real, self-contained HTML app that implements `goal`.
 
@@ -195,6 +196,7 @@ def design(
       is then the change instruction; the worker rewrites the full document with
       only that change applied, preserving everything else.
     - `images`: attachments passed to the LLM for vision (e.g. edit from a screenshot).
+    - `requirements`: the feature's confirmed-requirements ledger (must keep holding).
     """
     llm = get_llm()
     if llm.enabled:
@@ -210,6 +212,9 @@ def design(
                     "修正を反映した完全な単一HTML文書を作り直して、JSONのhtmlに入れてください。",
                     _SCHEMA,
                 ]
+                if requirements:
+                    parts.insert(3, "この機能で過去に確定した要求（修正後も必ず維持すること）:\n"
+                                 + "\n".join(f"・{r}" for r in requirements[:30]))
             else:
                 parts = [
                     agents.load("ui_designer"),
@@ -260,3 +265,95 @@ def design(
         html=_fallback_html(goal),
         generated_by="stub",
     )
+
+
+# --- Diff/patch editing (fast path for edits & gate-revision repairs) ---------
+# Rewriting the whole document for every tweak is slow (minutes of PRO output),
+# token-expensive, and risks regressing unrelated parts. For edits/repairs we
+# first ask for SEARCH/REPLACE patches against the current HTML and apply them
+# locally; any miss (ambiguous/absent search, invalid result) returns None and
+# the caller falls back to a full rewrite. Gates verify the result either way.
+
+_PATCH_SCHEMA = '''既存アプリへの修正を「差分パッチ」で出力してください。JSON のみ（前後の説明・コードフェンス不要）:
+{
+  "full_rewrite": false,
+  "patches": [{"search": "<現コードから一字一句コピーした一意な部分文字列>", "replace": "<置換後>"}],
+  "description": "<変更後の説明が変わる場合のみ。1〜2文>",
+  "commands": [<操作ツールが増減・変更される場合のみ、全量を再宣言>]
+}
+
+パッチの規則（厳守）:
+- search は現コードに**そのまま一度だけ**現れる文字列にする（コピーすること。改変・省略・"..."禁止）。
+- 1パッチは小さく（数行〜十数行）。パッチは最大10個。
+- 変更が大規模で差分にできない場合は {"full_rewrite": true} だけを返す。
+- AF.load/AF.save・applyAgentCommand・既存機能を壊さないこと。'''
+
+
+def apply_patches(html: str, patches: list) -> str | None:
+    """Apply SEARCH/REPLACE patches. Returns None on ANY miss (caller falls back):
+    every search must be a non-empty string occurring exactly once."""
+    if not isinstance(patches, list) or not patches or len(patches) > 10:
+        return None
+    out = html
+    for p in patches:
+        if not isinstance(p, dict):
+            return None
+        search, replace = p.get("search"), p.get("replace", "")
+        if not isinstance(search, str) or not search or not isinstance(replace, str):
+            return None
+        if out.count(search) != 1:
+            return None
+        out = out.replace(search, replace, 1)
+    return out
+
+
+def design_patch(
+    goal: str,
+    current: dict,
+    feedback: str | None = None,
+    requirements: list[str] | None = None,
+) -> ViewManifest | None:
+    """Patch-based edit of an existing app manifest. Returns the updated manifest,
+    or None when patching isn't possible (LLM off, model chose full_rewrite, a
+    patch missed, or the result isn't a valid app) — caller falls back to design()."""
+    llm = get_llm()
+    html = current.get("html") or ""
+    if not llm.enabled or not html:
+        return None
+    try:
+        parts = [
+            agents.load("ui_designer"),
+            agents.policy(),
+            "既存アプリの全コード:\n" + html,
+            f"ユーザーの修正指示: {goal}",
+        ]
+        if requirements:
+            parts.append("この機能で過去に確定した要求（修正後も必ず維持すること）:\n"
+                         + "\n".join(f"・{r}" for r in requirements[:30]))
+        if feedback:
+            parts.append(f"[前回の検証・レビュー指摘（必ず修正すること）]\n{feedback}")
+        parts.append(_PATCH_SCHEMA)
+        raw = llm.generate("\n\n".join(parts), tier=ModelTier.PRO).strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        data = json.loads(raw)
+        if data.get("full_rewrite") or not data.get("patches"):
+            return None
+        new_html = apply_patches(html, data.get("patches"))
+        if new_html is None or not _is_valid_app_html(new_html):
+            return None
+        commands = data.get("commands")
+        commands = ([c for c in commands if isinstance(c, dict) and c.get("name")]
+                    if isinstance(commands, list) and commands else (current.get("commands") or []))
+        return ViewManifest(
+            kind="app",
+            feature=current.get("feature") or _slug(goal),
+            title=(current.get("title") or goal)[:60],
+            description=(str(data.get("description")) if data.get("description") else current.get("description", ""))[:200],
+            theme=current.get("theme", "default") if current.get("theme") in _ALLOWED_THEMES else "default",
+            html=new_html,
+            commands=commands,
+            generated_by=llm.name,
+        )
+    except Exception:  # noqa: BLE001 — any failure → fall back to a full rewrite
+        return None
