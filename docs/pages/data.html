@@ -8,6 +8,12 @@
 </head>
 <body class="doc">
   <h1>7. データ設計</h1>
+  <div class="callout warn">
+    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
+    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
+    記述が食い違う場合は正本に従ってください。
+  </div>
+
   <p class="lead">Firestore（native mode）が Control Plane の DB。状態・registry・監査・文脈をドキュメントで管理し、ファイル実体は Cloud Storage に逃がします。</p>
 
   <h2>主要コレクション</h2>

@@ -8,6 +8,12 @@
 </head>
 <body class="doc">
   <h1>8. 永続化と再開（レジューム）</h1>
+  <div class="callout warn">
+    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
+    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
+    記述が食い違う場合は正本に従ってください。
+  </div>
+
   <p class="lead">アプリを閉じても作業は裏で完了し、再び開けば閉じていた間の AI メッセージも含めて完全に復元される。鍵は「状態もメッセージも全部 Firestore に永続化し、エージェントはブラウザに依存しない」こと。</p>
 
   <div class="svg-wrap">

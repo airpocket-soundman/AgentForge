@@ -8,6 +8,12 @@
 </head>
 <body class="doc">
   <h1>3. システム構成図</h1>
+  <div class="callout warn">
+    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
+    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
+    記述が食い違う場合は正本に従ってください。
+  </div>
+
   <p class="lead">フロントは Firebase Hosting、ロジックは Cloud Run、状態は Firestore。AI には強権限を渡さず、デプロイ操作は Tool Gateway に集約します。</p>
 
   <div class="svg-wrap">
