@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { AppFrame, type AgentCommand } from "./AppFrame";
 import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
+import { MdText } from "./Markdown";
 
 // Generated View Renderer: every feature is a COMPLETE self-contained HTML app the
 // UI Designer worker wrote. We run it live in a sandboxed iframe (see AppFrame).
@@ -285,7 +286,7 @@ export function GeneratedView({
                 )}
 
                 {worker?.messages.map((m, i) => (
-                  <div key={i} className={`bubble bubble--${m.role}`}>{m.text}</div>
+                  <div key={i} className={`bubble bubble--${m.role}`}><MdText text={m.text} /></div>
                 ))}
                 {building && (
                   <div className="bubble bubble--assistant bubble--pending">

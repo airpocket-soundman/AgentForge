@@ -401,3 +401,18 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid var(--gv-accent); outline-offset: 1px; border-color: var(--gv-accent);
 }
 .bubble { box-shadow: 0 1px 2px rgba(26, 26, 46, 0.05); }
+
+/* ---- Chat markdown (MdText) ---- */
+.md { white-space: pre-wrap; }
+.md .md-h { font-weight: 700; margin: 6px 0 2px; }
+.md .md-h1 { font-size: 16px; }
+.md .md-h2 { font-size: 15px; }
+.md .md-h3 { font-size: 14px; }
+.md .md-li { padding-left: 1.1em; position: relative; }
+.md .md-li::before { content: "・"; position: absolute; left: 0; color: var(--gv-muted, #667); }
+.md .md-gap { height: 8px; }
+.md .md-code { background: rgba(0,0,0,.06); border-radius: 4px; padding: 0 4px; font-family: ui-monospace, monospace; font-size: .92em; }
+.md .md-pre { background: rgba(0,0,0,.06); border-radius: 8px; padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+
+/* Plan-stage screen mock */
+.chat-preview .mock-frame { height: 560px; background: #f3f4fa; }

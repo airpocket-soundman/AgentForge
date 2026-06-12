@@ -267,6 +267,56 @@ def design(
     )
 
 
+# --- Design-stage screen mock (SVG) -------------------------------------------
+# A preview AFTER code is built is expensive to act on (a fix = regeneration).
+# So at the PLAN stage we draw a cheap FLASH SVG mock of the screen: the user can
+# say "ここをこう直して" BEFORE any PRO code is written; revisions just redraw the
+# mock in seconds. Non-blocking: any failure returns "" (plan proceeds without it).
+
+_SVG_BANNED = ("<script", "foreignobject", "javascript:", "xlink:href=\"http", "href=\"http", "href='http")
+
+
+def _svg_only(raw: str) -> str:
+    """Extract a safe, standalone <svg>…</svg> from model output; '' if unusable."""
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.strip("`")
+        s = s.split("\n", 1)[-1] if "\n" in s else s
+    lo = s.find("<svg")
+    hi = s.rfind("</svg>")
+    if lo < 0 or hi < 0 or hi <= lo:
+        return ""
+    s = s[lo:hi + len("</svg>")]
+    low = s.lower()
+    if any(b in low for b in _SVG_BANNED):
+        return ""
+    if len(s) > 60000:
+        return ""
+    return s
+
+
+def design_mock(goal: str, plan: dict) -> str:
+    """Draw a screen mock (SVG) of the proposed app for plan-stage review."""
+    llm = get_llm()
+    if not llm.enabled:
+        return ""
+    try:
+        prompt = (
+            "あなたはUIデザイナー。次の設計案のミニアプリ画面を、1枚のSVGモックとして描いてください。\n"
+            "- 出力は SVG のみ（説明・コードフェンス禁止）。<svg …> で始まり </svg> で終わること。\n"
+            '- viewBox="0 0 420 740"（スマホ縦）。ヘッダ・主要コントロール・ボタン・一覧など、実装イメージが伝わる構成。\n'
+            f"- テーマ「{plan.get('theme', 'default')}」の落ち着いた配色。ラベルは日本語で実際の文言を書く。\n"
+            "- <script>/foreignObject/外部参照（http）は禁止。図形とテキストだけで描く。\n\n"
+            f"設計案: {json.dumps({k: v for k, v in plan.items() if k != 'mock_svg'}, ensure_ascii=False)}\n"
+            f"ユーザー要求: {goal}"
+        )
+        return _svg_only(llm.generate(prompt, tier=ModelTier.FLASH))
+    except Exception:  # noqa: BLE001 — mock is best-effort, never block the plan
+        return ""
+
+
 # --- Diff/patch editing (fast path for edits & gate-revision repairs) ---------
 # Rewriting the whole document for every tweak is slow (minutes of PRO output),
 # token-expensive, and risks regressing unrelated parts. For edits/repairs we

@@ -1031,15 +1031,28 @@ def _run_plan(
 
     def _do_plan(_payload: dict) -> dict:
         _progress(conversation_id, "📝 設計案を作成しています…")
-        plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
+        with _llm_heartbeat(conversation_id, "📝 設計案作成"):
+            plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
+        plan_dict = plan.model_dump(mode="json")
+        # Screen mock (SVG) at the PLAN stage: the user reviews/corrects the look
+        # BEFORE any expensive PRO code is written; a revision just redraws this
+        # in seconds. Best-effort — "" means the plan proceeds without a mock.
+        _progress(conversation_id, "🎨 画面イメージ（モック）を作成しています…")
+        with _llm_heartbeat(conversation_id, "🎨 モック作成"):
+            mock = ui_designer.design_mock(goal, plan_dict)
+        if mock:
+            plan_dict["mock_svg"] = mock
         _set_flow(
             conversation_id,
             stage=_STAGE_PLAN,
             goal=goal,
-            plan=plan.model_dump(mode="json"),
+            plan=plan_dict,
             feature=plan.feature,
         )
-        append_message(conversation_id, ChatMessage(role="assistant", text=_format_plan(plan)))
+        text = _format_plan(plan)
+        if mock:
+            text += "\n\n🎨 下に**画面イメージ（モック）**を表示しました。コードを書く前なので、見た目の修正も今のうちに指示できます。"
+        append_message(conversation_id, ChatMessage(role="assistant", text=text))
         return {"status": "ok", "result": {"feature": plan.feature}}
 
     rep = worker_bus.dispatch(
@@ -1157,7 +1170,10 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
 
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
-    criteria = (plan or {}).get("acceptance") or None  # user-approved acceptance list
+    # The mock SVG was for plan-stage review only — don't waste codegen-prompt
+    # tokens on it (the textual plan + acceptance carry the agreed design).
+    plan = {k: v for k, v in (plan or {}).items() if k != "mock_svg"}
+    criteria = plan.get("acceptance") or None  # user-approved acceptance list
 
     def _gen(feedback: str | None = None):
         """One generation; on a stub result (LLM unreachable/parse failure) retry
@@ -1272,6 +1288,8 @@ def conversation_state(project_id: str) -> dict:
         "mode": flow.get("mode", "create"),
         "pending_feature": flow.get("feature") if stage == _STAGE_BUILT else None,
         "pending_approval_id": flow.get("approval_id") if stage == _STAGE_BUILT else None,
+        # Plan-stage screen mock (SVG) — reviewed/corrected BEFORE code is written.
+        "plan_mock": ((flow.get("plan") or {}).get("mock_svg") if stage == _STAGE_PLAN else None),
     }
 
 

@@ -46,11 +46,13 @@ export interface ConversationState {
   building: boolean;
   // What the worker is doing now while building: "planning" | "revising" | "codegen" | "editing".
   phase?: string | null;
-  // Two-stage flow: "idle" | "plan" (proposal under review) | "built" (preview + publish).
-  stage: "idle" | "plan" | "built";
+  // Flow: "idle" | "confirm" (restated, awaiting OK) | "plan" | "built".
+  stage: "idle" | "confirm" | "plan" | "built";
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
   pending_feature: string | null; // at "built": the feature to preview
   pending_approval_id: string | null; // at "built": the approval to publish
+  // Plan-stage screen mock (SVG): reviewed/corrected BEFORE any code is written.
+  plan_mock?: string | null;
 }
 
 export interface Task {

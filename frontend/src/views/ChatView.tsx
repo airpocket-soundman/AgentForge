@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { AppFrame } from "./AppFrame";
 import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
+import { MdText } from "./Markdown";
 
 const WELCOME: ChatMessage = {
   role: "assistant",
@@ -37,6 +38,7 @@ export function ChatView({
   const [mode, setMode] = useState<ConversationState["mode"]>("create");
   const [pendingFeature, setPendingFeature] = useState<string | null>(null);
   const [preview, setPreview] = useState<ViewManifest | null>(null);
+  const [planMock, setPlanMock] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
@@ -54,6 +56,7 @@ export function ChatView({
       setPhase(s.phase ?? null);
       setMode(s.mode);
       setPendingFeature(s.pending_feature);
+      setPlanMock(s.stage === "plan" ? (s.plan_mock ?? null) : null);
       // Fetch the candidate app the moment code is built (create OR edit), in the
       // SAME call that flips the stage — avoids a one-shot race that left the
       // preview blank. Keep any existing preview if a transient fetch fails.
@@ -153,8 +156,20 @@ export function ChatView({
     <div className="chatview">
       <div className="chat" ref={listRef}>
         {messages.map((m, i) => (
-          <div key={i} className={`bubble bubble--${m.role}`}>{m.text}</div>
+          <div key={i} className={`bubble bubble--${m.role}`}><MdText text={m.text} /></div>
         ))}
+
+        {stage === "plan" && planMock && (
+          <div className="chat-preview">
+            <div className="chat-preview__label">🎨 画面イメージ（モック・コード作成前 — 見た目の修正は今が最安）</div>
+            <iframe
+              className="gen-app-frame mock-frame"
+              title="画面イメージ"
+              sandbox=""
+              srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;display:grid;place-items:center;background:#f3f4fa}svg{max-width:100%;max-height:96vh;height:auto;filter:drop-shadow(0 6px 18px rgba(0,0,0,.12))}</style></head><body>${planMock}</body></html>`}
+            />
+          </div>
+        )}
 
         {stage === "built" && preview && (
           <div className="chat-preview">
