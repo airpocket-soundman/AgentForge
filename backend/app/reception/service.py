@@ -285,7 +285,7 @@ def start_edit(
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
     threading.Thread(
         target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
     ).start()
@@ -425,7 +425,7 @@ def _handle_request_worker(
     # Keep a build record "designing" while the Receptor classifies / writes its
     # restatement (both call an LLM), so the chat keeps polling and shows the result.
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="receiving", goal=goal,
-               started_at=_now_iso(), model=_model_for_phase("planning"), timeout_count=0)
+               started_at=_now_iso(), model=_model_for_phase("planning"), timeout_count=0, prompt_pending=False)
     try:
         decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
         action = decision.get("action")
@@ -645,6 +645,66 @@ def bump_timeout(project_id: str) -> int:
     return n
 
 
+def mark_prompted(project_id: str) -> None:
+    """A ①②③ prompt is now awaiting the user's answer (suppresses re-prompts)."""
+    _set_build(conversation_id_for(project_id), prompt_pending=True)
+
+
+def extend_wait(project_id: str) -> None:
+    """② もう少し待つ: restart the stall clock and clear the pending prompt, so the
+    Receptor doesn't immediately re-judge the same run as stalled."""
+    _set_build(conversation_id_for(project_id), started_at=_now_iso(), prompt_pending=False)
+
+
+def _stall_decision(health: str, prompt_pending: bool, timeout_count: int) -> str:
+    """Pure: what the Receptor should do on a watch tick.
+
+    Returns "none" (healthy, or a prompt is already awaiting the user's answer),
+    "prompt" (post the ①②③ choices), or "force_stop" (this judgment reaches N)."""
+    if health not in ("slow", "stuck") or prompt_pending:
+        return "none"
+    return "force_stop" if timeout_count + 1 >= _TIMEOUT_FORCE_STOP_N else "prompt"
+
+
+def _timeout_prompt_text(diag: dict) -> str:
+    return (
+        f"処理が想定より時間がかかっています（経過 {diag.get('total_sec', 0)} 秒）。どうしますか？\n"
+        "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」"
+    )
+
+
+def _force_stop_text(count: int, diag: dict) -> str:
+    return (
+        f"{count} 回タイムアウトしたため、安全のため強制停止しました（経過 {diag.get('total_sec', 0)} 秒）。"
+        "直前のプランは保持しています。もう一度ご依頼ください。"
+    )
+
+
+def judge_stall_on_poll(project_id: str) -> None:
+    """Proactive stall watch (VISION 柱5): runs on the chat's state poll, so the
+    Receptor judges and speaks WITHOUT waiting for the user to say something.
+    Poll-driven means it naturally pauses while the app is closed (spec: 閉鎖中は
+    休止) and needs no resident watchdog thread."""
+    build = current_build(project_id)
+    if build.get("status") != _BUILD_DESIGNING:
+        return
+    diag = diagnose_build(project_id)
+    decision = _stall_decision(
+        diag["health"], bool(build.get("prompt_pending")), int(build.get("timeout_count", 0))
+    )
+    if decision == "none":
+        return
+    conversation_id = conversation_id_for(project_id)
+    # Mark first to keep concurrent poll ticks (multiple tabs) from double-posting.
+    _set_build(conversation_id, prompt_pending=True)
+    count = bump_timeout(project_id)
+    if decision == "force_stop" or count >= _TIMEOUT_FORCE_STOP_N:
+        recover_build(project_id, f"force-stop after {count} timeouts")
+        append_message(conversation_id, ChatMessage(role="assistant", text=_force_stop_text(count, diag)))
+    else:
+        append_message(conversation_id, ChatMessage(role="assistant", text=_timeout_prompt_text(diag)))
+
+
 def retry_build(project_id: str) -> str:
     """③ stop & retry: stop the current run and re-kick it from the last good stage
     (reuses the saved flow — design proposal / approved plan are not thrown away)."""
@@ -765,7 +825,7 @@ def start_plan(
     """Generate (or revise) a design proposal in the background, then post it."""
     conversation_id = conversation_id_for(project_id)
     phase = "revising" if (feedback and previous) else "planning"
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase), timeout_count=0)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase), timeout_count=0, prompt_pending=False)
     threading.Thread(
         target=_run_plan, args=(project_id, goal, feedback, previous, images), daemon=True
     ).start()
@@ -806,7 +866,7 @@ def _run_plan(
 def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"), timeout_count=0)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"), timeout_count=0, prompt_pending=False)
     threading.Thread(
         target=_run_codegen, args=(project_id, goal, plan), daemon=True
     ).start()

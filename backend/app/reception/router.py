@@ -26,7 +26,15 @@ def reception_health() -> dict:
 @router.get("/state/{project_id}")
 def get_state(project_id: str) -> dict:
     """Full chat state for the browser to render from scratch and poll while a
-    background design runs (survives navigation / reload)."""
+    background design runs (survives navigation / reload).
+
+    The poll doubles as the Receptor's stall watch (VISION 柱5): while a build is
+    running it judges slow/stuck and PROACTIVELY posts the ①②③ choices — the user
+    doesn't have to speak first. Poll-driven ⇒ pauses while the app is closed."""
+    try:
+        service.judge_stall_on_poll(project_id)
+    except Exception:  # noqa: BLE001 — the watch must never break state reads
+        pass
     return service.conversation_state(project_id)
 
 
@@ -65,13 +73,20 @@ def post_message(body: MessageIn) -> ReceptionReply:
         if service.is_retry(body.text):
             service.retry_build(body.project_id)
             return _busy_reply("停止して、直前の成功段階から再トライします。進捗はこの画面に表示されます。", "retry", True)
-        # ② もう少し待つ
+        # ② もう少し待つ — restart the stall clock so the watch doesn't immediately
+        # re-judge the same run (next timeout will be #2 = force stop).
         if service.is_wait(body.text):
+            service.extend_wait(body.project_id)
             return _busy_reply(f"承知しました。このままお待ちください（経過 {diag.get('total_sec', 0)} 秒・生成中）。", "waiting", True)
 
-        # Receptor judges timeout (slow/stuck). Don't auto-kill — ask the user; after
-        # N timeouts, force-stop and just report (workers.html §3(b)).
+        # Receptor judges timeout (slow/stuck). The poll-driven watch usually prompts
+        # first (proactively); if a prompt is already pending, just remind the choices.
         if diag["health"] in ("slow", "stuck"):
+            if build.get("prompt_pending"):
+                return _busy_reply(
+                    "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」からお選びください。",
+                    "timeout_prompt", True,
+                )
             count = service.bump_timeout(body.project_id)
             if count >= service._TIMEOUT_FORCE_STOP_N:
                 service.recover_build(body.project_id, f"force-stop after {count} timeouts")
@@ -80,6 +95,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
                     "直前のプランは保持しています。もう一度ご依頼ください。",
                     "force_stopped", False,
                 )
+            service.mark_prompted(body.project_id)
             return _busy_reply(
                 f"処理が想定より時間がかかっています（経過 {diag['total_sec']} 秒）。どうしますか？\n"
                 "①「停止」／ ②「もう少し待つ」／ ③「停止して再トライ」",

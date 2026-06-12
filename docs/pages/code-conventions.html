@@ -55,6 +55,9 @@
   <ul>
     <li><code>body</code> は <code>margin:0</code> でビューポートいっぱいに広げ、モダンで見やすく、ボタンは押しやすく。</li>
     <li>入力は<strong>マウスとタッチの両対応</strong>（<code>pointer</code> イベント推奨）。</li>
+    <li><strong>PC とスマホの両対応（レスポンシブ）</strong>：<code>&lt;meta name="viewport"&gt;</code> を入れ、固定幅にせず
+      flex/grid・% で画面幅に追従。必要なら <code>@media</code>（目安 600px）でスマホ向けに最適化し、
+      縦持ちスマホでも操作できること。</li>
     <li>見た目は<strong>テーマで一貫</strong>させる：<code>default</code> / <code>warm</code> / <code>forest</code> / <code>ocean</code> の4種のみ。
       ユーザー指示が曖昧なら内容に最も近いもの、指定が無ければ <code>default</code>。<strong>独自テーマ（生CSSの作り込み）で統一感を壊さない</strong>。</li>
   </ul>
@@ -151,7 +154,7 @@
     <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合（主要操作を網羅）</td><td>ツール未実装／<code>commands</code> と名前不一致／操作が乏しい</td></tr>
     <tr><td>5</td><td>要求機能を実際に動く形で実装（代替・省略なし）</td><td>「お絵描き」がフォーム＋一覧になっている</td></tr>
     <tr><td>6</td><td>テーマは4種のみ・<code>feature</code> は英小文字</td><td>独自テーマ／スラッグに日本語</td></tr>
-    <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code></td><td>タッチで操作不能</td></tr>
+    <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code>・<strong>PC/スマホ両対応（viewport メタ＋可変レイアウト）</strong></td><td>タッチで操作不能／固定幅でスマホで崩れる・viewport メタなし</td></tr>
     <tr><td>8</td><td><strong>生成 HTML 内にチャット／メッセージ入力／AI アシスタント UI を含まない</strong>（アプリチャットは下部の別パネル）</td><td>html にチャット欄・送信ボタン付き入力欄・「アシスタント」等の会話 UI が入っている</td></tr>
     <tr><td>9</td><td>生成 API の <code>side_effect_level</code> が適切</td><td>更新系を <code>read</code> 宣言</td></tr>
   </table>
