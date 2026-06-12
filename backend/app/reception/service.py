@@ -313,10 +313,16 @@ def _run_edit(
         cur_html = cur.get("html") or None
 
         def _build(extra: str | None = None):
+            from app.llm.gateway import get_llm
+
             instr = instruction if not extra else (
                 f"{instruction}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{extra}"
             )
-            return ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once (visible)
+                _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
+                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            return m
 
         manifest = _build()
         passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
@@ -376,6 +382,97 @@ def _run_edit(
     else:
         worker_status.record_status("Orchestrator", project_id, worker_status.IDLE,
                                     detail="修正失敗・再指示待ち")
+
+
+# --- Preview (built-stage) revision loop --------------------------------------
+# At the preview stage the user could previously only 「反映して」 or cancel; a
+# tweak required publishing first. Now a substantive message revises the CANDIDATE
+# (regenerate → gate → re-preview) — the live/published version stays untouched.
+
+def start_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
+    conversation_id = conversation_id_for(project_id)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction,
+               started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
+    threading.Thread(target=_run_candidate_revision, args=(project_id, instruction, images), daemon=True).start()
+
+
+def _run_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
+    conversation_id = conversation_id_for(project_id)
+    from app.control_plane import worker_bus
+    from app.workers import ui_designer
+
+    flow = get_flow(project_id)
+    cand = flow.get("candidate") or {}
+    feature = flow.get("feature") or cand.get("feature") or ""
+    mode = flow.get("mode", "create")
+    corr = f"rev_{uuid.uuid4().hex[:12]}"
+
+    def _do_revise(_payload: dict) -> dict:
+        from app.llm.gateway import get_llm
+
+        _progress(conversation_id, "✏️ プレビューを修正しています…")
+        plan = {"feature": feature, "title": cand.get("title") or feature, "theme": cand.get("theme", "default")}
+        cur_html = cand.get("html") or None
+
+        def _build(extra: str | None = None):
+            instr = instruction if not extra else (
+                f"{instruction}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{extra}"
+            )
+            m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once
+                _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
+                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images)
+            return m
+
+        manifest = _build()
+        passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+        attempts = 1
+        while not passed and attempts < _GATE_MAX_ATTEMPTS:
+            attempts += 1
+            _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
+            manifest = _build(_gate_feedback(gates))
+            passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr)
+
+        if not passed:
+            # Keep the EXISTING candidate (flow untouched); just report.
+            append_message(conversation_id, ChatMessage(role="assistant", text=(
+                "❌ プレビューの修正が要件を満たせなかったため、プレビューは前のままです:\n"
+                + _gate_feedback(gates) + "\n別の言い方で指示するか、「反映して」（現状のまま公開）/「キャンセル」を選べます。"
+            )))
+            return {"status": "needs_revision", "result": {"passed": False, "feature": feature},
+                    "findings": [_gate_feedback(gates)]}
+
+        new_cand = manifest.model_dump(mode="json")
+        if mode == "create" and feature:
+            # 「反映して」(approve) activates the generated_views doc — keep it in
+            # sync with the revised candidate so what's published is what's previewed.
+            get_db().collection("generated_views").document(f"{project_id}_{feature}").set(
+                {**new_cand, "project_id": project_id, "status": "pending", "updated_at": _now_iso()},
+                merge=True,
+            )
+        _set_flow(conversation_id, stage=_STAGE_BUILT, mode=mode, goal=flow.get("goal"),
+                  plan=flow.get("plan"), feature=feature, approval_id=flow.get("approval_id"),
+                  candidate=new_cand)
+        _progress(conversation_id, _check_report(new_cand))
+        append_message(conversation_id, ChatMessage(role="assistant", text=(
+            "✏️ プレビューを修正しました（検証・レビュー通過）。更新版を確認のうえ、"
+            "よければ「反映して」、さらに直す点があれば続けて指示してください。"
+        )))
+        return {"status": "ok", "result": {"passed": True, "feature": feature}}
+
+    rep = worker_bus.dispatch(
+        task_id=corr, sender="Receptor", to="Orchestrator", intent="edit",
+        payload={"feature": feature, "instruction": instruction, "target": "candidate"},
+        handler=_do_revise, project_id=project_id, model=_model_for_phase("editing"),
+    )
+    if rep.get("status") == "failed":
+        append_message(conversation_id, ChatMessage(
+            role="assistant", text=f"❌ プレビュー修正でエラーが発生しました: {(rep.get('error') or '')[:200]}"))
+        _set_build(conversation_id, status=_BUILD_ERROR, error=(rep.get("error") or "")[:300])
+        return
+    _set_build(conversation_id, status=_BUILD_DONE)
+    worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                detail="プレビュー公開待ち（「反映して」）")
 
 
 def handle_request(
@@ -814,10 +911,15 @@ def get_candidate(project_id: str) -> dict | None:
 def _format_plan(plan: DesignPlan) -> str:
     bullets = "\n".join(f"・{f}" for f in plan.features) or "・（主な機能は実装時に補完します）"
     save = "あり（再読込しても保持）" if plan.persistence else "なし"
+    crit = ""
+    if plan.acceptance:
+        crit = "受け入れ条件（完成時に Tester が1つずつ検証します）:\n" + \
+               "\n".join(f"・{c}" for c in plan.acceptance) + "\n\n"
     return (
         f"🧩 設計案：{plan.title}\n"
         f"{plan.summary}\n\n"
         f"主な機能:\n{bullets}\n\n"
+        f"{crit}"
         f"データ保存: {save} ／ テーマ: {plan.theme}\n\n"
         f"このプランで良ければ「これで作って」と送ってください（コードを生成します）。\n"
         f"修正したい点があれば、その内容をそのまま返信してください（例：「色を増やして」「保存も付けて」）。"
@@ -926,10 +1028,12 @@ def start_codegen(project_id: str, goal: str, plan: dict) -> None:
 _GATE_MAX_ATTEMPTS = 2
 
 
-def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str) -> tuple[bool, dict]:
+def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
+               criteria: list[str] | None = None) -> tuple[bool, dict]:
     """Run Tester + Reviewer on a generated manifest; post the result to chat.
 
-    The two are independent, so run them concurrently to halve the gate's latency."""
+    The two are independent, so run them concurrently to halve the gate's latency.
+    `criteria` = the plan's user-approved acceptance list (Tester verifies each)."""
     from concurrent.futures import ThreadPoolExecutor
 
     from app.control_plane import worker_bus
@@ -937,13 +1041,13 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str) ->
 
     project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
     flash = _model_for_phase("planning")  # gates run on FLASH
-    payload = {"manifest": manifest, "goal": goal}
+    payload = {"manifest": manifest, "goal": goal, "criteria": criteria or []}
     _progress(conversation_id, "🔎 Tester（動作検証）と Reviewer（規約レビュー）を実行中…")
 
     # Orchestrator dispatches verify/review to Tester/Reviewer over the MCP-like bus
     # (request/report logged + correlated by task_id; recipient status via the bus).
     def _verify(p):
-        return worker_bus.gate_report_fields(tester.verify(p["manifest"], p["goal"]))
+        return worker_bus.gate_report_fields(tester.verify(p["manifest"], p["goal"], criteria=p.get("criteria") or None))
 
     def _review(p):
         return worker_bus.gate_report_fields(reviewer.review(p["manifest"], p["goal"]))
@@ -966,7 +1070,14 @@ def _gate_report(tv: dict, rv: dict) -> str:
     t = "✅" if tv.get("verdict") == "pass" else "⚠️"
     r = "✅" if rv.get("verdict") == "ok" else "⚠️"
     lines = [f"🔎 動作検証 {t} ／ 規約レビュー {r}"]
+    # Per-criterion results (the user-approved acceptance list) — itemized ✅/❌.
+    for c in tv.get("criteria", []):
+        mark = "✅" if c.get("ok") else "❌"
+        note = f"（{c['note']}）" if (not c.get("ok") and c.get("note")) else ""
+        lines.append(f"・[条件] {mark} {c.get('text', '')}{note}")
     for e in tv.get("errors", []):
+        if str(e).startswith("受け入れ条件NG"):
+            continue  # already shown above as a ❌ criterion line
         lines.append(f"・[動作] {e}")
     for f in rv.get("findings", []):
         lines.append(f"・[規約] {f}")
@@ -992,17 +1103,29 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
 
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
+    criteria = (plan or {}).get("acceptance") or None  # user-approved acceptance list
+
+    def _gen(feedback: str | None = None):
+        """One generation; on a stub result (LLM unreachable/parse failure) retry
+        once automatically — visible to the user, per spec (failed → auto-retry)."""
+        from app.llm.gateway import get_llm
+
+        m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+        if m.generated_by == "stub" and get_llm().enabled:
+            _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
+            m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+        return m
 
     def _do_build(_payload: dict) -> dict:
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
-        manifest = orchestrator.build_app(req, design_plan=plan)
-        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+        manifest = _gen()
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
-            manifest = orchestrator.build_app(req, design_plan=plan, feedback=_gate_feedback(gates))
-            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+            manifest = _gen(_gate_feedback(gates))
+            passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria)
 
         if passed:
             # Only a verified result is publishable: register it and offer 「反映して」.

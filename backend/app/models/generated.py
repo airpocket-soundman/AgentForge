@@ -68,6 +68,9 @@ class DesignPlan(BaseModel):
     features: list[str] = Field(default_factory=list)  # bullet list of capabilities
     persistence: bool = False  # does it need to save data (tasks/memos) vs not (paint/calc)
     theme: str = "default"
+    # Testable acceptance criteria the user approves with the plan; the Tester
+    # verifies each one against the generated app (per-item ✅/❌).
+    acceptance: list[str] = Field(default_factory=list)
 
 
 class ViewManifest(BaseModel):

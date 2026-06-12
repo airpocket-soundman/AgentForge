@@ -238,6 +238,12 @@
     <li>Orchestrator はその結果を受けて<strong>再度コーディング</strong>を進める。</li>
     <li><strong>両方を通過したら</strong>プレビューとしてデプロイし、Orchestrator は<strong>停止</strong>する。</li>
   </ol>
+  <ul>
+    <li><strong>受け入れ条件で検証する：</strong>設計案には<strong>動作で検証できる受け入れ条件</strong>（例「=を押すと計算結果が表示される」）を含め、
+      ユーザーは「これで作って」で条件ごと承認する。Tester は完成品を<strong>条件ごとに ✅/❌</strong> で判定し、結果はチャットに明細表示される。</li>
+    <li><strong>生成失敗は自動リトライ：</strong>LLM 未到達等で生成が失敗（仮ページ）した場合、Orchestrator は
+      「⚠️ リトライ中」と可視化したうえで<strong>1回自動で再生成</strong>する（それでも失敗なら報告して停止）。</li>
+  </ul>
 
   <h3>公開（有効化）の承認 ― 人間ゲート</h3>
   <p>
@@ -248,6 +254,8 @@
     <li>人間の承認ゲートは3つ：<strong>①受付確認（Receptor が依頼内容を復唱→「お願い」）</strong>＝Orchestrator へ依頼、
       <strong>②設計承認（「これで作って」）</strong>＝コード化に進む、<strong>③公開承認（「反映して」）</strong>＝有効化する。</li>
     <li>承認しなければプレビューのまま。破棄も選べる。AI は<strong>勝手に本公開しない</strong>（安全側）。</li>
+    <li><strong>プレビュー段階でも修正できる：</strong>「反映して」の前に修正指示を送れば、<strong>候補だけを再生成→再検証→再プレビュー</strong>する
+      （公開済み・本番には一切影響しない）。納得いくまで磨いてから「反映して」。</li>
     <li><strong>公開のたびに、その版（HTML・設定のスナップショット）を保存</strong>する。これが「巻き戻し」（§8）で直前の版へ即時に戻す土台になる。</li>
   </ul>
   <div class="callout">

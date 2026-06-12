@@ -210,7 +210,18 @@ def post_message(body: MessageIn) -> ReceptionReply:
             service.clear_flow(body.project_id)
             reply_text = "キャンセルしました（生成物は破棄しました）。"
         else:
-            reply_text = "公開するには「反映して」、やめるには「キャンセル」と送ってください。"
+            # A substantive message at the preview = a revision to the CANDIDATE:
+            # regenerate → gate → re-preview. The user can iterate BEFORE publishing
+            # (previously the only options were 反映して / キャンセル).
+            allowed, count = service.guard_run(body.project_id)
+            if not allowed:
+                reply_text = (
+                    f"短時間に実行が集中しています（直近{count}回）。少し待ってからもう一度指示してください。"
+                )
+            else:
+                service.start_candidate_revision(body.project_id, goal_text, images=images)
+                building = True
+                reply_text = "プレビューに修正を加えます。完了したら更新版を表示します（公開はまだされません）。"
 
     # === Stage: idle ======================================================
     elif intent == "approve":

@@ -52,9 +52,14 @@ def _static_checks(manifest: dict) -> tuple[list[str], list[str]]:
     return checks, errors
 
 
-def verify(manifest: dict, goal: str) -> dict:
-    """Verify a generated app runs and meets the request."""
+def verify(manifest: dict, goal: str, criteria: list[str] | None = None) -> dict:
+    """Verify a generated app runs and meets the request.
+
+    `criteria` (the design plan's user-approved acceptance list) makes the
+    judgment itemized: each criterion is verified individually and reported as
+    ✅/❌ — instead of one opaque overall verdict."""
     checks, errors = _static_checks(manifest)
+    criteria_results: list[dict] = []
 
     llm = get_llm()
     # Only ask the model when the artifact is at least structurally loadable.
@@ -63,20 +68,39 @@ def verify(manifest: dict, goal: str) -> dict:
             html = manifest.get("html") or ""  # send full html (avoid false "truncated" reads)
             if len(html) > 100000:
                 html = html[:100000] + "\n<!-- …(以下はサイズ上限で省略。末尾の閉じタグ有無で『途中で切れている』と判断しないこと) -->"
-            prompt = "\n\n".join([
+            parts = [
                 agents.load("tester"),
                 f"ユーザー要求: {goal}",
                 "生成アプリの HTML:\n" + html,
-                '致命的に「動かない／要求を満たさない」点だけを JSON で返す: {"errors": ["<日本語>", ...]}（無ければ空配列・JSON のみ）',
-            ])
-            raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            ]
+            if criteria:
+                parts.append(
+                    "受け入れ条件（ユーザーが承認した検証項目。1つずつコードに照らして判定すること）:\n"
+                    + "\n".join(f"{i+1}. {c}" for i, c in enumerate(criteria))
+                )
+                parts.append(
+                    'JSON のみで返す: {"errors": ["<致命的に動かない点>", ...], '
+                    '"criteria": [{"text": "<条件>", "ok": true|false, "note": "<短い根拠>"}]}\n'
+                    "criteria は受け入れ条件と同数・同順で返す。"
+                )
+            else:
+                parts.append('致命的に「動かない／要求を満たさない」点だけを JSON で返す: {"errors": ["<日本語>", ...]}（無ければ空配列・JSON のみ）')
+            raw = llm.generate("\n\n".join(parts), tier=ModelTier.FLASH).strip()
             if raw.startswith("```"):
                 raw = raw.strip("`").split("\n", 1)[-1]
             data = json.loads(raw)
             for e in data.get("errors", []):
                 if str(e).strip():
                     errors.append(str(e).strip())
+            for c in data.get("criteria", []) or []:
+                if isinstance(c, dict) and str(c.get("text", "")).strip():
+                    item = {"text": str(c["text"]).strip()[:120], "ok": bool(c.get("ok")),
+                            "note": str(c.get("note", "")).strip()[:120]}
+                    criteria_results.append(item)
+                    if not item["ok"]:  # an unmet approved criterion is a failure
+                        errors.append(f"受け入れ条件NG: {item['text']}" + (f"（{item['note']}）" if item["note"] else ""))
         except Exception:  # noqa: BLE001 — keep deterministic result on LLM/parse failure
             pass
 
-    return {"verdict": "fail" if errors else "pass", "checks": checks, "errors": errors}
+    return {"verdict": "fail" if errors else "pass", "checks": checks,
+            "errors": errors, "criteria": criteria_results}

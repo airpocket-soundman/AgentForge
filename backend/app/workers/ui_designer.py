@@ -33,11 +33,13 @@ _PLAN_SCHEMA = '''ユーザーの要求から「設計案」だけをJSONで出�
   "summary": "<2〜3文。どんなアプリで、何が中心の体験かを具体的に>",
   "features": ["<実装する主な機能を4〜8個、具体的な箇条書きで。例: ペンと消しゴムの切替 / 10色のパレット>"],
   "persistence": true,
-  "theme": "default|warm|forest|ocean"
+  "theme": "default|warm|forest|ocean",
+  "acceptance": ["<動作で検証できる受け入れ条件を3〜6個。例: 『=を押すと計算結果が表示される』『リロードしてもタスクが残る』>"]
 }
 
 - persistence: データ保存が必要なら true（タスク/メモ/家計簿など）、不要なら false（お絵描き/電卓/時計/ゲームなど）。
 - お絵描き・ゲーム・電卓などインタラクティブな要求は、その操作内容を features に具体的に書く（「実際に描ける」等）。
+- acceptance: 完成品で Tester が1つずつ検証する。曖昧な表現（「使いやすい」等）でなく、動作として判定できる文にする。
 - スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
 
 _SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した、単一の完結したHTMLアプリを作ってください。
@@ -157,6 +159,7 @@ def plan_feature(
             theme = d.get("theme", "default")
             theme = theme if theme in _ALLOWED_THEMES else "default"
             features = [str(x) for x in d.get("features", []) if str(x).strip()][:10]
+            acceptance = [str(x).strip() for x in d.get("acceptance", []) if str(x).strip()][:8]
             return DesignPlan(
                 feature=feature,
                 title=(str(d.get("title") or goal))[:60],
@@ -164,6 +167,7 @@ def plan_feature(
                 features=features,
                 persistence=bool(d.get("persistence", False)),
                 theme=theme,
+                acceptance=acceptance,
             )
         except Exception:  # noqa: BLE001 — fall back to a minimal proposal
             pass
