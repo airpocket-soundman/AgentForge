@@ -13,15 +13,15 @@
   <h2>3 つのコンセプトへの対応</h2>
   <table class="tbl">
     <tr><th>コンセプト</th><th>内容</th><th>AgentForge の対応</th></tr>
-    <tr><td><span class="pill blue">つくる</span></td><td>Google Cloud の AI を中核に独創的な AI エージェントを実装</td><td>Reception / Orchestrator / Worker 群（Gemini + ADK）</td></tr>
-    <tr><td><span class="pill green">まわす</span></td><td>GitHub 連携・CI/CD で継続的に改善</td><td>GitHub → Cloud Build → Cloud Run の自動デプロイ</td></tr>
+    <tr><td><span class="pill blue">つくる</span></td><td>Google Cloud の AI を中核に独創的な AI エージェントを実装</td><td>Receptor / Orchestrator / Tester / Reviewer / Specialist（Gemini API・google-genai）＋MCP的ワーカー間プロトコル</td></tr>
+    <tr><td><span class="pill green">まわす</span></td><td>GitHub 連携・CI/CD で継続的に改善</td><td>Docker テスト環境（pytest＋本番相当エミュレータ）で検証→ <code>gcloud run deploy</code>。Cloud Build CI/CD 化は計画（MIGRATION）</td></tr>
     <tr><td><span class="pill yellow">とどける</span></td><td>Cloud Run で本番品質をユーザーへ</td><td>preview → 承認 → active の安全配信</td></tr>
   </table>
 
   <h2>必須要件の充足</h2>
   <ul>
     <li><strong>① アプリ実行プロダクト：</strong>Cloud Run ✅</li>
-    <li><strong>② Google Cloud AI 技術：</strong>Gemini API ＋ ADK ✅</li>
+    <li><strong>② Google Cloud AI 技術：</strong>Gemini API（google-genai／FLASH=Gemini Flash・PRO=Gemini Pro）✅</li>
     <li><strong>③ 任意：</strong>Firebase（Hosting / Auth）、（加点候補）Elasticsearch</li>
   </ul>
 
@@ -29,7 +29,7 @@
   <table class="tbl">
     <tr><th>基準</th><th>AgentForge の刺さり方</th></tr>
     <tr><td>1. AI エージェントが価値の中心か</td><td><span class="pill green">強</span> マルチエージェントが自律的に判断・委任。必然性も明示</td></tr>
-    <tr><td>2. 課題へのアプローチ力</td><td><span class="pill yellow">要注意</span> 対象ユーザー1人・課題1つに絞って一貫性を担保</td></tr>
+    <tr><td>2. 課題へのアプローチ力</td><td><span class="pill yellow">要注意</span> ターゲット＝「広告まみれの既製アプリにうんざりし、自分好みを自作したい一般ユーザー」に一点集中</td></tr>
     <tr><td>3. ユーザビリティ</td><td><span class="pill green">良</span> チャット入口＋生成画面で直感的</td></tr>
     <tr><td>4. 実用性・体験価値</td><td><span class="pill blue">機会</span> preview→承認→rollback の体験が“突き抜け”候補</td></tr>
     <tr><td>5. 実装力</td><td><span class="pill green">強</span> Control Plane / 権限分離 / Audit / Rollback で実運用配慮</td></tr>

@@ -8,103 +8,82 @@
 </head>
 <body class="doc">
   <h1>4. 自己拡張フロー</h1>
-  <div class="callout warn">
-    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
-    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
-    記述が食い違う場合は正本に従ってください。
+  <div class="callout">
+    本ページは<strong>現行実装のサイクル概観</strong>。ワーカー別の詳細フロー図（11ステップ・差し戻しループ含む）は
+    <a href="workers.html">5b. ワーカー定義・運用ルール</a> の図 3-1 が正本です。
   </div>
 
-  <p class="lead">「タスク管理を追加して」の一言から、AI が計画し、ワーカーに委任し、Cloud Run に preview し、承認後に反映、要らなければ巻き戻すまでの 1 サイクル。</p>
+  <p class="lead">「計算機を作って」の一言から、<strong>受付確認 → 設計案 → 生成 → 検証・レビュー → プレビュー → 公開 → 版保存・巻き戻し</strong>まで。人間の承認ゲートは 3 つ、公開前に必ず Tester＋Reviewer を通ります。</p>
 
   <div class="svg-wrap">
-    <svg viewBox="0 0 780 752" width="780" height="752" role="img" aria-label="自己拡張サイクル フロー図">
+    <svg viewBox="0 0 760 620" width="760" height="620" role="img" aria-label="自己拡張サイクル（現行）">
       <defs>
-        <marker id="fa" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+        <marker id="fa2" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
           <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
         </marker>
-        <marker id="far" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#ea4335" />
-        </marker>
       </defs>
-
-      <!-- connectors -->
       <g stroke="#5f6368" stroke-width="2">
-        <line x1="330" y1="82" x2="330" y2="104" marker-end="url(#fa)" />
-        <line x1="330" y1="150" x2="330" y2="172" marker-end="url(#fa)" />
-        <line x1="330" y1="218" x2="330" y2="240" marker-end="url(#fa)" />
-        <line x1="330" y1="286" x2="330" y2="308" marker-end="url(#fa)" />
-        <line x1="330" y1="354" x2="330" y2="376" marker-end="url(#fa)" />
-        <line x1="330" y1="422" x2="330" y2="444" marker-end="url(#fa)" />
-        <line x1="330" y1="490" x2="330" y2="512" marker-end="url(#fa)" />
-        <line x1="330" y1="558" x2="330" y2="580" marker-end="url(#fa)" />
-        <line x1="330" y1="626" x2="330" y2="648" marker-end="url(#fa)" />
+        <line x1="330" y1="78" x2="330" y2="96" marker-end="url(#fa2)" />
+        <line x1="330" y1="142" x2="330" y2="160" marker-end="url(#fa2)" />
+        <line x1="330" y1="206" x2="330" y2="224" marker-end="url(#fa2)" />
+        <line x1="330" y1="270" x2="330" y2="288" marker-end="url(#fa2)" />
+        <line x1="330" y1="334" x2="330" y2="352" marker-end="url(#fa2)" />
+        <line x1="330" y1="398" x2="330" y2="416" marker-end="url(#fa2)" />
+        <line x1="330" y1="462" x2="330" y2="480" marker-end="url(#fa2)" />
       </g>
 
-      <!-- steps -->
       <g style="font:600 13px sans-serif">
-        <!-- 1 -->
-        <rect x="150" y="36" width="360" height="46" rx="8" fill="#202124" />
-        <circle cx="126" cy="59" r="15" fill="#fff" stroke="#202124" stroke-width="2" /><text x="126" y="64" text-anchor="middle" fill="#202124">1</text>
-        <text x="170" y="64" fill="#fff">ユーザー：「タスク管理を追加して」</text>
-        <!-- 2 -->
-        <rect x="150" y="104" width="360" height="46" rx="8" fill="#1a73e8" />
-        <circle cx="126" cy="127" r="15" fill="#fff" stroke="#1a73e8" stroke-width="2" /><text x="126" y="132" text-anchor="middle" fill="#1a73e8">2</text>
-        <text x="170" y="132" fill="#fff">Reception が即応（受付・進捗説明）</text>
-        <!-- 3 -->
-        <rect x="150" y="172" width="360" height="46" rx="8" fill="#1a73e8" />
-        <circle cx="126" cy="195" r="15" fill="#fff" stroke="#1a73e8" stroke-width="2" /><text x="126" y="200" text-anchor="middle" fill="#1a73e8">3</text>
-        <text x="170" y="200" fill="#fff">Orchestrator が作業計画(JSON)を生成</text>
-        <!-- 4 -->
-        <rect x="150" y="240" width="360" height="46" rx="8" fill="#1456b8" />
-        <circle cx="126" cy="263" r="15" fill="#fff" stroke="#1456b8" stroke-width="2" /><text x="126" y="268" text-anchor="middle" fill="#1456b8">4</text>
-        <text x="170" y="268" fill="#fff">Control Plane が registry に pending 登録</text>
-        <!-- 5 -->
-        <rect x="150" y="308" width="360" height="46" rx="8" fill="#5f6368" />
-        <circle cx="126" cy="331" r="15" fill="#fff" stroke="#5f6368" stroke-width="2" /><text x="126" y="336" text-anchor="middle" fill="#5f6368">5</text>
-        <text x="170" y="336" fill="#fff">Cloud Tasks 経由で Worker を起動</text>
-        <!-- 6 -->
-        <rect x="150" y="376" width="360" height="46" rx="8" fill="#34a853" />
-        <circle cx="126" cy="399" r="15" fill="#fff" stroke="#34a853" stroke-width="2" /><text x="126" y="404" text-anchor="middle" fill="#34a853">6</text>
-        <text x="170" y="404" fill="#fff">Worker が view_manifest / コード生成</text>
-        <!-- 7 -->
-        <rect x="150" y="444" width="360" height="46" rx="8" fill="#f9ab00" />
-        <circle cx="126" cy="467" r="15" fill="#fff" stroke="#f9ab00" stroke-width="2" /><text x="126" y="472" text-anchor="middle" fill="#f9ab00">7</text>
-        <text x="170" y="472" fill="#202124">Cloud Build → Cloud Run preview に反映</text>
-        <!-- 8 -->
-        <rect x="150" y="512" width="360" height="46" rx="8" fill="#5f6368" />
-        <circle cx="126" cy="535" r="15" fill="#fff" stroke="#5f6368" stroke-width="2" /><text x="126" y="540" text-anchor="middle" fill="#5f6368">8</text>
-        <text x="170" y="540" fill="#fff">Review / Test が preview を検証</text>
-        <!-- 9 -->
-        <rect x="150" y="580" width="360" height="46" rx="8" fill="#202124" />
-        <circle cx="126" cy="603" r="15" fill="#fff" stroke="#202124" stroke-width="2" /><text x="126" y="608" text-anchor="middle" fill="#202124">9</text>
-        <text x="170" y="608" fill="#fff">ユーザーが「反映して」承認</text>
-        <!-- 10 -->
-        <rect x="150" y="648" width="360" height="46" rx="8" fill="#34a853" />
-        <circle cx="126" cy="671" r="15" fill="#fff" stroke="#34a853" stroke-width="2" /><text x="126" y="676" text-anchor="middle" fill="#34a853">10</text>
-        <text x="170" y="676" fill="#fff">active 化（本番反映・本タブに常設）</text>
+        <rect x="150" y="32" width="360" height="46" rx="8" fill="#202124" />
+        <text x="330" y="60" text-anchor="middle" fill="#fff">1. ユーザー「計算機を作って」</text>
+
+        <rect x="150" y="96" width="360" height="46" rx="8" fill="#1a73e8" />
+        <text x="330" y="118" text-anchor="middle" fill="#fff">2. Receptor：具体化の質問 → 依頼を復唱</text>
+        <text x="330" y="134" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">承認①「お願い」で Orchestrator へ</text>
+
+        <rect x="150" y="160" width="360" height="46" rx="8" fill="#34a853" />
+        <text x="330" y="182" text-anchor="middle" fill="#fff">3. 設計案（受け入れ条件つき）</text>
+        <text x="330" y="198" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">承認②「これで作って」でコード化</text>
+
+        <rect x="150" y="224" width="360" height="46" rx="8" fill="#34a853" />
+        <text x="330" y="246" text-anchor="middle" fill="#fff">4. コード生成（PRO）／改変は差分パッチ優先</text>
+        <text x="330" y="262" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">失敗は自動リトライ・要求台帳を維持</text>
+
+        <rect x="150" y="288" width="360" height="46" rx="8" fill="#fef7e0" stroke="#f9ab00" stroke-width="1.5" />
+        <text x="330" y="310" text-anchor="middle" fill="#202124">5. Tester（条件ごと✅/❌）＋ Reviewer（規約・設計適合）</text>
+        <text x="330" y="326" text-anchor="middle" fill="#9a6a00" style="font:400 11px sans-serif">NG は差し戻し（まず差分修正）</text>
+
+        <rect x="150" y="352" width="360" height="46" rx="8" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5" />
+        <text x="330" y="374" text-anchor="middle" fill="#1456b8">6. プレビュー（未公開）</text>
+        <text x="330" y="390" text-anchor="middle" fill="#5f6368" style="font:400 11px sans-serif">修正指示で何度でも候補を磨ける</text>
+
+        <rect x="150" y="416" width="360" height="46" rx="8" fill="#1e7e34" />
+        <text x="330" y="438" text-anchor="middle" fill="#fff">7. 承認③「反映して」→ 公開・左メニューに追加</text>
+        <text x="330" y="454" text-anchor="middle" fill="#eafaef" style="font:400 11px sans-serif">公開ごとに版スナップショット保存</text>
+
+        <rect x="150" y="480" width="360" height="46" rx="8" fill="#5f6368" />
+        <text x="330" y="502" text-anchor="middle" fill="#fff">8. 利用・アプリチャットで中身操作／「戻して」で直前版へ</text>
+        <text x="330" y="518" text-anchor="middle" fill="#e8eaed" style="font:400 11px sans-serif">構造変更の依頼はメインへ自動取り次ぎ → 2 に戻る（再帰）</text>
       </g>
 
-      <!-- rollback -->
-      <rect x="560" y="300" width="200" height="118" rx="10" fill="#fdecea" stroke="#ea4335" stroke-width="1.5" />
-      <text x="660" y="324" text-anchor="middle" fill="#c5221f" style="font:700 13px sans-serif">ロールバック</text>
-      <text x="572" y="348" fill="#202124" style="font:400 11.5px sans-serif">・active → disable</text>
-      <text x="572" y="368" fill="#202124" style="font:400 11.5px sans-serif">・route を前checkpointへ</text>
-      <text x="572" y="388" fill="#202124" style="font:400 11.5px sans-serif">・Audit Log に記録</text>
-      <text x="572" y="408" fill="#202124" style="font:400 11.5px sans-serif">・Cloud Run delete は禁止</text>
+      <!-- loops -->
+      <polyline points="510,375 560,375 560,247 510,247" fill="none" stroke="#1a73e8" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#fa2)" />
+      <text x="585" y="315" text-anchor="middle" fill="#1456b8" transform="rotate(-90 585 315)" style="font:600 11px sans-serif">プレビュー修正ループ</text>
+      <polyline points="510,311 620,311 620,247 510,247" fill="none" stroke="#e37400" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#fa2)" />
+      <text x="640" y="290" fill="#e37400" style="font:600 11px sans-serif">差し戻し</text>
+      <polyline points="150,503 96,503 96,119 150,119" fill="none" stroke="#34a853" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#fa2)" />
+      <text x="84" y="320" text-anchor="middle" fill="#1e7e34" transform="rotate(-90 84 320)" style="font:700 12px sans-serif">自己拡張（使う場所＝作る場所）</text>
 
-      <!-- 10 -> rollback -->
-      <path d="M510,671 C560,671 640,520 660,420" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#far)" />
-      <text x="568" y="470" fill="#ea4335" style="font:600 11px sans-serif">「戻して」</text>
-      <!-- rollback -> step4 (registry) -->
-      <path d="M660,300 C660,210 560,250 512,260" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#far)" />
+      <text x="330" y="568" text-anchor="middle" fill="#5f6368" style="font:400 11.5px sans-serif">全工程：進捗・検証結果・自動アクションをチャットに逐次報告。停滞は Receptor が無音時間で自発検知し ①停止/②待つ/③再トライ をユーザーが選択（2回で強制停止）。</text>
     </svg>
-    <div class="fig-cap">図 4-1. 自己拡張サイクル。すべての操作は Audit Log に残り、preview と active を分離。</div>
+    <div class="fig-cap">図 4-1. 現行の自己拡張サイクル。緑の外側ループ＝公開済みアプリの中からさらに次の改変が生まれる再帰構造。</div>
   </div>
 
-  <h2>進捗はいつでも即答</h2>
-  <p>長時間処理は Cloud Tasks に切り出すため、作業中でも Reception が Firestore の <code>task_runs</code> を読んで即答します。「進捗どう？」→「Programmer が Task API を実装中、次は preview です」。</p>
-
-  <h2>中止も安全に</h2>
-  <p>「中止して」で <code>cancel_requested=true</code> を立て、未実行タスクは Control Plane が削除、実行中 Worker は協調停止。<code>queue purge</code> のような広範囲操作は AI に許可しません。</p>
+  <h2>安全装置（このサイクルに組み込み済み）</h2>
+  <ul>
+    <li><strong>3つの人間ゲート</strong>：お願い／これで作って／反映して。AI は勝手に公開しない。</li>
+    <li><strong>未完成は公開不可</strong>：ゲート不合格・stub（生成失敗）には「反映して」を出さず、公開も拒否。</li>
+    <li><strong>巻き戻し</strong>：公開ごとの版スナップショットから直前版へ即時復元（LLM 不使用・分岐なし）。</li>
+    <li><strong>停滞監視</strong>：ハートビート（進捗報告）が途絶えたときだけ停滞と判定し、工程・最後の動き・無音秒数をチャットに明示。</li>
+  </ul>
 </body>
 </html>

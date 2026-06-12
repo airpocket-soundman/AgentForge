@@ -8,10 +8,8 @@
 </head>
 <body class="doc">
   <h1>6. 安全設計</h1>
-  <div class="callout warn">
-    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
-    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
-    記述が食い違う場合は正本に従ってください。
+  <div class="callout">
+    実装済みの安全装置：<strong>3つの人間承認ゲート／Tester＋Reviewer の公開前ゲート／stub（未完成）の公開拒否／iframe サンドボックス（外部通信・localStorage 遮断）／版スナップショットと巻き戻し／監査ログ・変更履歴／runaway guard・停滞監視（N=2 強制停止）</strong>。本ページの 4 層権限分離（Tool Gateway・SA 分離）は<strong>本番分散時の設計</strong>（点線扱い）。正本は <a href="workers.html">5b</a> §10。
   </div>
 
   <p class="lead">この作品の差別化点。<strong>AI に Google Cloud の強権限を直接渡しません。</strong>AI は判断・申請のみ、実行は限定権限のゲートが行います。</p>

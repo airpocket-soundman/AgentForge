@@ -26,6 +26,15 @@
     <tr><td>G</td><td>Device / IoT Gateway（MQTT・Raspberry Pi・M5Stack 等）</td></tr>
   </table>
 
+  <h2>技術面の継続課題（MIGRATION 記載）</h2>
+  <table class="tbl">
+    <tr><th>項目</th><th>内容</th></tr>
+    <tr><td>プロセス外非同期</td><td>Cloud Tasks でワーカーを個別 Cloud Run 化（現状は同一サービス内 worker bus）</td></tr>
+    <tr><td>CI/CD</td><td>GitHub push → Cloud Build → Cloud Run の自動化（現状は手動 gcloud）</td></tr>
+    <tr><td>Tester 実走</td><td>ヘッドレス実行で commands を実際に叩く動作検証（現状は静的＋LLM判定）</td></tr>
+    <tr><td>3 並列キュー</td><td>仕様のプロジェクト単位 3 並列＋FIFO＋同一機能ロック（現状は 1 本ずつ）</td></tr>
+  </table>
+
   <h2>最大ターゲットへの接続</h2>
   <div class="callout">
     提出版（DevOps AI Agent Workbench）は、最大ターゲット「自己拡張型スーパーアプリ基盤」の<strong>中核エンジン</strong>。ここで実証した「安全に自己拡張する仕組み」の上に、機能・モデル・流通を積み増していく。

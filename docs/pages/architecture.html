@@ -8,217 +8,146 @@
 </head>
 <body class="doc">
   <h1>3. システム構成図</h1>
-  <div class="callout warn">
-    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
-    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
-    記述が食い違う場合は正本に従ってください。
+  <div class="callout">
+    ワーカーの定義・運用ルールの正本は <a href="workers.html">5b</a>／コード規約は <a href="code-conventions.html">5c</a>。
+    本ページは<strong>現行実装の構成</strong>（点線＝計画中）。
   </div>
 
-  <p class="lead">フロントは Firebase Hosting、ロジックは Cloud Run、状態は Firestore。AI には強権限を渡さず、デプロイ操作は Tool Gateway に集約します。</p>
+  <p class="lead">フロントは <strong>Firebase Hosting</strong>、ロジックは <strong>Cloud Run</strong>、状態は <strong>Firestore</strong>、生成は <strong>Gemini API</strong>。AI ワーカーは MCP 的プロトコルで協業し、公開は必ず人間の承認を通ります。</p>
 
   <div class="svg-wrap">
-    <svg viewBox="0 0 920 790" width="920" height="790" role="img" aria-label="AgentForge システム構成図">
+    <svg viewBox="0 0 920 730" width="920" height="730" role="img" aria-label="AgentForge システム構成図">
       <defs>
         <marker id="arrow" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
           <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
-        </marker>
-        <marker id="arrowR" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#ea4335" />
         </marker>
       </defs>
 
       <!-- User -->
       <rect x="410" y="14" width="100" height="36" rx="8" fill="#202124" />
-      <text x="460" y="37" text-anchor="middle" fill="#fff" font="600 13px sans-serif" style="font:600 13px sans-serif">ユーザー</text>
-      <line x1="460" y1="50" x2="460" y2="84" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
+      <text x="460" y="37" text-anchor="middle" fill="#fff" style="font:600 13px sans-serif">ユーザー</text>
+      <line x1="460" y1="50" x2="460" y2="82" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
 
-      <!-- Web Shell -->
-      <rect x="120" y="86" width="680" height="76" rx="10" fill="#1a73e8" />
-      <text x="138" y="110" fill="#fff" style="font:700 14px sans-serif">Firebase Hosting — Web Shell</text>
-      <rect x="138" y="120" width="150" height="30" rx="5" fill="#ffffff" opacity="0.18" />
-      <text x="213" y="140" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">Chat UI</text>
-      <rect x="298" y="120" width="160" height="30" rx="5" fill="#ffffff" opacity="0.18" />
-      <text x="378" y="140" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">Progress / Approval</text>
-      <rect x="468" y="120" width="200" height="30" rx="5" fill="#ffffff" opacity="0.18" />
-      <text x="568" y="140" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">Generated View Renderer</text>
-      <rect x="678" y="120" width="110" height="30" rx="5" fill="#ffffff" opacity="0.18" />
-      <text x="733" y="140" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">Route Loader</text>
+      <!-- Web (Firebase Hosting) -->
+      <rect x="120" y="84" width="680" height="76" rx="10" fill="#1a73e8" />
+      <text x="138" y="108" fill="#fff" style="font:700 14px sans-serif">Firebase Hosting ＋ Auth — Web（React/Vite）</text>
+      <rect x="138" y="118" width="150" height="30" rx="5" fill="#ffffff" opacity="0.18" />
+      <text x="213" y="138" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">メインチャット</text>
+      <rect x="298" y="118" width="190" height="30" rx="5" fill="#ffffff" opacity="0.18" />
+      <text x="393" y="138" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">ミニアプリ表示（iframeサンドボックス）</text>
+      <rect x="498" y="118" width="140" height="30" rx="5" fill="#ffffff" opacity="0.18" />
+      <text x="568" y="138" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">アプリチャット（下部）</text>
+      <rect x="648" y="118" width="140" height="30" rx="5" fill="#ffffff" opacity="0.18" />
+      <text x="718" y="138" text-anchor="middle" fill="#fff" style="font:600 12px sans-serif">モニター/変更履歴</text>
 
-      <line x1="460" y1="162" x2="460" y2="194" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
-      <text x="470" y="182" fill="#5f6368" style="font:400 11px sans-serif">HTTPS / ID token（サービス間認証）</text>
+      <line x1="460" y1="160" x2="460" y2="190" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
+      <text x="470" y="180" fill="#5f6368" style="font:400 11px sans-serif">REST / HTTPS（/api/** rewrite）</text>
 
       <!-- core-api -->
-      <rect x="110" y="196" width="700" height="124" rx="10" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5" />
-      <text x="130" y="220" fill="#1456b8" style="font:700 14px sans-serif">Cloud Run: agentforge-core-api</text>
+      <rect x="90" y="192" width="740" height="218" rx="10" fill="#e8f0fe" stroke="#1a73e8" stroke-width="1.5" />
+      <text x="110" y="216" fill="#1456b8" style="font:700 14px sans-serif">Cloud Run: agentforge-core-api（min=0・scale-to-zero）</text>
 
-      <rect x="126" y="232" width="160" height="74" rx="7" fill="#1a73e8" />
-      <text x="206" y="258" text-anchor="middle" fill="#fff" style="font:700 13px sans-serif">Reception</text>
-      <text x="206" y="278" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">即応・進捗・承認受付</text>
+      <!-- workers row -->
+      <g style="font:700 12.5px sans-serif" text-anchor="middle">
+        <rect x="106" y="228" width="128" height="64" rx="7" fill="#1a73e8" /><text x="170" y="254" fill="#fff">Receptor</text><text x="170" y="274" fill="#dbe7ff" style="font:400 10.5px sans-serif">受付・具体化・復唱/監視</text>
+        <rect x="244" y="228" width="128" height="64" rx="7" fill="#34a853" /><text x="308" y="254" fill="#fff">Orchestrator</text><text x="308" y="274" fill="#eafaef" style="font:400 10.5px sans-serif">設計・生成・差分修正</text>
+        <rect x="382" y="228" width="118" height="64" rx="7" fill="#ea4335" /><text x="441" y="254" fill="#fff">Tester</text><text x="441" y="274" fill="#fde2e0" style="font:400 10.5px sans-serif">受け入れ条件✅/❌</text>
+        <rect x="510" y="228" width="118" height="64" rx="7" fill="#f9ab00" /><text x="569" y="254" fill="#202124">Reviewer</text><text x="569" y="274" fill="#5a3d00" style="font:400 10.5px sans-serif">規約＋設計適合</text>
+        <rect x="638" y="228" width="178" height="64" rx="7" fill="#5f6368" /><text x="727" y="254" fill="#fff">Specialist Worker</text><text x="727" y="274" fill="#e8eaed" style="font:400 10.5px sans-serif">ミニアプリの中身を操作</text>
+      </g>
+      <text x="460" y="312" text-anchor="middle" fill="#1456b8" style="font:600 11.5px sans-serif">ワーカー間＝MCP 的プロトコル（request/report・task_id 相関・worker bus）</text>
 
-      <rect x="302" y="232" width="160" height="74" rx="7" fill="#1a73e8" />
-      <text x="382" y="258" text-anchor="middle" fill="#fff" style="font:700 13px sans-serif">Orchestrator</text>
-      <text x="382" y="278" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">要求理解・計画・委任</text>
-
-      <rect x="478" y="232" width="160" height="74" rx="7" fill="#1456b8" />
-      <text x="558" y="258" text-anchor="middle" fill="#fff" style="font:700 13px sans-serif">Control Plane</text>
-      <text x="558" y="278" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">registry・lifecycle</text>
-
-      <rect x="654" y="232" width="140" height="74" rx="7" fill="#f9ab00" />
-      <text x="724" y="258" text-anchor="middle" fill="#202124" style="font:700 13px sans-serif">Tool Gateway</text>
-      <text x="724" y="278" text-anchor="middle" fill="#5a3d00" style="font:400 11px sans-serif">限定SAで実行</text>
-
-      <!-- to Cloud Tasks -->
-      <line x1="558" y1="320" x2="558" y2="354" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
-      <rect x="478" y="356" width="160" height="46" rx="8" fill="#5f6368" />
-      <text x="558" y="376" text-anchor="middle" fill="#fff" style="font:700 12px sans-serif">Cloud Tasks</text>
-      <text x="558" y="392" text-anchor="middle" fill="#e8eaed" style="font:400 10.5px sans-serif">非同期キュー（必要時起動）</text>
-      <line x1="558" y1="402" x2="558" y2="428" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
-
-      <!-- worker -->
-      <rect x="110" y="430" width="700" height="96" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5" />
-      <text x="130" y="454" fill="#1e7e34" style="font:700 14px sans-serif">Cloud Run: agentforge-worker（必要時起動・scale-to-zero）</text>
-      <!-- chips -->
-      <g style="font:600 12px sans-serif" fill="#fff" text-anchor="middle">
-        <rect x="126" y="468" width="104" height="44" rx="6" fill="#34a853" /><text x="178" y="495">UI Designer</text>
-        <rect x="240" y="468" width="104" height="44" rx="6" fill="#34a853" /><text x="292" y="495">API Designer</text>
-        <rect x="354" y="468" width="104" height="44" rx="6" fill="#34a853" /><text x="406" y="495">Programmer</text>
-        <rect x="468" y="468" width="92" height="44" rx="6" fill="#34a853" /><text x="514" y="495">Test</text>
-        <rect x="570" y="468" width="104" height="44" rx="6" fill="#34a853" /><text x="622" y="495">DevOps</text>
-        <rect x="684" y="468" width="110" height="44" rx="6" fill="#34a853" /><text x="739" y="495">Review</text>
+      <!-- control plane / llm gateway row -->
+      <g style="font:700 12.5px sans-serif" text-anchor="middle">
+        <rect x="106" y="326" width="340" height="64" rx="7" fill="#1456b8" />
+        <text x="276" y="350" fill="#fff">Control Plane</text>
+        <text x="276" y="370" fill="#dbe7ff" style="font:400 10.5px sans-serif">承認・版スナップショット/巻き戻し・要求台帳・監査・モニター</text>
+        <rect x="462" y="326" width="354" height="64" rx="7" fill="#0b8043" />
+        <text x="639" y="350" fill="#fff">LLM Gateway（FLASH / PRO の能力帯）</text>
+        <text x="639" y="370" fill="#eafaef" style="font:400 10.5px sans-serif">本番= Gemini API（google-genai）／開発= claude CLI ブリッジ</text>
       </g>
 
-      <!-- to GCP services -->
-      <g stroke="#5f6368" stroke-width="2">
-        <line x1="180" y1="526" x2="180" y2="566" marker-end="url(#arrow)" />
-        <line x1="312" y1="526" x2="312" y2="566" marker-end="url(#arrow)" />
-        <line x1="444" y1="526" x2="444" y2="566" marker-end="url(#arrow)" />
-        <line x1="576" y1="526" x2="576" y2="566" marker-end="url(#arrow)" />
-        <line x1="708" y1="526" x2="708" y2="566" marker-end="url(#arrow)" />
-        <line x1="840" y1="526" x2="840" y2="566" marker-end="url(#arrow)" />
-      </g>
-      <!-- core-api to Firestore -->
-      <path d="M150,320 L150,560" fill="none" stroke="#5f6368" stroke-width="2" stroke-dasharray="2,3" marker-end="url(#arrow)" />
-      <text x="156" y="430" fill="#5f6368" style="font:400 10.5px sans-serif">状態 / registry</text>
+      <!-- arrows to services -->
+      <line x1="276" y1="410" x2="276" y2="446" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
+      <line x1="639" y1="410" x2="639" y2="446" stroke="#5f6368" stroke-width="2" marker-end="url(#arrow)" />
 
-      <!-- deploy path (Tool Gateway only) -> Cloud Build / Artifact Registry -->
-      <path d="M724,306 L724,330 L878,330 L878,550 L576,550 L576,564" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#arrowR)" />
-      <text x="868" y="322" text-anchor="end" fill="#ea4335" style="font:600 11px sans-serif">deploy（Tool Gateway 限定SA）</text>
-
-      <!-- GCP services row -->
+      <!-- Google services row -->
+      <text x="110" y="438" fill="#5f6368" style="font:700 12px sans-serif">Google Cloud サービス</text>
       <g>
-        <rect x="120" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="120" y="566" width="120" height="6" rx="3" fill="#f9ab00" />
-        <text x="180" y="600" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Firestore</text>
-        <text x="180" y="616" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">状態・registry</text>
+        <rect x="106" y="448" width="150" height="62" rx="8" fill="#f1f3f5" stroke="#5f6368" />
+        <rect x="106" y="448" width="150" height="6" rx="3" fill="#f9ab00" />
+        <text x="181" y="478" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Firestore</text>
+        <text x="181" y="496" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">会話・版・台帳・監査・worker状態</text>
 
-        <rect x="252" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="252" y="566" width="120" height="6" rx="3" fill="#34a853" />
-        <text x="312" y="600" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Cloud Storage</text>
-        <text x="312" y="616" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">manifest・snapshot</text>
+        <rect x="268" y="448" width="140" height="62" rx="8" fill="#f1f3f5" stroke="#5f6368" />
+        <rect x="268" y="448" width="140" height="6" rx="3" fill="#34a853" />
+        <text x="338" y="478" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Cloud Storage</text>
+        <text x="338" y="496" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">大きな生成物・snapshot</text>
 
-        <rect x="384" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="384" y="566" width="120" height="6" rx="3" fill="#1a73e8" />
-        <text x="444" y="600" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Cloud Build</text>
-        <text x="444" y="616" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">test・build</text>
+        <rect x="420" y="448" width="140" height="62" rx="8" fill="#f1f3f5" stroke="#5f6368" />
+        <rect x="420" y="448" width="140" height="6" rx="3" fill="#ea4335" />
+        <text x="490" y="478" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Gemini API</text>
+        <text x="490" y="496" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">Flash / Pro（生成・判断）</text>
 
-        <rect x="516" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="516" y="566" width="120" height="6" rx="3" fill="#1a73e8" />
-        <text x="576" y="597" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Artifact</text>
-        <text x="576" y="612" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Registry</text>
+        <rect x="572" y="448" width="140" height="62" rx="8" fill="#f1f3f5" stroke="#5f6368" />
+        <rect x="572" y="448" width="140" height="6" rx="3" fill="#5f6368" />
+        <text x="642" y="478" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Secret Manager</text>
+        <text x="642" y="496" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">GEMINI_API_KEY 注入</text>
 
-        <rect x="648" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="648" y="566" width="120" height="6" rx="3" fill="#ea4335" />
-        <text x="708" y="600" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Gemini API</text>
-        <text x="708" y="616" text-anchor="middle" fill="#5f6368" style="font:400 10px sans-serif">＋ ADK</text>
+        <rect x="724" y="448" width="106" height="62" rx="8" fill="#f1f3f5" stroke="#5f6368" stroke-dasharray="5,3" />
+        <text x="777" y="474" text-anchor="middle" fill="#5f6368" style="font:600 11.5px sans-serif">Cloud Tasks</text>
+        <text x="777" y="490" text-anchor="middle" fill="#5f6368" style="font:400 9.5px sans-serif">計画：非同期分散</text>
+        <text x="777" y="503" text-anchor="middle" fill="#5f6368" style="font:400 9.5px sans-serif">（現状は同居）</text>
+      </g>
 
-        <rect x="780" y="566" width="120" height="60" rx="8" fill="#f1f3f5" stroke="#5f6368" />
-        <rect x="780" y="566" width="120" height="6" rx="3" fill="#5f6368" />
-        <text x="840" y="597" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Secret</text>
-        <text x="840" y="612" text-anchor="middle" fill="#202124" style="font:600 12px sans-serif">Manager</text>
+      <!-- build/deploy row -->
+      <g>
+        <rect x="106" y="530" width="724" height="58" rx="8" fill="#fff" stroke="#5f6368" stroke-dasharray="5,3" />
+        <text x="120" y="552" fill="#5f6368" style="font:700 12px sans-serif">本体のデプロイ（現状は手動・計画で CI/CD 化）</text>
+        <text x="120" y="572" fill="#5f6368" style="font:400 11px sans-serif">GitHub → Cloud Shell <tspan style="font:600 11px sans-serif">gcloud run deploy --source</tspan>（Cloud Build / Artifact Registry を内部利用）→ Cloud Run ／ フロントは firebase deploy</text>
       </g>
 
       <!-- legend -->
-      <g transform="translate(120,660)">
+      <g transform="translate(106,616)">
         <text x="0" y="0" fill="#5f6368" style="font:700 11px sans-serif">凡例</text>
-        <rect x="0" y="10" width="14" height="12" rx="3" fill="#1a73e8" /><text x="20" y="20" fill="#202124" style="font:400 11px sans-serif">Core（停止禁止）</text>
-        <rect x="150" y="10" width="14" height="12" rx="3" fill="#34a853" /><text x="170" y="20" fill="#202124" style="font:400 11px sans-serif">Worker（必要時起動）</text>
-        <rect x="320" y="10" width="14" height="12" rx="3" fill="#f9ab00" /><text x="340" y="20" fill="#202124" style="font:400 11px sans-serif">特権ゲート</text>
-        <line x1="430" y1="16" x2="460" y2="16" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" /><text x="466" y="20" fill="#202124" style="font:400 11px sans-serif">deploy 経路</text>
+        <rect x="0" y="10" width="14" height="12" rx="3" fill="#1a73e8" /><text x="20" y="20" fill="#202124" style="font:400 11px sans-serif">Receptor</text>
+        <rect x="100" y="10" width="14" height="12" rx="3" fill="#34a853" /><text x="120" y="20" fill="#202124" style="font:400 11px sans-serif">Orchestrator</text>
+        <rect x="220" y="10" width="14" height="12" rx="3" fill="#ea4335" /><text x="240" y="20" fill="#202124" style="font:400 11px sans-serif">Tester</text>
+        <rect x="310" y="10" width="14" height="12" rx="3" fill="#f9ab00" /><text x="330" y="20" fill="#202124" style="font:400 11px sans-serif">Reviewer</text>
+        <rect x="410" y="10" width="14" height="12" rx="3" fill="#5f6368" /><text x="430" y="20" fill="#202124" style="font:400 11px sans-serif">Specialist</text>
+        <rect x="510" y="10" width="24" height="12" rx="3" fill="#fff" stroke="#5f6368" stroke-dasharray="5,3" /><text x="540" y="20" fill="#202124" style="font:400 11px sans-serif">点線＝計画中</text>
       </g>
     </svg>
-    <div class="fig-cap">図 3-1. 全体構成。AI は判断・計画・申請を担当し、Cloud 操作は Control Plane / Tool Gateway 経由に限定。</div>
+    <div class="fig-cap">図 3-1. 現行構成。5 種の AI ワーカーが 1 つの Cloud Run サービス内で MCP 的プロトコル（worker bus）により協業し、Control Plane が承認・版・監査を司る。</div>
   </div>
 
-  <h2>デプロイ単位（ソロ向けに最小化）</h2>
+  <h2>Google Cloud 使用ポイント（ハッカソン要件）</h2>
+  <table class="tbl">
+    <tr><th>サービス</th><th>用途</th><th>状態</th></tr>
+    <tr><td><strong>Cloud Run</strong></td><td>core-api（全ワーカー＋Control Plane）。min=0 scale-to-zero</td><td>✅ 稼働（必須要件①）</td></tr>
+    <tr><td><strong>Gemini API</strong>（google-genai）</td><td>本番の全 LLM（FLASH=Gemini Flash／PRO=Gemini Pro）</td><td>✅ 接続済（必須要件②）</td></tr>
+    <tr><td><strong>Firebase Hosting / Auth</strong></td><td>公開 URL（提出URL）・/api rewrite・ログイン</td><td>✅ 稼働</td></tr>
+    <tr><td><strong>Firestore</strong>（Native）</td><td>会話・フロー・版スナップショット・要求台帳・監査・worker 状態/メッセージ</td><td>✅ 稼働（開発はエミュレータ）</td></tr>
+    <tr><td><strong>Secret Manager</strong></td><td>GEMINI_API_KEY を Cloud Run へ注入</td><td>✅ 稼働</td></tr>
+    <tr><td><strong>Cloud Storage</strong></td><td>大きな生成物・スナップショット置き場</td><td>✅ バケット作成済</td></tr>
+    <tr><td>Cloud Build / Artifact Registry</td><td><code>gcloud run deploy --source</code> の内部で使用。push 起点 CI/CD は計画</td><td>🔶 内部利用（CI/CD 化は計画）</td></tr>
+    <tr><td>Cloud Tasks</td><td>ワーカーのプロセス外・非同期分散</td><td>⬜ 計画（現状は同一サービス内 worker bus）</td></tr>
+  </table>
+
+  <h2>デプロイ単位（現状）</h2>
   <table class="tbl">
     <tr><th>単位</th><th>中身</th><th>備考</th></tr>
-    <tr><td>agentforge-web</td><td>Firebase Hosting（Web Shell）</td><td>静的配信</td></tr>
-    <tr><td>agentforge-core-api</td><td>Reception / Orchestrator / Control Plane / Tool Gateway</td><td>論理分離・1サービス同居</td></tr>
-    <tr><td>agentforge-worker</td><td>Worker Runner（UI/API/Programmer…）</td><td>Cloud Tasks から起動</td></tr>
+    <tr><td>agentforge-devops（Hosting）</td><td>Web（React）＋ /api rewrite</td><td>提出 URL</td></tr>
+    <tr><td>agentforge-core-api（Cloud Run）</td><td>Receptor / Orchestrator / Tester / Reviewer / Specialist ＋ Control Plane ＋ LLM Gateway</td><td>論理分離・1 サービス同居（将来 Cloud Tasks で分散）</td></tr>
   </table>
-  <p class="lead">※ 論理的には仕様書通りエージェント/層を分離（実運用への配慮）しつつ、デプロイは 2 サービスに集約して運用負荷を下げています。</p>
 
   <h2>通信とコスト（scale-to-zero）</h2>
-  <p>ブラウザと Reception の接続は <strong>REST/HTTPS</strong>（Firebase Auth の ID token）。<strong>MCP は使いません</strong>（MCP はエージェント↔ツール用で、常駐接続は scale-to-zero と相性が悪いため）。進捗・状態のライブ更新は、ブラウザが <strong>Firestore をリアルタイム購読</strong>するのでバックエンドを起こし続ける必要がありません。</p>
-
-  <div class="svg-wrap">
-    <svg viewBox="0 0 820 270" width="820" height="270" role="img" aria-label="通信とコストモデル">
-      <defs>
-        <marker id="ca" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
-        </marker>
-        <marker id="cb" markerWidth="10" markerHeight="8" refX="2" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M8,0 L0,3 L8,6 Z" fill="#5f6368" />
-        </marker>
-      </defs>
-
-      <rect x="24" y="86" width="160" height="86" rx="10" fill="#1a73e8" />
-      <text x="104" y="120" text-anchor="middle" fill="#fff" style="font:700 13px sans-serif">ブラウザ</text>
-      <text x="104" y="142" text-anchor="middle" fill="#dbe7ff" style="font:400 11px sans-serif">Web Shell</text>
-
-      <rect x="330" y="40" width="190" height="80" rx="10" fill="#e6f4ea" stroke="#34a853" stroke-width="1.5" />
-      <text x="425" y="68" text-anchor="middle" fill="#1e7e34" style="font:700 13px sans-serif">core-api（Cloud Run）</text>
-      <text x="425" y="90" text-anchor="middle" fill="#202124" style="font:400 11px sans-serif">Reception / Orchestrator</text>
-      <text x="425" y="108" text-anchor="middle" fill="#1e7e34" style="font:700 12px sans-serif">0 → 1 → 0（必要時だけ起動）</text>
-
-      <rect x="330" y="150" width="190" height="80" rx="10" fill="#f1f3f5" stroke="#5f6368" stroke-width="1.5" />
-      <text x="425" y="178" text-anchor="middle" fill="#202124" style="font:700 13px sans-serif">Firestore</text>
-      <text x="425" y="200" text-anchor="middle" fill="#5f6368" style="font:400 11px sans-serif">task_runs / registry</text>
-      <text x="425" y="218" text-anchor="middle" fill="#5f6368" style="font:400 11px sans-serif">リアルタイム購読対象</text>
-
-      <rect x="600" y="40" width="90" height="56" rx="9" fill="#5f6368" />
-      <text x="645" y="66" text-anchor="middle" fill="#fff" style="font:600 11.5px sans-serif">Cloud</text>
-      <text x="645" y="82" text-anchor="middle" fill="#fff" style="font:600 11.5px sans-serif">Tasks</text>
-
-      <rect x="708" y="40" width="92" height="80" rx="9" fill="#34a853" />
-      <text x="754" y="70" text-anchor="middle" fill="#fff" style="font:700 12px sans-serif">worker</text>
-      <text x="754" y="90" text-anchor="middle" fill="#eafaef" style="font:400 10.5px sans-serif">非常駐</text>
-      <text x="754" y="106" text-anchor="middle" fill="#eafaef" style="font:400 10.5px sans-serif">使用時のみ</text>
-
-      <!-- browser -> core-api -->
-      <line x1="184" y1="104" x2="330" y2="80" stroke="#5f6368" stroke-width="2" marker-end="url(#ca)" />
-      <text x="196" y="92" fill="#5f6368" style="font:400 11px sans-serif">操作：REST / HTTPS（ID token）</text>
-      <!-- browser <-> firestore (bidirectional) -->
-      <line x1="184" y1="150" x2="330" y2="186" stroke="#5f6368" stroke-width="2" marker-end="url(#ca)" marker-start="url(#cb)" />
-      <text x="196" y="176" fill="#5f6368" style="font:400 11px sans-serif">購読：リアルタイム（backend 不要）</text>
-      <!-- core-api -> tasks -> worker -->
-      <line x1="520" y1="74" x2="600" y2="70" stroke="#5f6368" stroke-width="2" marker-end="url(#ca)" />
-      <line x1="690" y1="70" x2="708" y2="74" stroke="#5f6368" stroke-width="2" marker-end="url(#ca)" />
-      <text x="556" y="116" text-anchor="middle" fill="#5f6368" style="font:400 10.5px sans-serif">必要時のみ</text>
-
-      <rect x="600" y="150" width="200" height="80" rx="10" fill="#fff8e6" stroke="#f9ab00" stroke-width="1.5" />
-      <text x="700" y="182" text-anchor="middle" fill="#9a6a00" style="font:700 14px sans-serif">アイドル時 ¥0</text>
-      <text x="700" y="206" text-anchor="middle" fill="#202124" style="font:400 11px sans-serif">誰も触らない間は全停止</text>
-    </svg>
-    <div class="fig-cap">図 3-2. 通信とコスト。操作は REST、ライブ更新は Firestore 購読。エージェントは非常駐で、アイドル時はほぼ ¥0。</div>
-  </div>
-
+  <p>ブラウザ⇔バックエンドは <strong>REST/HTTPS</strong>。チャットは状態をポーリングし（このポーリングが Receptor の<strong>停滞監視ティック</strong>を兼ねる）、アプリを閉じればポーリングも監視も止まる＝<strong>アイドル時ほぼ ¥0</strong>（Cloud Run min=0）。<strong>ワーカー間</strong>は MCP 的な request/report（worker bus・スキーマ検証・task_id 相関）で、これは内部契約であり外部 MCP サーバではありません。</p>
   <table class="tbl">
     <tr><th>要素</th><th>アイドル時</th><th>課金</th></tr>
-    <tr><td>core-api / worker（Cloud Run, min=0）</td><td>0 インスタンス</td><td>リクエスト処理中だけ</td></tr>
-    <tr><td>Gemini</td><td>呼ばない</td><td>呼んだ時だけ（小型は無料枠中心）</td></tr>
+    <tr><td>core-api（Cloud Run, min=0）</td><td>0 インスタンス</td><td>リクエスト処理中だけ</td></tr>
+    <tr><td>Gemini</td><td>呼ばない</td><td>呼んだ時だけ（FLASH 中心で節約・開発は claude ブリッジで 0）</td></tr>
     <tr><td>Firestore / Storage / Hosting</td><td>保存のみ</td><td>実質ゼロ</td></tr>
   </table>
-  <p class="lead">※ <strong>原則すべて min=0（コールドスタート許容）</strong>でコスト最優先。初回リクエストのみ数秒の起動待ちが出るが、デモ前にウォームアップ要求を 1 回投げれば回避できる。常駐（min=1）は採用しない。</p>
 </body>
 </html>

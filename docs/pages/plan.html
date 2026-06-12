@@ -8,43 +8,62 @@
 </head>
 <body class="doc">
   <h1>11. 実装フェーズ</h1>
-  <p class="lead">各フェーズは「何が動けば次へ進めるか」で区切る。Phase 2 で必須要件（Cloud Run＋Gemini＋デプロイ URL）を満たし、一度“提出可能な最小形”に到達する。</p>
+  <p class="lead">進捗の正本はリポジトリ直下の <code>MIGRATION.md</code>（フェーズ別チェックリスト・検証記録つき）。
+  ここではその要約を示します。最終更新: 2026-06-12。</p>
 
+  <h2>第1段：基盤と提出ライン（完了）</h2>
   <table class="tbl">
-    <tr><th>Phase</th><th>内容</th><th>ゴール</th><th>状態</th></tr>
-    <tr><td>0</td><td>GCP/Firebase 基盤セットアップ</td><td><code>gcloud run deploy</code> が通る空サービス</td><td><span class="pill yellow">進行中</span></td></tr>
-    <tr><td>1</td><td>Web Shell + Reception</td><td>ログイン → チャット → 即応</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>2</td><td>Orchestrator + Gemini + Control Plane</td><td>作業計画生成 → registry pending（<strong>最小提出可能</strong>）</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>3</td><td>Worker + Cloud Tasks + 生成UI manifest</td><td>チャットから画面が preview 表示</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>4</td><td>承認 → active 化 → Task API</td><td>タスクの追加/一覧/完了が動く</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>5</td><td>Rollback + Audit + 権限分離</td><td>「戻して」で消え、ログが残る</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>6</td><td>CI/CD + 仕上げ</td><td>push で本番更新</td><td><span class="pill gray">予定</span></td></tr>
-    <tr><td>7</td><td>提出物</td><td>デモ動画・ProtoPedia・提出</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><th>項目</th><th>内容</th><th>状態</th></tr>
+    <tr><td>GCP/Firebase 基盤</td><td>プロジェクト・Firestore・Storage・Secret・API 有効化</td><td><span class="pill green">完了</span></td></tr>
+    <tr><td>提出ライン</td><td>Cloud Run（core-api）＋ Gemini 接続 ＋ 公開 URL（Firebase Hosting）</td><td><span class="pill green">完了</span>（2026-06-08・審査期間中は停止しない）</td></tr>
+    <tr><td>Web Shell ＋ チャット ＋ 生成パイプライン（初版）</td><td>チャット→設計案→生成→プレビュー→承認→巻き戻し（初期形）</td><td><span class="pill green">完了</span></td></tr>
+  </table>
+
+  <h2>第2段：ワーカー仕様の確立と実装移行（MIGRATION Phase 0–4・テスト環境で検証済み）</h2>
+  <table class="tbl">
+    <tr><th>Phase</th><th>内容</th><th>状態</th></tr>
+    <tr><td>正本仕様</td><td>workers.html（5b）／code-conventions（5c）／VISION.md を確立し CLAUDE.md から必読化</td><td><span class="pill green">完了</span></td></tr>
+    <tr><td>0</td><td>単一PRO化・status にモデル表示・タイムアウト整合（600s）・PRO=Opus 正準</td><td><span class="pill green">完了</span></td></tr>
+    <tr><td>1</td><td><strong>Tester＋Reviewer のデプロイ前ゲート</strong>（並列・差し戻し・happy path 実走確認）</td><td><span class="pill green">完了</span></td></tr>
+    <tr><td>2</td><td><strong>版スナップショット・巻き戻し（直前版復元）・変更履歴 API/UI</strong></td><td><span class="pill green">完了</span></td></tr>
+    <tr><td>3</td><td><strong>worker レジストリ（状態/モデル/固着回収）・起動停止 API・MCP的 request/report（bus）</strong>＝plan/build/edit/verify/review を相関スレッド化・コンテキスト永続化</td><td><span class="pill green">完了</span>（プロセス外分散は計画）</td></tr>
+    <tr><td>4</td><td>UX：受付確認（復唱）・タイムアウト3択（自発監視・無音判定）・構造変更の自動取り次ぎ・モニターUI</td><td><span class="pill green">完了</span></td></tr>
+  </table>
+
+  <h2>第3段：UX 強化（完了・テスト環境）</h2>
+  <ul>
+    <li>受け入れ条件つき設計案 → Tester が条件ごとに ✅/❌、Reviewer は規約＋<strong>設計・ニーズ適合</strong>もレビュー</li>
+    <li>プレビュー修正ループ（公開前に何度でも磨ける）／生成失敗の自動リトライ</li>
+    <li>差分パッチ改変（全文再生成はフォールバック）／要求台帳（過去要求を壊さない）／生成中ハートビート</li>
+    <li>画面単位のチャット欄制御（<code>AF.setChatVisible</code>）・PC/スマホ両対応規約</li>
+  </ul>
+
+  <h2>残作業</h2>
+  <table class="tbl">
+    <tr><th>項目</th><th>内容</th><th>状態</th></tr>
+    <tr><td><strong>本番一括デプロイ＋本番検証</strong></td><td>方針：全フェーズのテスト環境確認後にまとめて反映（提出 URL 保護）。手順は <code>DEPLOY.md</code></td><td><span class="pill yellow">待機（実施判断）</span></td></tr>
+    <tr><td>提出物</td><td>デモ動画・ProtoPedia・Zenn 記事（締切 2026-07-10）</td><td><span class="pill gray">予定</span></td></tr>
+    <tr><td>本番進化（計画）</td><td>Cloud Tasks によるプロセス外非同期・Cloud Build CI/CD・Tester 実走（ヘッドレス）・3並列キュー</td><td><span class="pill gray">計画（MIGRATION 記載）</span></td></tr>
   </table>
 
   <h2>役割分担</h2>
   <div class="grid2">
     <div class="card-box">
-      <h3>🧑 あなた（人間にしかできない操作）</h3>
+      <h3>🧑 人間にしかできない操作</h3>
       <ul>
-        <li>GCP / Firebase コンソール操作・課金</li>
-        <li>認証ログインの承認</li>
-        <li>GitHub 公開リポジトリ作成</li>
+        <li>GCP / Firebase コンソール操作・課金・gcloud 実行（Cloud Shell）</li>
+        <li>3つの承認（お願い／これで作って／反映して）と仕様判断</li>
         <li>デモ動画撮影・ProtoPedia 登録・提出</li>
       </ul>
     </div>
     <div class="card-box">
-      <h3>🤖 Claude（それ以外すべて）</h3>
+      <h3>🤖 Claude（開発セッション）</h3>
       <ul>
-        <li>全コード（フロント / バックエンド / エージェント）</li>
-        <li>Dockerfile / CI-CD / インフラ設定</li>
-        <li>gcloud / firebase コマンドの用意</li>
-        <li>デモ台本・図・ストーリー草案</li>
+        <li>全コード（フロント / バックエンド / ワーカープロンプト）と docs</li>
+        <li>テスト（Docker pytest ＋ 本番相当エミュレータでの実走検証）</li>
+        <li>仕様レビュー・移行計画（MIGRATION.md）の維持</li>
       </ul>
     </div>
   </div>
-
-  <h2>MVP の縦切り 1 本</h2>
-  <p>ログイン →「タスク管理を追加して」→ 計画 → manifest 生成 → preview 表示 → 承認 → active → タスク CRUD → 「進捗どう？」即答 → 「戻して」で rollback → Audit Log。これが 1 周動けば提出の核は完成。</p>
 </body>
 </html>

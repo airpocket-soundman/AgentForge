@@ -8,63 +8,48 @@
 </head>
 <body class="doc">
   <h1>9. DevOps / CI-CD</h1>
-  <p class="lead">「まわす・とどける」を担う部分。GitHub への push を起点に Cloud Build が検証・ビルドし、Cloud Run に preview → 承認 → active で届けます。</p>
+  <p class="lead">「まわす・とどける」。本作には<strong>2 つのデリバリー</strong>があります：
+  ①AgentForge 本体のデプロイ（人間が実施）と、②<strong>生成ミニアプリのデリバリー（AI ワーカーが毎回まわす DevOps サイクルそのもの）</strong>。</p>
 
-  <div class="svg-wrap">
-    <svg viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="CI/CD パイプライン">
-      <defs>
-        <marker id="pa" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#5f6368" />
-        </marker>
-        <marker id="par" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#ea4335" />
-        </marker>
-      </defs>
-
-      <!-- trigger note -->
-      <text x="20" y="40" fill="#5f6368" style="font:400 12px sans-serif">AI が生成コードを commit / push（または Tool Gateway が起動）</text>
-
-      <!-- boxes -->
-      <g style="font:600 12.5px sans-serif" text-anchor="middle">
-        <rect x="20" y="70" width="120" height="74" rx="9" fill="#202124" /><text x="80" y="104" fill="#fff">GitHub</text><text x="80" y="124" fill="#c8ccd2" style="font:400 10.5px sans-serif">公開リポジトリ</text>
-        <rect x="160" y="70" width="120" height="74" rx="9" fill="#1a73e8" /><text x="220" y="100" fill="#fff">Cloud Build</text><text x="220" y="120" fill="#dbe7ff" style="font:400 10.5px sans-serif">test / build</text>
-        <rect x="300" y="70" width="120" height="74" rx="9" fill="#1a73e8" /><text x="360" y="100" fill="#fff">Artifact</text><text x="360" y="118" fill="#fff">Registry</text>
-        <rect x="440" y="70" width="120" height="74" rx="9" fill="#34a853" /><text x="500" y="100" fill="#fff">Cloud Run</text><text x="500" y="120" fill="#eafaef" style="font:400 10.5px sans-serif">preview</text>
-        <rect x="580" y="70" width="120" height="74" rx="9" fill="#f9ab00" /><text x="640" y="100" fill="#202124">ユーザー承認</text><text x="640" y="120" fill="#5a3d00" style="font:400 10.5px sans-serif">approval gate</text>
-        <rect x="720" y="70" width="120" height="74" rx="9" fill="#1e7e34" /><text x="780" y="100" fill="#fff">Cloud Run</text><text x="780" y="120" fill="#eafaef" style="font:400 10.5px sans-serif">active</text>
-      </g>
-
-      <!-- arrows -->
-      <g stroke="#5f6368" stroke-width="2">
-        <line x1="140" y1="107" x2="160" y2="107" marker-end="url(#pa)" />
-        <line x1="280" y1="107" x2="300" y2="107" marker-end="url(#pa)" />
-        <line x1="420" y1="107" x2="440" y2="107" marker-end="url(#pa)" />
-        <line x1="560" y1="107" x2="580" y2="107" marker-end="url(#pa)" />
-        <line x1="700" y1="107" x2="720" y2="107" marker-end="url(#pa)" />
-      </g>
-
-      <!-- rollback -->
-      <path d="M780,144 C780,220 500,230 500,170" fill="none" stroke="#ea4335" stroke-width="2" stroke-dasharray="5,4" marker-end="url(#par)" />
-      <text x="600" y="226" text-anchor="middle" fill="#ea4335" style="font:600 11.5px sans-serif">ロールバック：前 revision / route へ戻す（delete はしない）</text>
-    </svg>
-    <div class="fig-cap">図 9-1. CI/CD パイプライン。preview と active を分け、本番反映の前に必ず人間の承認を挟む。</div>
+  <h2>① 本体のデプロイ（現状）</h2>
+  <table class="tbl">
+    <tr><th>対象</th><th>手順</th><th>状態</th></tr>
+    <tr><td>backend（core-api）</td><td>Cloud Shell で <code>gcloud run deploy --source</code>（内部で Cloud Build / Artifact Registry を使用）。手順書 <code>DEPLOY.md</code></td><td>✅ 手動（検証済み手順）</td></tr>
+    <tr><td>frontend</td><td><code>npm run build</code> → <code>firebase deploy --only hosting</code></td><td>✅ 手動</td></tr>
+    <tr><td>push 起点の CI/CD（GitHub → Cloud Build → Cloud Run）</td><td>トリガー設定で自動化</td><td>⬜ 計画（MIGRATION）</td></tr>
+  </table>
+  <div class="callout warn">
+    <strong>方針：本番反映は、全フェーズをテスト環境（Docker：pytest＋本番相当エミュレータ実走）で確認してから一括で行う。</strong>
+    審査期間（〜7/24）は提出 URL を落とさない。問題時は Cloud Run のリビジョン切替で即ロールバック。
   </div>
 
-  <h2>2 つのデプロイ対象</h2>
+  <h2>② 生成ミニアプリのデリバリー（AI が毎回まわす本作の核）</h2>
+  <p>生成機能は <code>view_manifest</code>（完結 HTML＋操作ツール）方式のため<strong>再ビルド不要・即デリバリー</strong>。
+  そのかわり公開前に必ず品質ゲートを通します。</p>
   <table class="tbl">
-    <tr><th>対象</th><th>パイプライン</th></tr>
-    <tr><td>AgentForge 本体（core / worker / web）</td><td>GitHub → Cloud Build → Cloud Run / Firebase Hosting（継続デプロイ）</td></tr>
-    <tr><td>生成機能（タスク管理 等）</td><td>MVP は <code>view_manifest</code> 方式で再ビルド不要。加点で Programmer が実コード → Cloud Build → preview</td></tr>
+    <tr><th>段階</th><th>内容</th></tr>
+    <tr><td>生成</td><td>Orchestrator（PRO）。改変は<strong>差分パッチ優先</strong>・失敗は自動リトライ・要求台帳を維持</td></tr>
+    <tr><td>検証ゲート</td><td><strong>Tester</strong>（受け入れ条件ごと✅/❌）＋<strong>Reviewer</strong>（規約・設計適合）を並列実行。NG は差し戻し</td></tr>
+    <tr><td>プレビュー</td><td>未公開のまま確認・<strong>修正指示で何度でも磨ける</strong>。未完成（stub）は公開不可</td></tr>
+    <tr><td>公開</td><td>人間の承認「反映して」→ Control Plane が有効化＋<strong>版スナップショット保存</strong></td></tr>
+    <tr><td>運用</td><td>変更履歴・ステータスモニター（状態/待機理由/使用モデル）・監査ログ</td></tr>
+    <tr><td>ロールバック</td><td>「戻して」で<strong>直前版へ即時復元</strong>（LLM 不使用・決定的・分岐なし）</td></tr>
   </table>
 
-  <h2>状態の段階</h2>
-  <p><code>pending</code> → <code>building</code> → <code>preview</code> → <code>active</code> → <code>disabled</code> → <code>archived</code>。AI に許可するのは原則 <strong>soft disable まで</strong>。Cloud Run service の delete は禁止し、不要な機能はトラフィック 0 で保持します。</p>
+  <h2>状態の段階（生成機能）</h2>
+  <p><code>confirm（受付確認）</code> → <code>plan（設計案）</code> → <code>built（プレビュー）</code> → <code>active（公開）</code> → 版スタックで <code>rollback</code> ／ <code>disabled</code>（無効化）。<strong>削除はしない</strong>（データ保持・可逆）。</p>
+
+  <h2>テスト（まわす）</h2>
+  <ul>
+    <li>自動：Docker 上の pytest（65+ tests・手順は <code>ENVIRONMENT.md</code> §2(C)）。</li>
+    <li>実走：<strong>本番相当エミュレータ</strong>（compose：backend＋Firestore エミュレータ・モデルのみ claude）でパイプラインを実際に走らせて検証。</li>
+  </ul>
 
   <h2>コスト・暴走対策</h2>
   <ul>
-    <li>task ごとに build 上限、worker retry 上限</li>
-    <li>Cloud Run は scale-to-zero（Reception のみ必要なら min=1）</li>
-    <li>審査期間（〜7/24）はデプロイ URL を落とさない</li>
+    <li>runaway guard（短時間の実行集中を自動一時停止）／差し戻しはタイムアウト制御（ユーザー判断・N=2 強制停止）</li>
+    <li>Cloud Run は min=0（scale-to-zero）。開発の LLM は claude ブリッジで Gemini コスト 0</li>
+    <li>生成失敗のリトライは1回・stub は公開拒否（無駄な公開・課金を防ぐ）</li>
   </ul>
 </body>
 </html>

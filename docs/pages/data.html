@@ -8,25 +8,24 @@
 </head>
 <body class="doc">
   <h1>7. データ設計</h1>
-  <div class="callout warn">
-    <strong>このページは初期構想（参考資料）。</strong> ワーカー・パイプライン・承認フロー・安全装置の
-    <strong>正本は <a href="workers.html">5b. ワーカー定義・運用ルール</a>／<a href="code-conventions.html">5c. コード規約</a></strong>（到達点はリポジトリ直下の VISION.md）。
-    記述が食い違う場合は正本に従ってください。
+  <div class="callout">
+    コレクション一覧は<strong>現行実装に準拠</strong>。永続化 API・編集可能 UI の節は設計思想（現行は kind=app の <code>AF.load/save</code>＋<code>app_entities</code> が主）。正本は <a href="workers.html">5b</a> §9。
   </div>
 
   <p class="lead">Firestore（native mode）が Control Plane の DB。状態・registry・監査・文脈をドキュメントで管理し、ファイル実体は Cloud Storage に逃がします。</p>
 
-  <h2>主要コレクション</h2>
+  <h2>主要コレクション（現行実装）</h2>
   <table class="tbl">
     <tr><th>コレクション</th><th>役割</th></tr>
-    <tr><td><code>users</code> / <code>projects</code> / <code>conversations</code></td><td>ユーザー・プロジェクト・会話</td></tr>
-    <tr><td><code>task_runs</code></td><td>実行中タスクの状態・進捗・cancel フラグ</td></tr>
-    <tr><td><code>worker_runs</code></td><td>各ワーカー実行の入出力・トークン・要約</td></tr>
-    <tr><td><code>service_registry</code> / <code>api_registry</code> / <code>ui_view_registry</code></td><td>生成サービス / API / UI の登録</td></tr>
-    <tr><td><code>deployment_registry</code> / <code>route_registry</code></td><td>デプロイ状態・ルート（preview/active）</td></tr>
-    <tr><td><code>approval_registry</code></td><td>承認が必要な操作</td></tr>
-    <tr><td><code>audit_logs</code></td><td>全操作の監査ログ（説明責任）</td></tr>
-    <tr><td><code>context_chunks</code></td><td>文脈・埋め込み（Vector Search）</td></tr>
+    <tr><td><code>conversations</code></td><td>会話・フロー段階（confirm/plan/built）・ビルド状態（ハートビート・タイムアウト）</td></tr>
+    <tr><td><code>work_plans</code> / <code>task_runs</code></td><td>作業計画・実行状態</td></tr>
+    <tr><td><code>api_registry</code> / <code>ui_view_registry</code> / <code>generated_views</code></td><td>生成 API / view の登録と実体（pending→active）</td></tr>
+    <tr><td><code>approval_requests</code></td><td>人間承認ゲート（pending→approved/rejected）</td></tr>
+    <tr><td><code>feature_versions</code></td><td><strong>公開ごとの版スナップショット</strong>（巻き戻しの土台・線形）</td></tr>
+    <tr><td><code>feature_requirements</code></td><td><strong>要求台帳</strong>（公開された依頼・受け入れ条件。改変で壊さない）</td></tr>
+    <tr><td><code>workers</code> / <code>worker_messages</code> / <code>worker_contexts</code></td><td>ワーカー状態（モデル・待機理由・固着検出）／MCP的 request-report ログ／rehydrate 用コンテキスト</td></tr>
+    <tr><td><code>audit_logs</code></td><td>全操作の監査ログ → ユーザー向け<strong>変更履歴</strong>として表示</td></tr>
+    <tr><td><code>feature_states</code> / <code>app_state</code> / <code>app_entities</code> / <code>feature_chats</code> / <code>app_tasks</code></td><td>機能の有効状態・ミニアプリの保存状態（AF.load/save）・データ・アプリチャット</td></tr>
   </table>
 
   <h2>task_runs の例</h2>
