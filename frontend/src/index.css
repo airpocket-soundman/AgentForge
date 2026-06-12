@@ -416,3 +416,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* Plan-stage screen mock pasted as a chat image */
 .bubble .bubble-svg { display: block; margin-top: 8px; max-width: min(420px, 100%); height: auto; border: 1px solid var(--gv-border); border-radius: 10px; background: #fff; }
+
+/* Pipeline run log (developer view) */
+.run-row { cursor: pointer; }
+.run-row:hover td { background: rgba(99,102,241,.06); }
+.run-log { padding: 8px 10px; background: var(--gv-surface); border-radius: 8px; max-height: 320px; overflow-y: auto; font-size: 12px; }
+.run-log__line { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px dashed var(--gv-border); }
+.run-log__ts { color: var(--gv-muted); flex: 0 0 60px; font-family: ui-monospace, monospace; }

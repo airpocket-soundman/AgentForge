@@ -70,6 +70,12 @@ def worker_stop(worker_type: str, project_id: str = "default") -> dict:
     return worker_status.stop_worker(worker_type, project_id)
 
 
+@router.get("/runs")
+def runs(project_id: str = "default", limit: int = 20) -> dict:
+    """Developer view: recent pipeline runs (goal / span / last status)."""
+    return {"runs": worker_bus.list_runs(project_id, limit)}
+
+
 @router.get("/messages/{task_id}")
 def messages(task_id: str) -> dict:
     """MCP-like request/report thread for a work item (correlation/traceability)."""

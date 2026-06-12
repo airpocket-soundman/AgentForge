@@ -13,7 +13,7 @@ foundation for it.
 from __future__ import annotations
 
 import uuid
-
+from datetime import datetime, timezone
 from typing import Callable
 
 from pydantic import ValidationError
@@ -45,20 +45,64 @@ def validate_report(data: dict) -> tuple[WorkerReport | None, str | None]:
         return None, f"schema validation failed: {e.errors()[:3]}"
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def log_message(kind: str, message: dict) -> None:
-    """Persist a request/report for traceability (kind = 'request' | 'report')."""
+    """Persist a request/report/event for traceability."""
     mid = message.get("message_id") or message.get("in_reply_to") or new_message_id()
     get_db().collection(_COLLECTION).document(f"{kind}:{mid}:{new_message_id()}").set(
-        {"kind": kind, **message}
+        {"kind": kind, "ts": _now_iso(), **message}
     )
 
 
+def log_event(task_id: str, text: str, project_id: str | None = None, event: str = "progress") -> None:
+    """One pipeline event (progress line / retry / outcome) on the run's thread —
+    the per-run EVENT LOG a developer can read end to end."""
+    try:
+        log_message("event", {"task_id": task_id, "project_id": project_id,
+                              "event": event, "text": text[:300]})
+    except Exception:  # noqa: BLE001 — logging must never break the pipeline
+        pass
+
+
 def thread(task_id: str) -> list[dict]:
-    """All logged messages for a task_id (for correlation/debugging)."""
+    """All logged messages/events for a task_id, in chronological order."""
     out = [d.to_dict() or {} for d in get_db().collection(_COLLECTION).stream()]
     out = [m for m in out if m.get("task_id") == task_id]
-    out.sort(key=lambda m: m.get("message_id") or m.get("in_reply_to") or "")
+    out.sort(key=lambda m: (m.get("ts") or "", m.get("message_id") or ""))
     return out
+
+
+def list_runs(project_id: str | None = None, limit: int = 20) -> list[dict]:
+    """Recent pipeline runs (grouped by task_id): goal, time span, last status."""
+    runs: dict[str, dict] = {}
+    for d in get_db().collection(_COLLECTION).stream():
+        m = d.to_dict() or {}
+        tid = m.get("task_id")
+        if not tid:
+            continue
+        if project_id and m.get("project_id") not in (None, project_id):
+            continue
+        r = runs.setdefault(tid, {"task_id": tid, "first_ts": None, "last_ts": None,
+                                  "goal": None, "events": 0, "last_status": None,
+                                  "intent": None, "project_id": m.get("project_id")})
+        ts = m.get("ts") or ""
+        if ts and (r["first_ts"] is None or ts < r["first_ts"]):
+            r["first_ts"] = ts
+        if ts and (r["last_ts"] is None or ts > r["last_ts"]):
+            r["last_ts"] = ts
+        r["events"] += 1
+        if m.get("kind") == "request" and not r["goal"]:
+            r["goal"] = (m.get("payload") or {}).get("goal") or (m.get("payload") or {}).get("instruction")
+            r["intent"] = m.get("intent")
+        if m.get("kind") == "report" and m.get("status"):
+            r["last_status"] = m["status"]
+        if m.get("project_id") and not r["project_id"]:
+            r["project_id"] = m["project_id"]
+    out = sorted(runs.values(), key=lambda r: r.get("last_ts") or "", reverse=True)
+    return out[:limit]
 
 
 def gate_report_fields(result: dict) -> dict:
@@ -88,10 +132,12 @@ def dispatch(
     handler returns report body fields ({status, result, findings, error}); a raised
     handler maps to status=failed."""
     mid = new_message_id()
-    req = {"task_id": task_id, "message_id": mid, "from": sender, "to": to, "intent": intent, "payload": payload}
+    req = {"task_id": task_id, "message_id": mid, "from": sender, "to": to, "intent": intent,
+           "payload": payload, "project_id": project_id}
     valid, err = validate_request(req)
     if valid is None:
-        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, "status": "rejected", "error": err}
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender,
+                  "status": "rejected", "error": err, "project_id": project_id}
         log_message("report", report)
         return report
 
@@ -100,9 +146,11 @@ def dispatch(
         worker_status.start_worker(to, project_id, model=model, task_id=task_id)  # wake the recipient
     try:
         body = handler(payload)
-        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, **body}
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender,
+                  "project_id": project_id, **body}
     except Exception as exc:  # noqa: BLE001
-        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender, "status": "failed", "error": str(exc)[:300]}
+        report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender,
+                  "status": "failed", "error": str(exc)[:300], "project_id": project_id}
     finally:
         if project_id:
             worker_status.record_status(to, project_id, worker_status.STOPPED)

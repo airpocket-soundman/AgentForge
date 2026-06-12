@@ -226,6 +226,40 @@ export function getVersions(feature: string, projectId = PROJECT_ID): Promise<{ 
   return request(`/api/control-plane/versions/${encodeURIComponent(projectId)}/${encodeURIComponent(feature)}`);
 }
 
+// --- Pipeline run log (developer view) ---
+
+export interface PipelineRun {
+  task_id: string;
+  project_id: string | null;
+  goal: string | null;
+  intent: string | null;
+  first_ts: string | null;
+  last_ts: string | null;
+  events: number;
+  last_status: string | null;
+}
+
+export function getRuns(projectId = PROJECT_ID, limit = 20): Promise<{ runs: PipelineRun[] }> {
+  return request(`/api/control-plane/runs?project_id=${encodeURIComponent(projectId)}&limit=${limit}`);
+}
+
+export interface RunMessage {
+  kind: "request" | "report" | "event" | string;
+  ts?: string;
+  from?: string;
+  to?: string;
+  intent?: string;
+  status?: string;
+  event?: string;
+  text?: string;
+  error?: string | null;
+  findings?: string[];
+}
+
+export function getRunThread(taskId: string): Promise<{ messages: RunMessage[] }> {
+  return request(`/api/control-plane/messages/${encodeURIComponent(taskId)}`);
+}
+
 // Stop ALL running background workers across sessions (release every locked chat).
 export function stopAllWorkers(): Promise<{ stopped: number; conversations: string[] }> {
   return request("/api/control-plane/stop-all", { method: "POST", body: "{}" });

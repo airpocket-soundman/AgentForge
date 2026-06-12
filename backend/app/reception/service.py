@@ -11,6 +11,7 @@ state.
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 import uuid
 from contextlib import contextmanager
@@ -301,6 +302,7 @@ def _run_edit(
     from app.workers import ui_designer
 
     corr = f"edit_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
+    _RUN_CTX.set((corr, project_id))
 
     def _do_edit(_payload: dict) -> dict:
         _progress(conversation_id, "✏️ 修正版を生成しています…")
@@ -421,6 +423,7 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
     feature = flow.get("feature") or cand.get("feature") or ""
     mode = flow.get("mode", "create")
     corr = f"rev_{uuid.uuid4().hex[:12]}"
+    _RUN_CTX.set((corr, project_id))
 
     def _do_revise(_payload: dict) -> dict:
         from app.llm.gateway import get_llm
@@ -1002,13 +1005,25 @@ def _format_plan(plan: DesignPlan) -> str:
 
 # --- Stage 1: design proposal (fast) ----------------------------------------
 
+# The run currently executing on THIS thread: (task_id, project_id). Set at the
+# top of each _run_* thread so every _progress line lands on that run's event log
+# (worker_messages) without threading the corr through every call site.
+_RUN_CTX: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar("run_ctx", default=None)
+
+
 def _progress(conversation_id: str, text: str) -> None:
     """Post a build progress/check line to the chat (role=system) AND heartbeat the
     build record (last_activity + updated_at): every visible step both informs the
     user and proves the pipeline is alive — stall judgment is silence-based, so a
-    long build that keeps reporting never gets mis-judged as stalled."""
+    long build that keeps reporting never gets mis-judged as stalled. Also appended
+    to the run's developer event log (worker_messages) when a run is active."""
     append_message(conversation_id, ChatMessage(role="system", text=text))
     _set_build(conversation_id, last_activity=text[:80])
+    ctx = _RUN_CTX.get()
+    if ctx:
+        from app.control_plane import worker_bus
+
+        worker_bus.log_event(ctx[0], text, project_id=ctx[1])
 
 
 @contextmanager
@@ -1086,6 +1101,7 @@ def _run_plan(
     from app.workers import ui_designer
 
     corr = f"plan_{uuid.uuid4().hex[:12]}"
+    _RUN_CTX.set((corr, project_id))
 
     def _do_plan(_payload: dict) -> dict:
         _progress(conversation_id, "📝 設計案を作成しています…")
@@ -1232,6 +1248,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
 
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"build_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
+    _RUN_CTX.set((corr, project_id))
     # The mock SVG was for plan-stage review only — don't waste codegen-prompt
     # tokens on it (the textual plan + acceptance carry the agreed design).
     plan = {k: v for k, v in (plan or {}).items() if k != "mock_svg"}
