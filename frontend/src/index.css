@@ -179,9 +179,9 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .nav-collapse {                          /* straddles the divider */
   position: absolute; top: 12px; left: -9px; width: 18px; height: 30px; border-radius: 6px;
 }
-.nav-open {                              /* collapsed: thin full-height open tab on the left edge */
-  flex: 0 0 16px; align-self: stretch; border-top: 0; border-bottom: 0; border-left: 0;
-  border-right: 1px solid #e1e2ee; background: #f6f7fc; border-radius: 0;
+.nav-open {                              /* collapsed: small open tab at the SAME height as ‹ */
+  flex: 0 0 18px; align-self: flex-start; margin: 12px 0 0 4px;
+  width: 18px; height: 30px; border-radius: 6px;
 }
 .sidebar__label { font-size: 11px; color: #9a9ab0; padding: 4px 8px; letter-spacing: 0.05em; }
 .navitem {
