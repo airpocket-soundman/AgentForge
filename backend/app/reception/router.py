@@ -102,6 +102,18 @@ def post_message(body: MessageIn) -> ReceptionReply:
     extra_text, images = service.split_attachments(body.attachments)
     goal_text = body.text + extra_text
 
+    # Status query (いまどうなってる？/状況/進捗/報告して …) — answer at ANY stage via
+    # the pipeline-status API, BEFORE the stage branches so it isn't swallowed as a
+    # confirm-revision / build request. (During a build the busy block above already
+    # answered with the grounded status.)
+    if service.is_status_query(body.text):
+        r = ChatMessage(role="assistant", text=service.pipeline_status_reply(body.project_id, body.text))
+        service.append_message(conversation_id, r)
+        worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)
+        return ReceptionReply(conversation_id=conversation_id, reply=r, detected_intent="status",
+                              task_id=None, approval_id=None, activated_feature=None,
+                              disabled_feature=None, building=False)
+
     flow = service.get_flow(body.project_id)
     stage = flow.get("stage", "idle")
     intent = service.classify(body.text)

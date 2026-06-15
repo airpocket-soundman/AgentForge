@@ -143,6 +143,8 @@ _STAGE_BUILT = "built"
 _PLAN_OK_EXACT = {
     "ok", "okです", "okお願い", "おk", "オーケー", "go", "ゴー",
     "はい", "うん", "yes", "y", "了解", "りょうかい", "お願い", "おねがい",
+    "お願いします", "おねがいします", "お願いいたします", "お願いね", "頼む", "たのむ",
+    "それで", "それでお願い", "go!", "ゴー！", "了解です", "おねがいいたします",
 }
 # Unambiguous commit instructions, matched as a substring.
 _PLAN_OK_PHRASES = (
@@ -192,6 +194,24 @@ def is_wait(text: str) -> bool:
 def is_retry(text: str) -> bool:
     t = _normalize_short(text)
     return len(t) <= 20 and any(k in t for k in _RETRY_KEYWORDS)
+
+
+# Status query: the user is asking "what's happening / how's it going / report".
+# Must be answerable at ANY stage (idle/confirm/plan/built/building), so it's
+# detected up front and never swallowed by a stage branch (e.g. confirm-revision).
+_STATUS_KEYWORDS = (
+    "状況", "進捗", "どうなって", "どうなった", "進んで", "終わった", "完了した",
+    "ステータス", "状態を", "状態は", "報告して", "報告を", "様子", "どこまで", "経過",
+)
+
+
+def is_status_query(text: str) -> bool:
+    t = text.strip()
+    if len(t) > 40:  # a long sentence is a request, not a quick status check
+        return False
+    if any(k in t for k in ("作って", "つくって", "作成", "追加", "直して", "変えて", "修正")):
+        return False  # a build/edit instruction that merely mentions 状況 etc.
+    return any(k in t for k in _STATUS_KEYWORDS)
 
 
 def get_flow(project_id: str) -> dict:
@@ -989,6 +1009,85 @@ def building_status_reply(project_id: str, text: str, diag: dict) -> str:
     if health == "slow":
         return f"稼働中です。{what}に想定より時間がかかっています（経過{total}秒）。もう少し待つか「キャンセル」で中止できます。"
     return f"稼働中です。いま{what}を生成しています（経過{total}秒・順調）。完了すると自動表示されます。中止は「キャンセル」。"
+
+
+_STAGE_LABEL = {
+    _STAGE_IDLE: "待機（依頼待ち）",
+    _STAGE_CONFIRM: "受付確認（「お願い」で着手）",
+    _STAGE_PLAN: "設計案レビュー（「これで作って」で生成）",
+    _STAGE_BUILT: "プレビュー（「反映して」で公開）",
+}
+
+
+def pipeline_status(project_id: str) -> dict:
+    """The pipeline-status API the Receptor uses to answer 'いまどうなってる？'.
+
+    Aggregates the single source of truth — current flow stage, the live build
+    diagnosis (phase/health/silence/executor liveness), and the latest run's
+    outcome from the worker bus — into one structured snapshot."""
+    from app.control_plane import worker_bus
+
+    flow = get_flow(project_id)
+    stage = flow.get("stage", _STAGE_IDLE)
+    diag = diagnose_build(project_id)
+    runs = worker_bus.list_runs(project_id, limit=1)
+    last_run = runs[0] if runs else None
+    return {
+        "stage": stage,
+        "stage_label": _STAGE_LABEL.get(stage, stage),
+        "building": diag.get("status") == _BUILD_DESIGNING,
+        "phase": diag.get("phase"),
+        "phase_label": _PHASE_LABELS.get(diag.get("phase")),
+        "health": diag.get("health"),
+        "executor_alive": diag.get("executor_alive", True),
+        "total_sec": diag.get("total_sec", 0),
+        "since_update_sec": diag.get("since_update_sec", 0),
+        "last_activity": diag.get("last_activity"),
+        "error": diag.get("error"),
+        "feature": flow.get("feature"),
+        "goal": flow.get("goal") or diag.get("goal"),
+        "last_run": last_run and {"kind": last_run.get("intent"), "status": last_run.get("last_status"),
+                                  "events": last_run.get("events")},
+        "next_action": {
+            _STAGE_CONFIRM: "「お願い」で制作チームに着手させる（修正があれば内容を返信）",
+            _STAGE_PLAN: "「これで作って」でコード生成へ（修正は内容を返信）",
+            _STAGE_BUILT: "「反映して」で公開（直したい点があれば返信）",
+        }.get(stage, "新しい依頼を送る"),
+    }
+
+
+def pipeline_status_reply(project_id: str, text: str) -> str:
+    """Answer a status query at ANY stage. While a build runs, defer to the
+    grounded build-status reply; otherwise narrate the pipeline_status snapshot."""
+    st = pipeline_status(project_id)
+    if st["building"]:
+        return building_status_reply(project_id, text, diagnose_build(project_id))
+
+    from app import agents
+    from app.llm.gateway import ModelTier, get_llm
+
+    facts = (
+        f"- 現在の段階: {st['stage_label']}（stage={st['stage']}）\n"
+        f"- バックグラウンド作業: なし（停止中）\n"
+        f"- 対象: {(st.get('goal') or '（なし）')[:80]}\n"
+        f"- 直近の実行: {st['last_run'] or '（記録なし）'}\n"
+        f"- 次にできること: {st['next_action']}"
+    )
+    llm = get_llm()
+    if llm.enabled:
+        prompt = (
+            f"{agents.load('reception')}\n\n"
+            "あなたは受付AIワーカー。下のパイプライン状況（実測）に基づいて、いま何が起きていて"
+            "次に何をすればよいかを2〜3文で正直に答えてください。定型文や、根拠のない完了見込みは禁止。\n\n"
+            f"【パイプライン状況】\n{facts}\n\n【ユーザーの発言】{text}\n\n受付ワーカーの返答:"
+        )
+        try:
+            out = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            if out:
+                return out
+        except Exception:  # noqa: BLE001
+            pass
+    return f"現在の段階は「{st['stage_label']}」です。今は動作中の作業はありません。{st['next_action']}。"
 
 
 def get_candidate(project_id: str) -> dict | None:

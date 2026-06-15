@@ -76,6 +76,15 @@ def runs(project_id: str = "default", limit: int = 20) -> dict:
     return {"runs": worker_bus.list_runs(project_id, limit)}
 
 
+@router.get("/pipeline-status/{project_id}")
+def pipeline_status(project_id: str) -> dict:
+    """Pipeline-status API the Receptor uses to answer 状況照会: current stage, live
+    build diagnosis, executor liveness, latest run outcome, and the next action."""
+    from app.reception import service as reception_service
+
+    return reception_service.pipeline_status(project_id)
+
+
 @router.get("/messages/{task_id}")
 def messages(task_id: str) -> dict:
     """MCP-like request/report thread for a work item (correlation/traceability)."""

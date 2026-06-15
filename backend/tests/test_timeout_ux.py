@@ -30,3 +30,16 @@ def test_force_stop_threshold_is_two():
 def test_keep_going_counts_as_wait():
     assert service.is_wait("もっと続けて")
     assert service.is_wait("続行")
+
+
+def test_onegai_shimasu_is_plan_ok():
+    assert service.is_plan_ok("お願いします")
+    assert service.is_plan_ok("お願いします。")
+    assert service.is_plan_ok("おねがいします")
+
+
+def test_status_query_detected():
+    assert service.is_status_query("いまの状況を調べて")
+    assert service.is_status_query("進捗どう？")
+    assert service.is_status_query("確認結果の報告をして")
+    assert not service.is_status_query("状況を管理するアプリを作って")  # build, not a query
