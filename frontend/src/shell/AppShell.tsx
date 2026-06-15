@@ -35,28 +35,30 @@ export function AppShell({ user }: { user: User | null }) {
   useEffect(() => { localStorage.setItem("af_nav_w", String(navW)); }, [navW]);
   useEffect(() => { localStorage.setItem("af_nav_open", navOpen ? "1" : "0"); }, [navOpen]);
 
-  function onNavDragStart(e: React.PointerEvent) {
+  const navMovedRef = useRef(false);
+  // Drag via WINDOW listeners (not element pointer-capture) so the drag survives
+  // the divider ⇄ open-tab element swap — i.e. you can grab the › tab while
+  // collapsed and drag it open in one motion.
+  function beginNavDrag(e: React.PointerEvent) {
     e.preventDefault();
     draggingNav.current = true;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-  function onNavDragMove(e: React.PointerEvent) {
-    if (!draggingNav.current || !bodyRef.current) return;
-    const rect = bodyRef.current.getBoundingClientRect();
-    const w = e.clientX - rect.left;
-    // Drag all the way in → collapse to 0 (reopen with the › tab). Otherwise the
-    // sidebar can grow almost to the full window width (leave a sliver for the app).
-    if (w < 48) {
+    navMovedRef.current = false;
+    const move = (ev: PointerEvent) => {
+      if (!bodyRef.current) return;
+      navMovedRef.current = true;
+      const rect = bodyRef.current.getBoundingClientRect();
+      const w = ev.clientX - rect.left;
+      if (w < 48) { setNavOpen(false); return; }   // drag fully in → collapse
+      setNavOpen(true);                              // drag out → open + resize
+      setNavW(Math.max(120, Math.min(rect.width - 80, w)));
+    };
+    const up = () => {
       draggingNav.current = false;
-      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      setNavOpen(false);
-      return;
-    }
-    setNavW(Math.max(120, Math.min(rect.width - 80, w)));
-  }
-  function onNavDragEnd(e: React.PointerEvent) {
-    draggingNav.current = false;
-    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   function loadStates() {
@@ -221,10 +223,8 @@ export function AppShell({ user }: { user: User | null }) {
               className="nav-divider"
               role="separator"
               aria-orientation="vertical"
-              title="ドラッグで機能リストの幅を調整"
-              onPointerDown={onNavDragStart}
-              onPointerMove={onNavDragMove}
-              onPointerUp={onNavDragEnd}
+              title="ドラッグで機能リストの幅を調整（左端まで引くと閉じる）"
+              onPointerDown={beginNavDrag}
             >
               <button
                 className="nav-collapse"
@@ -240,9 +240,10 @@ export function AppShell({ user }: { user: User | null }) {
         ) : (
           <button
             className="nav-open"
-            title="機能リストを開く"
+            title="クリックまたは右へドラッグで機能リストを開く"
             aria-label="機能リストを開く"
-            onClick={() => setNavOpen(true)}
+            onPointerDown={beginNavDrag}
+            onClick={() => { if (!navMovedRef.current) setNavOpen(true); }}
           >
             ›
           </button>
