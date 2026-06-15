@@ -55,6 +55,9 @@
   <ul>
     <li><code>body</code> は <code>margin:0</code> でビューポートいっぱいに広げ、モダンで見やすく、ボタンは押しやすく。</li>
     <li>入力は<strong>マウスとタッチの両対応</strong>（<code>pointer</code> イベント推奨）。</li>
+    <li><strong>大きいファイルは <code>AF.saveBlob/loadBlob/listBlobs/deleteBlob</code>（端末内・IndexedDB）に保存</strong>。
+      <code>AF.save</code> の状態（約1MB上限）に巨大 base64 を入れない（保存失敗→リロードで消える）。状態にはメタ/抽出テキストのみ。
+      Blob は端末ローカルのため <code>loadBlob</code> が <code>null</code> の場合の欠落表示を用意する。</li>
     <li><strong>PC とスマホの両対応（レスポンシブ）</strong>：<code>&lt;meta name="viewport"&gt;</code> を入れ、固定幅にせず
       flex/grid・% で画面幅に追従。必要なら <code>@media</code>（目安 600px）でスマホ向けに最適化し、
       縦持ちスマホでも操作できること。</li>

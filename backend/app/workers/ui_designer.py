@@ -87,6 +87,16 @@ html の要件（重要）:
     await AF.save(state);            // 状態(JSONにできる値)を保存する。
   ※ localStorage / cookie / fetch / 外部通信 / 別ウィンドウ は使えない（サンドボックス）。保存は必ず AF を使う。
   ※ お絵描き・電卓・時計など保存不要なものは AF を使わなくてよい。
+- **大きいファイル（PDF・画像・音声など）は AF.save の状態に入れない**（状態は約1MB上限。巨大 base64 を
+  入れると保存に失敗しリロードで消える）。ファイルは専用 Blob API を使う:
+    await AF.saveBlob(name, dataUrlOrBase64);  // 端末内(ブラウザ)に保存（name は識別子）
+    const data = await AF.loadBlob(name);       // 取り出し（無ければ null）
+    const names = await AF.listBlobs();         // 名前一覧 / await AF.deleteBlob(name)
+  ・状態(AF.save)には**メタ情報だけ**（ファイル名/サイズ/抽出テキスト/blob の name 等）。原本は saveBlob。
+    表示は loadBlob の結果から blob URL / データURL を作って行う。
+  ・**Blob は端末ローカル**（別デバイスやデータ消去後は無い）。`loadBlob` が null のときは
+    「原本はこの端末にのみ保存（メタは同期）」のように**欠落前提で優しく表示**する。
+  ・文書を解説/要約する類は、原本 base64 に依存せず**抽出テキストを状態に保存**して使う。
 - スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
 
 
