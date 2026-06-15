@@ -16,7 +16,7 @@ button{border:0;border-radius:12px;padding:16px 0;font-size:18px;font-weight:600
  box-shadow:0 1px 0 var(--keyb);cursor:pointer;color:var(--fg)}
 button:active{transform:translateY(1px)}
 .k-fn{background:var(--keyb)}.k-op{background:var(--op);color:#fff}.k-eq{background:var(--op);color:#fff}
-.hist{margin-top:12px;max-height:120px;overflow:auto;border-top:1px solid #eee;padding-top:6px}
+.hist{margin-top:12px;height:140px;overflow-y:auto;border-top:1px solid #eee;padding-top:6px}
 .h-row{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);padding:3px 2px;cursor:pointer}
 .h-row:hover{background:#f5f6ff;border-radius:6px}.h-empty{color:#aab;font-size:13px;padding:4px}
 </style></head><body>
@@ -50,7 +50,7 @@ button:active{transform:translateY(1px)}
     else if(k==='+/-'){if(c!=='Error')c=c[0]==='-'?c.slice(1):'-'+c;}
     else if(k==='%'){if(c!=='Error')c=fmt(parseFloat(c)/100);}
     else if('+−×÷'.indexOf(k)>=0){if(op&&!done&&prev!==null){var r=calc(prev,op,c);prev=fmt(r);c=fmt(r);}else prev=c;op=k;sub=prev+' '+k;done=true;}
-    else if(k==='='){if(op&&prev!==null){var e=sub+' '+c,r2=calc(prev,op,c),rs=fmt(r2);hist.unshift({e:e,v:rs});if(hist.length>50)hist.pop();drawHist();c=rs;sub=e+' =';op=null;prev=null;done=true;}}
+    else if(k==='='){if(op&&prev!==null){var e=sub+' '+c,r2=calc(prev,op,c),rs=fmt(r2);hist.unshift({e:e,v:rs});if(hist.length>20)hist.pop();drawHist();c=rs;sub=e+' =';op=null;prev=null;done=true;}}
     else if(k==='.'){if(done){c='0.';done=false;}else if(c.indexOf('.')<0)c+='.';}
     else{if(done||c==='0'){c=(c==='-0'?'-':'')+k;done=false;}else if(c==='Error')c=k;else c+=k;}
     draw();
