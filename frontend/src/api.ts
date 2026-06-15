@@ -237,6 +237,7 @@ export interface PipelineRun {
   last_ts: string | null;
   events: number;
   last_status: string | null;
+  running?: boolean;
 }
 
 export function getRuns(projectId = PROJECT_ID, limit = 20): Promise<{ runs: PipelineRun[] }> {

@@ -75,8 +75,18 @@ def thread(task_id: str) -> list[dict]:
     return out
 
 
+# A run's kind is its task_id prefix — reliable, unlike per-message intent (the
+# inner Tester/Reviewer sub-requests share the run's task_id with intent
+# verify/review and would otherwise mislabel the whole run).
+_RUN_KIND = {"plan": "設計案", "build": "新規生成", "edit": "改変", "rev": "プレビュー修正"}
+
+
 def list_runs(project_id: str | None = None, limit: int = 20) -> list[dict]:
-    """Recent pipeline runs (grouped by task_id): goal, time span, last status."""
+    """Recent pipeline runs (grouped by task_id): kind, goal, span, outcome.
+
+    The kind comes from the task_id prefix and the outcome from the TOP-LEVEL
+    report (the one addressed back to the Receptor) — inner verify/review
+    sub-messages share the task_id but must not define the run's kind/result."""
     runs: dict[str, dict] = {}
     for d in get_db().collection(_COLLECTION).stream():
         m = d.to_dict() or {}
@@ -87,20 +97,41 @@ def list_runs(project_id: str | None = None, limit: int = 20) -> list[dict]:
             continue
         r = runs.setdefault(tid, {"task_id": tid, "first_ts": None, "last_ts": None,
                                   "goal": None, "events": 0, "last_status": None,
-                                  "intent": None, "project_id": m.get("project_id")})
+                                  "intent": _RUN_KIND.get(tid.split("_")[0], tid.split("_")[0]),
+                                  "running": False, "project_id": m.get("project_id")})
         ts = m.get("ts") or ""
         if ts and (r["first_ts"] is None or ts < r["first_ts"]):
             r["first_ts"] = ts
         if ts and (r["last_ts"] is None or ts > r["last_ts"]):
             r["last_ts"] = ts
         r["events"] += 1
-        if m.get("kind") == "request" and not r["goal"]:
-            r["goal"] = (m.get("payload") or {}).get("goal") or (m.get("payload") or {}).get("instruction")
-            r["intent"] = m.get("intent")
-        if m.get("kind") == "report" and m.get("status"):
-            r["last_status"] = m["status"]
-        if m.get("project_id") and not r["project_id"]:
-            r["project_id"] = m["project_id"]
+        kind = m.get("kind")
+        if kind == "request":
+            # The top-level goal is on the Receptor→Orchestrator request; keep the
+            # first goal we see only as a fallback.
+            g = (m.get("payload") or {}).get("goal") or (m.get("payload") or {}).get("instruction")
+            if m.get("from") == "Receptor" and g:
+                r["goal"] = g
+            elif g and not r["goal"]:
+                r["goal"] = g
+        elif kind == "report" and m.get("status"):
+            # Outcome = the report addressed back to the Receptor (top-level);
+            # fall back to the latest sub-report only if no top-level one exists.
+            if m.get("to") == "Receptor":
+                r["last_status"] = m["status"]
+            elif r["last_status"] is None:
+                r["last_status"] = m["status"]
+    # Mark runs still in flight (a Receptor→Orchestrator request with no top-level
+    # report yet) using the live build record, so the monitor shows 実行中.
+    for r in runs.values():
+        pid = r.get("project_id")
+        if r["last_status"] is None and pid:
+            try:
+                snap = get_db().collection("conversations").document(f"conv_{pid}").get()
+                if (snap.to_dict() or {}).get("build", {}).get("status") == "designing":
+                    r["running"] = True
+            except Exception:  # noqa: BLE001
+                pass
     out = sorted(runs.values(), key=lambda r: r.get("last_ts") or "", reverse=True)
     return out[:limit]
 

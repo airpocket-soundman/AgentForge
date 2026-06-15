@@ -194,7 +194,7 @@ export function StatusView({ onBack }: { onBack: () => void }) {
                   <td>{(r.first_ts ?? "").slice(11, 19) || "—"}</td>
                   <td>{r.intent ?? r.task_id.split("_")[0]}</td>
                   <td className="status-goal">{(r.goal ?? "").slice(0, 60) || r.task_id}</td>
-                  <td>{r.last_status === "ok" ? "✅" : r.last_status === "failed" ? "❌" : r.last_status === "needs_revision" ? "⚠️" : r.last_status ?? "—"}</td>
+                  <td>{r.running ? "⏳ 実行中" : r.last_status === "ok" ? "✅ 完了" : r.last_status === "failed" ? "❌ 失敗" : r.last_status === "needs_revision" ? "⚠️ 差し戻し" : r.last_status === "rejected" ? "🚫 却下" : "—"}</td>
                   <td>{r.events}</td>
                 </tr>
                 {selRun === r.task_id && (
