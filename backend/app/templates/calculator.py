@@ -9,8 +9,8 @@ _HTML = r"""<!DOCTYPE html>
 body{background:var(--bg);font-family:system-ui,sans-serif;color:var(--fg);display:grid;place-items:center;padding:12px}
 .calc{width:100%;max-width:340px;background:var(--card);border-radius:18px;box-shadow:0 10px 30px #0001;padding:16px}
 .disp{text-align:right;padding:10px 8px 6px}
-.sub{min-height:18px;color:var(--mut);font-size:14px;word-break:break-all}
-.main{font-size:40px;font-weight:700;word-break:break-all}
+.sub{min-height:18px;color:var(--mut);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.main{font-size:40px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:clip}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
 button{border:0;border-radius:12px;padding:16px 0;font-size:18px;font-weight:600;background:var(--key);
  box-shadow:0 1px 0 var(--keyb);cursor:pointer;color:var(--fg)}
@@ -37,7 +37,8 @@ button:active{transform:translateY(1px)}
   var c='0',op=null,prev=null,sub='',done=false,hist=[];
   var mainEl=document.getElementById('main'),subEl=document.getElementById('sub'),histEl=document.getElementById('hist');
   function fmt(n){if(n!==n)return 'Error';if(!isFinite(n))return n>0?'∞':'-∞';return parseFloat(n.toPrecision(12)).toString();}
-  function draw(){mainEl.textContent=c;subEl.textContent=sub;}
+  function draw(){mainEl.textContent=c;subEl.textContent=sub;
+    var L=c.length;mainEl.style.fontSize=(L>16?'18px':L>12?'24px':L>9?'30px':'40px');}
   function drawHist(){
     if(!hist.length){histEl.innerHTML='<div class="h-empty">履歴はまだありません</div>';return;}
     histEl.innerHTML='';hist.forEach(function(h){var r=document.createElement('div');r.className='h-row';
@@ -48,7 +49,7 @@ button:active{transform:translateY(1px)}
     if(k==='AC'){c='0';op=null;prev=null;sub='';done=false;}
     else if(k==='+/-'){if(c!=='Error')c=c[0]==='-'?c.slice(1):'-'+c;}
     else if(k==='%'){if(c!=='Error')c=fmt(parseFloat(c)/100);}
-    else if('+−×÷'.indexOf(k)>=0){if(op&&!done&&prev!==null){var r=calc(prev,op,c);prev=fmt(r);c=fmt(r);}else prev=c;op=k;sub=prev+' '+k;done=false;}
+    else if('+−×÷'.indexOf(k)>=0){if(op&&!done&&prev!==null){var r=calc(prev,op,c);prev=fmt(r);c=fmt(r);}else prev=c;op=k;sub=prev+' '+k;done=true;}
     else if(k==='='){if(op&&prev!==null){var e=sub+' '+c,r2=calc(prev,op,c),rs=fmt(r2);hist.unshift({e:e,v:rs});if(hist.length>50)hist.pop();drawHist();c=rs;sub=e+' =';op=null;prev=null;done=true;}}
     else if(k==='.'){if(done){c='0.';done=false;}else if(c.indexOf('.')<0)c+='.';}
     else{if(done||c==='0'){c=(c==='-0'?'-':'')+k;done=false;}else if(c==='Error')c=k;else c+=k;}
