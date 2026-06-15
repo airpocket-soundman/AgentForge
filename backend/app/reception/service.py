@@ -771,22 +771,24 @@ def diagnose_build(project_id: str) -> dict:
     total = int(_age_sec(build.get("started_at") or build.get("updated_at")))
     since = int(_age_sec(build.get("updated_at")))
     health = _silence_health(phase, since)
-    # Cross-check the EXECUTOR's liveness (worker registry). The heartbeat updates
-    # both records, so "build silent + Orchestrator not active" means the process
-    # is gone (e.g. a dev reload / crash) — report stuck immediately instead of
-    # claiming "順調" until a silence budget expires.
+    # Cross-check the EXECUTOR's liveness (worker registry) — but ONLY for phases
+    # the ORCHESTRATOR actually runs. The "receiving" phase is the Receptor's own
+    # work (classify + restate); the Orchestrator is legitimately not active then,
+    # so checking it there would falsely report stuck at 0s. A short grace also
+    # avoids the registry-lag window right after dispatch.
+    _ORCH_PHASES = ("planning", "revising", "codegen", "editing")
     executor_alive = True
-    try:
-        for w in worker_status.list_workers(project_id):
-            if w.get("worker_type") == "Orchestrator":
-                executor_alive = (w.get("status") == "active" and not w.get("stale"))
-                break
-        else:
+    if phase in _ORCH_PHASES and since >= 30:
+        try:
             executor_alive = False
-    except Exception:  # noqa: BLE001 — registry read failure shouldn't break diagnosis
-        pass
-    if not executor_alive:
-        health = "stuck"
+            for w in worker_status.list_workers(project_id):
+                if w.get("worker_type") == "Orchestrator":
+                    executor_alive = (w.get("status") == "active" and not w.get("stale"))
+                    break
+        except Exception:  # noqa: BLE001 — registry read failure shouldn't break diagnosis
+            executor_alive = True
+        if not executor_alive:
+            health = "stuck"
     return {"status": status, "phase": phase, "goal": goal,
             "health": health, "executor_alive": executor_alive,
             "total_sec": total, "since_update_sec": since,
