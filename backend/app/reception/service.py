@@ -199,19 +199,27 @@ def is_retry(text: str) -> bool:
 # Status query: the user is asking "what's happening / how's it going / report".
 # Must be answerable at ANY stage (idle/confirm/plan/built/building), so it's
 # detected up front and never swallowed by a stage branch (e.g. confirm-revision).
+# Soft keywords (status query only when the message is short).
 _STATUS_KEYWORDS = (
     "状況", "進捗", "どうなって", "どうなった", "進んで", "終わった", "完了した",
-    "ステータス", "状態を", "状態は", "報告して", "報告を", "様子", "どこまで", "経過",
+    "ステータス", "状態を", "状態は", "報告を", "様子", "どこまで", "経過",
+)
+# Strong phrases: an explicit status request — treat as a status query at ANY length.
+_STATUS_STRONG = (
+    "状況を報告", "状況を教え", "状況を確認", "状況を調べ", "状況は", "状況を知",
+    "進捗を", "進捗は", "進捗教え", "進捗を教え", "報告して", "どうなってる", "どうなった",
+    "どこまで進", "ステータスを", "状態を報告", "状況報告",
 )
 
 
 def is_status_query(text: str) -> bool:
     t = text.strip()
-    if len(t) > 40:  # a long sentence is a request, not a quick status check
+    # A build/edit instruction that merely mentions 状況 etc. is NOT a status query.
+    if any(k in t for k in ("作って", "つくって", "作成", "追加して", "直して", "変えて", "修正して")):
         return False
-    if any(k in t for k in ("作って", "つくって", "作成", "追加", "直して", "変えて", "修正")):
-        return False  # a build/edit instruction that merely mentions 状況 etc.
-    return any(k in t for k in _STATUS_KEYWORDS)
+    if any(k in t for k in _STATUS_STRONG):
+        return True
+    return len(t) <= 40 and any(k in t for k in _STATUS_KEYWORDS)
 
 
 def get_flow(project_id: str) -> dict:

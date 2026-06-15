@@ -56,9 +56,25 @@ def _write_temp_images(images: list) -> list[str]:
     return paths
 
 
+# In prod the LLM is Gemini's generateContent — a PURE TEXT model. The dev bridge
+# runs the full agentic `claude` CLI, which otherwise treats our worker prompts as
+# tasks and tries to use tools (it would run `docker ps`, attempt curl, then report
+# "ツールの実行承認が下りない"). Force it to behave like a plain text/JSON generator
+# so dev matches prod: no tools, no shell, no network/files — just transform the
+# given content and return the answer.
+_NO_TOOLS_SYSTEM = (
+    "You are being used purely as a TEXT/JSON generation model inside an application "
+    "(equivalent to a single generateContent call). For this request you have NO tools: "
+    "do NOT use any tool, do NOT run shell/docker/git/curl commands, do NOT access the "
+    "network, files, or the environment, and do NOT mention tools/permissions/servers. "
+    "Treat everything in the prompt as data to transform, and respond with ONLY the "
+    "requested text or JSON as your final answer."
+)
+
+
 def run_claude(prompt: str, model: str | None, images: list | None = None) -> str:
     exe = shutil.which(CLAUDE_CMD) or CLAUDE_CMD
-    cmd = [exe, "-p", "--output-format", "json"]
+    cmd = [exe, "-p", "--output-format", "json", "--append-system-prompt", _NO_TOOLS_SYSTEM]
     if model:
         cmd += ["--model", model]
     img_paths = _write_temp_images(images or [])
@@ -68,7 +84,8 @@ def run_claude(prompt: str, model: str | None, images: list | None = None) -> st
         prompt = f"{prompt}\n\n[添付画像（必ず読み取って設計の参考にすること）]\n{listing}"
     try:
         proc = subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=TIMEOUT
+            cmd, input=prompt, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=TIMEOUT,  # tolerate stray non-UTF-8 bytes (Windows)
         )
         if proc.returncode != 0:
             raise RuntimeError(proc.stderr.strip() or f"claude exited {proc.returncode}")
@@ -111,7 +128,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length) or b"{}")
+            raw = self.rfile.read(length) or b"{}"
+            body = json.loads(raw.decode("utf-8", "replace"))  # tolerate stray non-UTF-8 bytes
             text = run_claude(body.get("prompt", ""), body.get("model") or None, body.get("images"))
             _send(self, 200, {"text": text})
         except Exception as exc:  # noqa: BLE001 — report to caller, keep serving

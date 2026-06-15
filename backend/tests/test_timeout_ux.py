@@ -43,3 +43,6 @@ def test_status_query_detected():
     assert service.is_status_query("進捗どう？")
     assert service.is_status_query("確認結果の報告をして")
     assert not service.is_status_query("状況を管理するアプリを作って")  # build, not a query
+    # Strong phrases are detected even in a longer sentence (the bug we just hit).
+    assert service.is_status_query("パイプライン状況APIを利用してください。利用できない場合は状況を報告してください")
+    assert service.is_status_query("いま論文解説アプリの改修はどうなってるか教えて")
