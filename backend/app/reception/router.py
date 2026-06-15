@@ -150,6 +150,12 @@ def post_message(body: MessageIn) -> ReceptionReply:
         if service.is_cancel(body.text):
             service.clear_flow(body.project_id)
             reply_text = "承知しました。依頼を取りやめました。新しいご依頼をどうぞ。"
+        elif flow.get("template") and service.is_scratch(body.text):
+            # A default was offered but the user wants it built from scratch.
+            res = service.decline_template(body.project_id)
+            building = bool(res.get("building"))
+            reply_text = "承知しました。デフォルトは使わず、一から設計します。" + (
+                "\n進捗はこの画面に表示されます。" if building else "")
         elif service.is_plan_ok(body.text):
             allowed, count = service.guard_run(body.project_id)
             if not allowed:

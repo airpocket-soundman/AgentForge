@@ -212,6 +212,18 @@ _STATUS_STRONG = (
 )
 
 
+_SCRATCH_KEYWORDS = ("一から", "1から", "ゼロから", "0から", "スクラッチ", "自分で作", "独自に",
+                     "テンプレ使わ", "テンプレートは使わ", "デフォルト使わ", "デフォルトはいらない",
+                     "デフォルトではなく", "使わずに", "カスタムで", "新規に設計")
+
+
+def is_scratch(text: str) -> bool:
+    """At the confirm stage with a default offered: the user wants it built from
+    scratch (decline the default) rather than starting from the template."""
+    t = _normalize_short(text)
+    return any(k in t for k in _SCRATCH_KEYWORDS)
+
+
 def is_status_query(text: str) -> bool:
     t = text.strip()
     # A build/edit instruction that merely mentions 状況 etc. is NOT a status query.
@@ -630,16 +642,18 @@ def _handle_request_worker(
 def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
                    images: list[dict] | None = None) -> None:
     conversation_id = conversation_id_for(project_id)
-    from app import templates
+    from app.orchestrator import service as orchestrator
 
-    # A new-feature request that matches a default template can be deployed from
-    # that default (fast, no LLM) and improved from there — note it in the confirm.
-    tkey = templates.match_template(goal) if action == "create" else None
+    # The ORCHESTRATOR judges whether a finished DEFAULT app fits this request; if so
+    # the Receptor asks the user whether to start from that default (vs from scratch).
+    judged = orchestrator.judge_template(goal) if action == "create" else {"template": None}
+    tkey = judged.get("template")
     restate = _confirm_restatement(project_id, action, feature, goal)
     if tkey:
-        ttitle = (templates.get_template(tkey) or {}).get("title", tkey)
-        restate += (f"\n\n💡 「{ttitle}」は**デフォルトのテンプレート**からすぐ用意できます"
-                    "（土台を出して、そこから改良するのが簡単です）。「お願い」で展開します。")
+        restate += (f"\n\n💡 ご要望には、用意済みの**デフォルト「{judged.get('title') or tkey}」**が土台に使えそうです"
+                    "（動く土台から改良するのが簡単です）。\n"
+                    "・このデフォルトでよければ「**お願い**」\n"
+                    "・一から設計してほしいときは「**一から**」とお送りください。")
     # Keep attachments with the pending request so they survive to dispatch.
     _set_flow(conversation_id, stage=_STAGE_CONFIRM, mode=action, goal=goal, feature=feature)
     if tkey:
@@ -714,6 +728,14 @@ def dispatch_confirmed(project_id: str) -> dict:
         start_plan(project_id, instruction, images=images)
     return {"reply": "承知しました。制作チーム（Orchestrator）に依頼しました。進捗はこの画面に表示されます。",
             "building": True}
+
+
+def decline_template(project_id: str) -> dict:
+    """User declined the offered default at confirm → generate from scratch (LLM)."""
+    get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).set(
+        {"flow": {"template": ""}}, merge=True  # falsy ⇒ dispatch_confirmed uses start_plan
+    )
+    return dispatch_confirmed(project_id)
 
 
 def deploy_template(project_id: str, key: str, goal: str) -> dict:

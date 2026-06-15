@@ -42,3 +42,17 @@ def test_matcher_returns_none_for_unrelated():
 def test_catalogue_has_no_html():
     cat = templates.list_templates()
     assert len(cat) == 6 and all("html" not in c for c in cat)
+
+
+def test_judge_template_keyword_fallback():
+    # No LLM in tests → judge_template falls back to the keyword matcher.
+    from app.orchestrator import service as orch
+    assert orch.judge_template("電卓を作って")["template"] == "calculator"
+    assert orch.judge_template("在庫管理を作って")["template"] is None
+
+
+def test_is_scratch_detector():
+    from app.reception import service as rsvc
+    assert rsvc.is_scratch("一から作って")
+    assert rsvc.is_scratch("デフォルトではなく自分で作りたい")
+    assert not rsvc.is_scratch("お願い")

@@ -39,6 +39,12 @@ def list_templates() -> list[dict]:
              "theme": m["theme"]} for m in TEMPLATES.values()]
 
 
+def catalogue_text() -> str:
+    """One-line-per-template summary for injecting into Orchestrator prompts, so the
+    designer KNOWS which proven defaults exist and can build on them."""
+    return "\n".join(f"- {m['feature']}（{m['title']}）: {m['description']}" for m in TEMPLATES.values())
+
+
 def match_template(goal: str) -> str | None:
     """Return the template key whose keywords appear in `goal`, else None."""
     t = (goal or "").lower()

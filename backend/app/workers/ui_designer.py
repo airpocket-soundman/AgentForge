@@ -78,6 +78,13 @@ html の要件（重要）:
 - **チャットUI・メッセージ入力欄・AIアシスタント欄を html 内に作らない。** 専門ワーカーとの対話は、
   画面下部に別パネル（アプリチャット）としてアプリの外側に用意される。アプリ表示エリアにチャットを
   重複させないこと（成果物はアプリの中身だけ。会話UIは含めない）。
+- 複数画面・複数タブ・詳細画面など、1つのアプリ内に複数の作業文脈がある場合は、画面遷移時に必ず
+  `AF.setChatContext("screen-or-object-id", "表示名")` を呼ぶ。専門ワーカーの会話履歴は
+  アプリ(feature)ごと、さらにこの context ごとに分割保存される。例:
+    一覧画面 `AF.setChatContext("list", "一覧")`
+    設定画面 `AF.setChatContext("settings", "設定")`
+    レコード詳細 `AF.setChatContext("detail_"+id, title)`
+  画面が1つだけのアプリは呼ばなくてよく、既定の `default` コンテキストを使う。
 - 下部のアプリチャット欄は既定で表示される。**ユーザーが「この画面ではチャット欄を出さない」等、
   画面単位の表示/非表示を指定した場合**は、その画面への遷移時に `AF.setChatVisible(false)`、
   戻る時に `AF.setChatVisible(true)` を呼ぶ（ワーカー自体は常にアプリに1つ付いたまま。
@@ -149,9 +156,14 @@ def plan_feature(
     llm = get_llm()
     if llm.enabled:
         try:
+            from app import templates
+
             parts = [
                 agents.load("ui_designer"),
                 agents.policy(),
+                "完成済みの『デフォルトテンプレート』が次のとおり存在する。要求がこれらに当てはまる/近い場合は、"
+                "ゼロから考えず、その実績ある構成を土台に設計する（基本機能は踏襲し、要求の差分だけ上乗せ）:\n"
+                + templates.catalogue_text(),
                 f"ユーザー要求: {goal}",
             ]
             if previous and feedback:

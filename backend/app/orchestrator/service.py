@@ -28,6 +28,41 @@ _FEATURE_KEYWORDS = {
 }
 
 
+def judge_template(goal: str) -> dict:
+    """Orchestrator's judgement: does a finished DEFAULT template fit this request?
+
+    Returns {"template": <feature|None>, "title": <str|None>}. The Receptor then
+    asks the user whether to start from that default. LLM-judged over the
+    catalogue (so it's semantic, not just keyword); deterministic keyword fallback
+    when no model is reachable."""
+    from app import templates
+
+    cat = templates.TEMPLATES
+    llm = get_llm()
+    if llm.enabled:
+        try:
+            prompt = (
+                "次のユーザー要求に対し、用意済みの『デフォルトアプリ』のうち土台として使えるものが"
+                "あるか判断してください。要求の核がそのデフォルトで満たせる（多少の改良前提でよい）なら"
+                "その feature を、当てはまる定番が無ければ空にする。\n"
+                f"デフォルト一覧:\n{templates.catalogue_text()}\n\n"
+                f"ユーザー要求: {goal}\n\n"
+                'JSONのみ: {"template":"<featureまたは空>","reason":"<一言>"}'
+            )
+            raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+            if raw.startswith("```"):
+                raw = raw.strip("`").split("\n", 1)[-1]
+            key = (json.loads(raw).get("template") or "").strip()
+            if key in cat:
+                return {"template": key, "title": cat[key]["title"]}
+            if not key:
+                return {"template": None, "title": None}
+        except Exception:  # noqa: BLE001 — fall back to keyword match
+            pass
+    key = templates.match_template(goal)
+    return {"template": key, "title": cat[key]["title"] if key else None}
+
+
 def infer_feature(goal: str) -> str:
     lowered = goal.lower()
     for feature, kws in _FEATURE_KEYWORDS.items():
