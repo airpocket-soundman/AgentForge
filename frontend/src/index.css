@@ -145,16 +145,43 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .status-table th { color: var(--gv-muted); font-weight: 600; }
 .status-goal { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.body { flex: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 0; }
+.body { flex: 1; display: flex; min-height: 0; }
 
-/* ---- Sidebar (fixed chrome) ---- */
+/* ---- Sidebar (drag-resizable / collapsible; width set inline) ---- */
 .sidebar {
+  flex: 0 0 auto;
   background: #f6f7fc;
-  border-right: 1px solid #e1e2ee;
   padding: 14px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.main { flex: 1 1 0; }
+
+/* Draggable divider between the feature list and the app area, with a collapse tab. */
+.nav-divider {
+  flex: 0 0 6px; position: relative; cursor: col-resize; touch-action: none;
+  background: #f6f7fc; border-right: 1px solid #e1e2ee;
+}
+.nav-divider::before {
+  content: ""; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 4px; height: 40px; border-radius: 2px; background: #cdd0e0;
+}
+.nav-divider:hover::before, .nav-divider:active::before { background: #6366f1; }
+.nav-collapse, .nav-open {
+  border: 1px solid #d8dae8; background: #fff; color: #555; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; padding: 0;
+  font-size: 16px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.12); z-index: 5;
+}
+.nav-collapse:hover, .nav-open:hover { border-color: #6366f1; color: #6366f1; }
+.nav-collapse {                          /* straddles the divider */
+  position: absolute; top: 12px; left: -9px; width: 18px; height: 30px; border-radius: 6px;
+}
+.nav-open {                              /* collapsed: thin full-height open tab on the left edge */
+  flex: 0 0 16px; align-self: stretch; border-top: 0; border-bottom: 0; border-left: 0;
+  border-right: 1px solid #e1e2ee; background: #f6f7fc; border-radius: 0;
 }
 .sidebar__label { font-size: 11px; color: #9a9ab0; padding: 4px 8px; letter-spacing: 0.05em; }
 .navitem {

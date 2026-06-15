@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { disableFeature, getFeatureStates, getMe, resetAll, stopAllWorkers, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
@@ -23,6 +23,32 @@ export function AppShell({ user }: { user: User | null }) {
   const [prevView, setPrevView] = useState<View>({ kind: "chat" });
   const [denied, setDenied] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+
+  // Resizable / collapsible feature-list sidebar (persisted across reloads).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const draggingNav = useRef(false);
+  const [navW, setNavW] = useState<number>(() => {
+    const v = parseFloat(localStorage.getItem("af_nav_w") || "");
+    return isFinite(v) && v >= 160 && v <= 480 ? v : 240;
+  });
+  const [navOpen, setNavOpen] = useState<boolean>(() => localStorage.getItem("af_nav_open") !== "0");
+  useEffect(() => { localStorage.setItem("af_nav_w", String(navW)); }, [navW]);
+  useEffect(() => { localStorage.setItem("af_nav_open", navOpen ? "1" : "0"); }, [navOpen]);
+
+  function onNavDragStart(e: React.PointerEvent) {
+    e.preventDefault();
+    draggingNav.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onNavDragMove(e: React.PointerEvent) {
+    if (!draggingNav.current || !bodyRef.current) return;
+    const left = bodyRef.current.getBoundingClientRect().left;
+    setNavW(Math.max(160, Math.min(480, e.clientX - left)));
+  }
+  function onNavDragEnd(e: React.PointerEvent) {
+    draggingNav.current = false;
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
 
   function loadStates() {
     return getFeatureStates()
@@ -160,26 +186,58 @@ export function AppShell({ user }: { user: User | null }) {
         {!isFirebaseConfigured() && <span className="topbar__user">（ローカル: 認証なし）</span>}
       </header>
 
-      <div className="body">
-        <nav className="sidebar">
-          <div className="sidebar__label">機能</div>
-          <button
-            className={view.kind === "chat" ? "navitem navitem--active" : "navitem"}
-            onClick={() => setView({ kind: "chat" })}
-          >
-            💬 メインチャット
-          </button>
-          {activeFeatures.map((f) => (
-            <button key={f} className={navActive(f) ? "navitem navitem--active" : "navitem"} onClick={() => goFeature(f)}>
-              {iconOf(f)} {titleOf(f)}
-            </button>
-          ))}
-          {activeFeatures.length === 0 && (
-            <div className="sidebar__hint">
-              メインチャットで「タスク管理を追加して」→「反映して」で機能が増えます。
+      <div className="body" ref={bodyRef}>
+        {navOpen ? (
+          <>
+            <nav className="sidebar" style={{ width: navW }}>
+              <div className="sidebar__label">機能</div>
+              <button
+                className={view.kind === "chat" ? "navitem navitem--active" : "navitem"}
+                onClick={() => setView({ kind: "chat" })}
+              >
+                💬 メインチャット
+              </button>
+              {activeFeatures.map((f) => (
+                <button key={f} className={navActive(f) ? "navitem navitem--active" : "navitem"} onClick={() => goFeature(f)}>
+                  {iconOf(f)} {titleOf(f)}
+                </button>
+              ))}
+              {activeFeatures.length === 0 && (
+                <div className="sidebar__hint">
+                  メインチャットで「タスク管理を追加して」→「反映して」で機能が増えます。
+                </div>
+              )}
+            </nav>
+            <div
+              className="nav-divider"
+              role="separator"
+              aria-orientation="vertical"
+              title="ドラッグで機能リストの幅を調整"
+              onPointerDown={onNavDragStart}
+              onPointerMove={onNavDragMove}
+              onPointerUp={onNavDragEnd}
+            >
+              <button
+                className="nav-collapse"
+                title="機能リストを閉じる"
+                aria-label="機能リストを閉じる"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => setNavOpen(false)}
+              >
+                ‹
+              </button>
             </div>
-          )}
-        </nav>
+          </>
+        ) : (
+          <button
+            className="nav-open"
+            title="機能リストを開く"
+            aria-label="機能リストを開く"
+            onClick={() => setNavOpen(true)}
+          >
+            ›
+          </button>
+        )}
 
         <main className="main" data-theme={mainTheme}>
           {/* ChatView stays MOUNTED across navigation (hidden, not unmounted) so a
