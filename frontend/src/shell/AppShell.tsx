@@ -29,7 +29,7 @@ export function AppShell({ user }: { user: User | null }) {
   const draggingNav = useRef(false);
   const [navW, setNavW] = useState<number>(() => {
     const v = parseFloat(localStorage.getItem("af_nav_w") || "");
-    return isFinite(v) && v >= 160 && v <= 480 ? v : 240;
+    return isFinite(v) && v >= 90 && v <= 720 ? v : 240;
   });
   const [navOpen, setNavOpen] = useState<boolean>(() => localStorage.getItem("af_nav_open") !== "0");
   useEffect(() => { localStorage.setItem("af_nav_w", String(navW)); }, [navW]);
@@ -42,8 +42,11 @@ export function AppShell({ user }: { user: User | null }) {
   }
   function onNavDragMove(e: React.PointerEvent) {
     if (!draggingNav.current || !bodyRef.current) return;
-    const left = bodyRef.current.getBoundingClientRect().left;
-    setNavW(Math.max(160, Math.min(480, e.clientX - left)));
+    const rect = bodyRef.current.getBoundingClientRect();
+    // Wide range: as narrow as 90px, up to 80% of the window (max 720px) — but
+    // always leave room for the app area.
+    const hi = Math.min(720, rect.width - 280);
+    setNavW(Math.max(90, Math.min(hi, e.clientX - rect.left)));
   }
   function onNavDragEnd(e: React.PointerEvent) {
     draggingNav.current = false;
