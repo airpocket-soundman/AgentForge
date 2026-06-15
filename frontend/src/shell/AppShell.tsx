@@ -29,7 +29,7 @@ export function AppShell({ user }: { user: User | null }) {
   const draggingNav = useRef(false);
   const [navW, setNavW] = useState<number>(() => {
     const v = parseFloat(localStorage.getItem("af_nav_w") || "");
-    return isFinite(v) && v >= 90 && v <= 720 ? v : 240;
+    return isFinite(v) && v >= 120 && v <= 2000 ? v : 240;
   });
   const [navOpen, setNavOpen] = useState<boolean>(() => localStorage.getItem("af_nav_open") !== "0");
   useEffect(() => { localStorage.setItem("af_nav_w", String(navW)); }, [navW]);
@@ -43,10 +43,16 @@ export function AppShell({ user }: { user: User | null }) {
   function onNavDragMove(e: React.PointerEvent) {
     if (!draggingNav.current || !bodyRef.current) return;
     const rect = bodyRef.current.getBoundingClientRect();
-    // Wide range: as narrow as 90px, up to 80% of the window (max 720px) — but
-    // always leave room for the app area.
-    const hi = Math.min(720, rect.width - 280);
-    setNavW(Math.max(90, Math.min(hi, e.clientX - rect.left)));
+    const w = e.clientX - rect.left;
+    // Drag all the way in → collapse to 0 (reopen with the › tab). Otherwise the
+    // sidebar can grow almost to the full window width (leave a sliver for the app).
+    if (w < 48) {
+      draggingNav.current = false;
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      setNavOpen(false);
+      return;
+    }
+    setNavW(Math.max(120, Math.min(rect.width - 80, w)));
   }
   function onNavDragEnd(e: React.PointerEvent) {
     draggingNav.current = false;
