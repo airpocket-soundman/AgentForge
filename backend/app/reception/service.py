@@ -630,9 +630,22 @@ def _handle_request_worker(
 def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
                    images: list[dict] | None = None) -> None:
     conversation_id = conversation_id_for(project_id)
+    from app import templates
+
+    # A new-feature request that matches a default template can be deployed from
+    # that default (fast, no LLM) and improved from there — note it in the confirm.
+    tkey = templates.match_template(goal) if action == "create" else None
     restate = _confirm_restatement(project_id, action, feature, goal)
+    if tkey:
+        ttitle = (templates.get_template(tkey) or {}).get("title", tkey)
+        restate += (f"\n\n💡 「{ttitle}」は**デフォルトのテンプレート**からすぐ用意できます"
+                    "（土台を出して、そこから改良するのが簡単です）。「お願い」で展開します。")
     # Keep attachments with the pending request so they survive to dispatch.
     _set_flow(conversation_id, stage=_STAGE_CONFIRM, mode=action, goal=goal, feature=feature)
+    if tkey:
+        get_db().collection(_COLLECTION).document(conversation_id).set(
+            {"flow": {"template": tkey}}, merge=True
+        )
     if images:
         get_db().collection(_COLLECTION).document(conversation_id).set(
             {"flow": {"pending_images": images}}, merge=True
@@ -680,20 +693,59 @@ def _confirm_restatement(project_id: str, action: str, feature: str | None, goal
 
 
 def dispatch_confirmed(project_id: str) -> dict:
-    """Dispatch the confirmed request to the Orchestrator (called on the user's OK
-    at the confirm stage). Returns {"action", "feature"}."""
+    """Dispatch the confirmed request (called on the user's OK at confirm).
+
+    Returns {"reply", "building"} for the router. A matched default template is
+    deployed deterministically (no LLM) as a preview; otherwise the request goes
+    to the Orchestrator (plan for new, edit for existing)."""
     flow = get_flow(project_id)
     action = flow.get("mode")
     feature = flow.get("feature")
     instruction = flow.get("goal") or ""
+    tkey = flow.get("template")
     snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
     images = ((snap.to_dict() or {}).get("flow") or {}).get("pending_images") if snap.exists else None
+    if tkey and action == "create":
+        return deploy_template(project_id, tkey, instruction)
     clear_flow(project_id)  # reset; start_* will set the build/flow
     if action == "edit" and feature:
         start_edit(project_id, feature, instruction, images=images)
-        return {"action": "edit", "feature": feature}
-    start_plan(project_id, instruction, images=images)
-    return {"action": "create", "feature": None}
+    else:
+        start_plan(project_id, instruction, images=images)
+    return {"reply": "承知しました。制作チーム（Orchestrator）に依頼しました。進捗はこの画面に表示されます。",
+            "building": True}
+
+
+def deploy_template(project_id: str, key: str, goal: str) -> dict:
+    """Deploy a DEFAULT template as a preview (built candidate) — no LLM. The user
+    publishes with 「反映して」, then improves it via the normal edit pipeline."""
+    from app import templates
+    from app.models.orchestrator import PlanRequest
+    from app.orchestrator import service as orchestrator
+
+    conversation_id = conversation_id_for(project_id)
+    manifest = templates.to_manifest(key)
+    if manifest is None:  # unknown key → fall back to generating from scratch
+        clear_flow(project_id)
+        start_plan(project_id, goal)
+        return {"reply": "テンプレートが見つからなかったため、設計から作ります。", "building": True}
+
+    req = PlanRequest(project_id=project_id, goal=goal)
+    result = orchestrator.register_app(req, manifest)
+    feat = result.plan.feature
+    vsnap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
+    candidate = vsnap.to_dict() if vsnap.exists else manifest.model_dump(mode="json")
+    _set_flow(conversation_id, stage=_STAGE_BUILT, mode="create", goal=goal,
+              feature=feat, approval_id=result.approval_id, candidate=candidate)
+    _set_build(conversation_id, status=_BUILD_DONE)
+    worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
+                                detail="プレビュー公開待ち（「反映して」）")
+    append_message(conversation_id, ChatMessage(role="assistant", text=(
+        f"🧩 デフォルトの「{manifest.title}」を用意しました。下のプレビューで動作を確認できます。\n"
+        "よければ「反映して」で公開し、そのあと『〇〇を変えて』とこの画面で頼めば自由に改良できます。"
+    )))
+    return {"reply": f"デフォルトの「{manifest.title}」を用意しました。下のプレビューをご確認ください。",
+            "building": False}
 
 
 def _receptor_chat(project_id: str, text: str) -> str:

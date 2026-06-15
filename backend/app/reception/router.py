@@ -157,12 +157,11 @@ def post_message(body: MessageIn) -> ReceptionReply:
                     f"短時間に実行が集中しています（直近{count}回）。少し待ってから「お願い」と送ってください。"
                 )
             else:
+                # Deploys a default template (preview, building=False) OR dispatches
+                # to the Orchestrator (building=True) — dispatch_confirmed decides.
                 res = service.dispatch_confirmed(body.project_id)
-                building = True
-                reply_text = (
-                    "承知しました。制作チーム（Orchestrator）に依頼しました。"
-                    "進捗はこの画面に表示されます。"
-                )
+                building = bool(res.get("building"))
+                reply_text = res.get("reply") or "承知しました。"
         else:
             # Anything else = a correction; re-consolidate and re-confirm.
             service.start_confirm_bg(

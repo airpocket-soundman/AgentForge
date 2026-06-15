@@ -1,6 +1,8 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import CurrentUser, current_user
+from app.config import get_settings
 from app.control_plane import approvals, guard, monitor, registry, worker_bus, worker_status
 from app.models.tasks import WorkerToggleIn
 
@@ -76,6 +78,14 @@ def runs(project_id: str = "default", limit: int = 20) -> dict:
     return {"runs": worker_bus.list_runs(project_id, limit)}
 
 
+@router.get("/templates")
+def templates_catalogue() -> dict:
+    """Default mini-app templates available to deploy on request (no html)."""
+    from app import templates
+
+    return {"templates": templates.list_templates()}
+
+
 @router.get("/pipeline-status/{project_id}")
 def pipeline_status(project_id: str) -> dict:
     """Pipeline-status API the Receptor uses to answer 状況照会: current stage, live
@@ -114,6 +124,8 @@ def versions(project_id: str, feature: str) -> dict:
 
 
 @router.post("/reset")
-def reset() -> dict:
-    """DEV ONLY: wipe all app data and return to the initial main-chat-only state."""
+def reset(user: CurrentUser = Depends(current_user)) -> dict:
+    """DEV/admin only: wipe all app data and return to the initial main-chat-only state."""
+    if not get_settings().is_local and not user.is_admin:
+        raise HTTPException(status_code=403, detail="初期化はローカル開発または管理者のみ実行できます")
     return registry.reset_all()
