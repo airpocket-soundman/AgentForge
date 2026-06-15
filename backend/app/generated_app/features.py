@@ -54,6 +54,29 @@ def _worker_enabled(project_id: str, feature: str) -> bool:
     return data.get(feature) == "active" and data.get(f"{feature}_worker", True) is not False
 
 
+_OP_LABEL = {"create": "作成", "update": "更新", "delete": "削除"}
+
+
+def _work_report(command: dict | None, changed: list[dict] | None) -> ChatMessage | None:
+    """A system 'what I did' line for the app chat — posted whenever the Specialist
+    Worker actually operates (tool call or data change). None for pure chat."""
+    if command and command.get("name"):
+        args = command.get("arguments") or {}
+        a = "、".join(f"{k}={str(v)[:30]}" for k, v in list(args.items())[:4])
+        return ChatMessage(role="system",
+                           text=f"🔧 専門ワーカーが操作を実行：「{command['name']}」" + (f"（{a}）" if a else ""))
+    if changed:
+        if all(isinstance(c, dict) and c.get("op") for c in changed):
+            from collections import Counter
+
+            cnt = Counter(c["op"] for c in changed)
+            s = "、".join(f"{_OP_LABEL.get(k, k)}{n}件" for k, n in cnt.items())
+        else:
+            s = f"{len(changed)}件"
+        return ChatMessage(role="system", text=f"🔧 専門ワーカーがデータを変更：{s}")
+    return None
+
+
 def _append(project_id: str, feature: str, *messages: ChatMessage) -> None:
     from google.cloud import firestore  # local import keeps module import cheap
 
@@ -97,7 +120,12 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
         )
 
     reply = ChatMessage(role="assistant", text=reply_text)
-    _append(body.project_id, feature, user_msg, reply)
+    # Transparency (workers.html §運用ルール): the Specialist Worker reports what it
+    # actually did — a system line in the app chat each time it operates — instead of
+    # silently acting (mirrors the main-chat workers' interim progress reports).
+    report = _work_report(command, changed)
+    msgs = [user_msg] + ([report] if report else []) + [reply]
+    _append(body.project_id, feature, *msgs)
     return {
         "reply": reply.model_dump(mode="json"),
         "building": False,
