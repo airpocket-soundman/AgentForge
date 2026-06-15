@@ -158,9 +158,13 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   overflow-y: auto;
   min-height: 0;
 }
+/* Collapsed: zero width, content hidden — but the divider/handle stays put. */
+.sidebar--collapsed { padding: 0; overflow: hidden; }
 .main { flex: 1 1 0; }
 
-/* Draggable divider between the feature list and the app area, with a collapse tab. */
+/* ALWAYS-present divider/handle between the feature list and the app area.
+   It carries the open/close chevron and is the drag grip in BOTH states, so the
+   tab you grabbed to close never disappears. */
 .nav-divider {
   flex: 0 0 6px; position: relative; cursor: col-resize; touch-action: none;
   background: #f6f7fc; border-right: 1px solid #e1e2ee;
@@ -170,19 +174,14 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   width: 4px; height: 40px; border-radius: 2px; background: #cdd0e0;
 }
 .nav-divider:hover::before, .nav-divider:active::before { background: #6366f1; }
-.nav-collapse, .nav-open {
-  border: 1px solid #d8dae8; background: #fff; color: #555; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; padding: 0;
+.nav-toggle {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 30px; border-radius: 6px; padding: 0; cursor: pointer;
+  border: 1px solid #d8dae8; background: #fff; color: #555;
+  display: flex; align-items: center; justify-content: center;
   font-size: 16px; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.12); z-index: 5;
 }
-.nav-collapse:hover, .nav-open:hover { border-color: #6366f1; color: #6366f1; }
-.nav-collapse {                          /* straddles the divider */
-  position: absolute; top: 12px; left: -9px; width: 18px; height: 30px; border-radius: 6px;
-}
-.nav-open {                              /* collapsed: small open tab at the SAME height as ‹ */
-  flex: 0 0 18px; align-self: flex-start; margin: 12px 0 0 4px;
-  width: 18px; height: 30px; border-radius: 6px;
-}
+.nav-toggle:hover { border-color: #6366f1; color: #6366f1; }
 .sidebar__label { font-size: 11px; color: #9a9ab0; padding: 4px 8px; letter-spacing: 0.05em; }
 .navitem {
   text-align: left;

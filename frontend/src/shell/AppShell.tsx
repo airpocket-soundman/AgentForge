@@ -198,56 +198,48 @@ export function AppShell({ user }: { user: User | null }) {
       </header>
 
       <div className="body" ref={bodyRef}>
-        {navOpen ? (
-          <>
-            <nav className="sidebar" style={{ width: navW }}>
-              <div className="sidebar__label">機能</div>
-              <button
-                className={view.kind === "chat" ? "navitem navitem--active" : "navitem"}
-                onClick={() => setView({ kind: "chat" })}
-              >
-                💬 メインチャット
-              </button>
-              {activeFeatures.map((f) => (
-                <button key={f} className={navActive(f) ? "navitem navitem--active" : "navitem"} onClick={() => goFeature(f)}>
-                  {iconOf(f)} {titleOf(f)}
-                </button>
-              ))}
-              {activeFeatures.length === 0 && (
-                <div className="sidebar__hint">
-                  メインチャットで「タスク管理を追加して」→「反映して」で機能が増えます。
-                </div>
-              )}
-            </nav>
-            <div
-              className="nav-divider"
-              role="separator"
-              aria-orientation="vertical"
-              title="ドラッグで機能リストの幅を調整（左端まで引くと閉じる）"
-              onPointerDown={beginNavDrag}
-            >
-              <button
-                className="nav-collapse"
-                title="機能リストを閉じる"
-                aria-label="機能リストを閉じる"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setNavOpen(false)}
-              >
-                ‹
-              </button>
-            </div>
-          </>
-        ) : (
+        {/* The sidebar collapses to width 0 but the divider/handle is ALWAYS
+            rendered — the tab you grabbed to close stays put, so you can drag it
+            straight back open (or click the chevron). */}
+        <nav
+          className={navOpen ? "sidebar" : "sidebar sidebar--collapsed"}
+          style={{ width: navOpen ? navW : 0 }}
+        >
+          <div className="sidebar__label">機能</div>
           <button
-            className="nav-open"
-            title="クリックまたは右へドラッグで機能リストを開く"
-            aria-label="機能リストを開く"
-            onPointerDown={beginNavDrag}
-            onClick={() => { if (!navMovedRef.current) setNavOpen(true); }}
+            className={view.kind === "chat" ? "navitem navitem--active" : "navitem"}
+            onClick={() => setView({ kind: "chat" })}
           >
-            ›
+            💬 メインチャット
           </button>
-        )}
+          {activeFeatures.map((f) => (
+            <button key={f} className={navActive(f) ? "navitem navitem--active" : "navitem"} onClick={() => goFeature(f)}>
+              {iconOf(f)} {titleOf(f)}
+            </button>
+          ))}
+          {activeFeatures.length === 0 && (
+            <div className="sidebar__hint">
+              メインチャットで「タスク管理を追加して」→「反映して」で機能が増えます。
+            </div>
+          )}
+        </nav>
+        <div
+          className="nav-divider"
+          role="separator"
+          aria-orientation="vertical"
+          title="ドラッグで幅調整（左端まで引くと閉じる）／ボタンで開閉"
+          onPointerDown={beginNavDrag}
+        >
+          <button
+            className="nav-toggle"
+            title={navOpen ? "機能リストを閉じる" : "クリックまたは右へドラッグで開く"}
+            aria-label={navOpen ? "機能リストを閉じる" : "機能リストを開く"}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            {navOpen ? "‹" : "›"}
+          </button>
+        </div>
 
         <main className="main" data-theme={mainTheme}>
           {/* ChatView stays MOUNTED across navigation (hidden, not unmounted) so a
