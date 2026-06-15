@@ -565,6 +565,12 @@ def _handle_request_worker(
     # restatement (both call an LLM), so the chat keeps polling and shows the result.
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="receiving", goal=goal,
                started_at=_now_iso(), model=_model_for_phase("planning"), timeout_count=0, prompt_pending=False)
+    # The Receptor is the worker actually doing this phase — show it ACTIVE so the
+    # monitor reflects who's working (not a stale "all stopped"). A prior run's
+    # Orchestrator "公開待ち" detail is now superseded by this new request.
+    worker_status.record_status("Receptor", project_id, worker_status.ACTIVE,
+                                model=_model_for_phase("planning"), detail="依頼を整理中")
+    worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED, detail=None)
     try:
         decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
         action = decision.get("action")
@@ -577,11 +583,13 @@ def _handle_request_worker(
             _start_confirm(project_id, action, feature, pipeline_goal, images=images)
         else:
             append_message(conversation_id, ChatMessage(role="assistant", text=_receptor_chat(project_id, goal)))
+            worker_status.record_status("Receptor", project_id, worker_status.IDLE, detail=None)
     except Exception as exc:  # noqa: BLE001
         append_message(
             conversation_id,
             ChatMessage(role="assistant", text=f"受付の処理中にエラーが発生しました: {str(exc)[:200]}"),
         )
+        worker_status.record_status("Receptor", project_id, worker_status.IDLE, detail=None)
     finally:
         _set_build(conversation_id, status=_BUILD_DONE)
 
@@ -602,6 +610,9 @@ def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
             {"flow": {"pending_images": images}}, merge=True
         )
     append_message(conversation_id, ChatMessage(role="assistant", text=restate))
+    # The Receptor is now waiting on the user's OK — show that in the monitor.
+    worker_status.record_status("Receptor", project_id, worker_status.IDLE,
+                                detail="依頼内容の確認待ち（「お願い」）")
 
 
 def start_confirm_bg(project_id: str, action: str, feature: str | None, goal: str) -> None:

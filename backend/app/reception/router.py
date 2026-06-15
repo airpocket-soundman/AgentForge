@@ -110,6 +110,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
     activated_feature: str | None = None
     disabled_feature: str | None = None
     building = False
+    dispatched_bg = False  # set when the substantive request is handed to the bg worker
 
     # === Worker chat (app chat) on/off — a deterministic feature-level toggle ===
     # Handle it directly (Receptor, light): no Orchestrator / no codegen. Works
@@ -265,11 +266,16 @@ def post_message(body: MessageIn) -> ReceptionReply:
         # (build) or a conversational reply (chat).
         service.handle_request_bg(body.project_id, goal_text, images=images)
         building = True
+        dispatched_bg = True
         reply_text = "受け付けました。内容を確認して進めます。"
 
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
     service.append_message(conversation_id, assistant_msg)
-    worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)  # back to waiting
+    # Don't flip Receptor to idle here when we handed off to the background worker:
+    # that worker now OWNS the Receptor status (active while 整理中 → idle at confirm),
+    # and racing it back to idle would hide the work in the monitor.
+    if not dispatched_bg:
+        worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)
 
     return ReceptionReply(
         conversation_id=conversation_id,
