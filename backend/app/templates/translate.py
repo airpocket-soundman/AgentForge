@@ -68,7 +68,7 @@ h2{font-size:14px;margin:16px 2px 4px;color:var(--ac)}
   var srcEl=document.getElementById('src'),outEl=document.getElementById('out'),pbEl=document.getElementById('pb');
   var fromEl=document.getElementById('from'),toEl=document.getElementById('to'),statusEl=document.getElementById('status');
   var goEl=document.getElementById('go'),thumb=document.getElementById('thumb'),thumbimg=document.getElementById('thumbimg');
-  function save(){AF.save({book:book,from:fromEl.value,to:toEl.value});}
+  function save(){AF.save({book:book,from:fromEl.value,to:toEl.value,src:srcEl.value,out:(outEl.textContent||'')});}
   function renderBook(){pbEl.innerHTML='';book.forEach(function(p,i){
     var li=document.createElement('li');
     li.innerHTML='<span class="src"></span><span class="dst"></span><button class="x">×</button>';
@@ -109,14 +109,14 @@ h2{font-size:14px;margin:16px 2px 4px;color:var(--ac)}
   srcEl.addEventListener('input',save);fromEl.onchange=save;toEl.onchange=save;
   // Specialist Worker → app content tools
   window.applyAgentCommand=function(name,args){args=args||{};
-    if(name==='set_translation'){outEl.textContent=args.text||'';statusEl.textContent='';}
+    if(name==='set_translation'){outEl.textContent=args.text||'';statusEl.textContent='';save();}
     else if(name==='set_source'){srcEl.value=args.text||'';}
     else if(name==='set_languages'){if(args.from)fromEl.value=args.from;if(args.to)toEl.value=args.to;save();}
     else if(name==='save_phrase'){if(args.src&&args.dst){book.unshift({src:args.src,dst:args.dst});save();renderBook();}}
   };
   // This default has its own translate button → hide the app-chat panel.
   try{AF.setChatVisible(false);}catch(_){}
-  (async function(){var s=await AF.load();if(s){if(Array.isArray(s.book))book=s.book;if(s.from)fromEl.value=s.from;if(s.to)toEl.value=s.to;}renderBook();})();
+  (async function(){var s=await AF.load();if(s){if(Array.isArray(s.book))book=s.book;if(s.from)fromEl.value=s.from;if(s.to)toEl.value=s.to;if(s.src)srcEl.value=s.src;if(s.out)outEl.textContent=s.out;}renderBook();})();
 })();
 </script></body></html>"""
 

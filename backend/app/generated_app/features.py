@@ -141,18 +141,30 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
     images = [{"mime": a.mime or "image/png", "data": a.content}
               for a in body.attachments if getattr(a, "kind", "") == "image" and a.content][:4]
 
+    # Show the Specialist Worker as ACTIVE in the status monitor while it works,
+    # and always release it afterwards — its work continues server-side regardless
+    # of the user navigating away (the HTTP call completes independently of the UI).
+    from app.control_plane import worker_status
+    from app.llm.gateway import ModelTier, model_label
+
+    title = _manifest(body.project_id, feature).get("title") or feature
+    worker_status.record_status("Specialist Worker", body.project_id, worker_status.ACTIVE,
+                                model=model_label(ModelTier.FLASH), detail=f"「{title}」を操作中")
     command: dict | None = None
-    # The `task` feature keeps its deterministic create-tasks operation (content op).
-    if feature == "task":
-        reply_text, changed = _respond_task(body.project_id, body.text, history)
-    else:
-        # Content-only: operate on this feature's data/objects. NEVER forwards to the
-        # design pipeline — structural changes are redirected to the main chat.
-        # For app-kind features, returns a `command` for the running app to execute.
-        reply_text, changed, command = _respond_content(
-            body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
-            images=images,
-        )
+    try:
+        # The `task` feature keeps its deterministic create-tasks operation (content op).
+        if feature == "task":
+            reply_text, changed = _respond_task(body.project_id, body.text, history)
+        else:
+            # Content-only: operate on this feature's data/objects. NEVER forwards to the
+            # design pipeline — structural changes are redirected to the main chat.
+            # For app-kind features, returns a `command` for the running app to execute.
+            reply_text, changed, command = _respond_content(
+                body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
+                images=images,
+            )
+    finally:
+        worker_status.record_status("Specialist Worker", body.project_id, worker_status.STOPPED, detail=None)
 
     reply = ChatMessage(role="assistant", text=reply_text)
     # Transparency (workers.html §運用ルール): the Specialist Worker reports what it
