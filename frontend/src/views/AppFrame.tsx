@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { getAppState, setAppState } from "../api";
+import { getAppState, sendFeatureWorkerMessage, setAppState, type Attachment } from "../api";
 
 // --- Browser-local binary store (IndexedDB) for AF.saveBlob/loadBlob ----------
 // Large files (PDFs, images) can't go in AF.save: that whole-state blob is a
@@ -55,12 +55,14 @@ async function blobList(feature: string): Promise<string[]> {
 // tiny `AF` bridge so apps can persist their whole-state blob over postMessage:
 //   const s = await AF.load();  await AF.save(s);
 // `live=false` (chat preview) keeps persistence in-memory only.
-const AF_PRELUDE = `<script>
+const AF_PRELUDE = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"><script>
 (function(){
   var pending={}, seq=0;
   function req(op,payload){return new Promise(function(res){var id=++seq;pending[id]=res;parent.postMessage({__af:true,id:id,op:op,payload:payload},'*');});}
   // setChatVisible(bool): show/hide the app-chat panel (the shell renders it
   // outside the app). Per-SCREEN control — call it when navigating screens.
+  // setChatContext(id,label): split the specialist worker's memory/thread by
+  // screen or local work context. Call it when navigating between app screens.
   // saveBlob/loadBlob/listBlobs/deleteBlob: large files (PDF/image data URL or
   // base64 string) kept in the BROWSER (IndexedDB via the shell) — NOT in AF.save
   // (that state has a ~1MB cap). Per-device: loadBlob may return null on another
@@ -69,10 +71,15 @@ const AF_PRELUDE = `<script>
     load:function(){return req('load');},
     save:function(s){return req('save',s);},
     setChatVisible:function(v){parent.postMessage({__af_chat:!!v},'*');},
+    setChatContext:function(id,label){parent.postMessage({__af_chat_context:{id:String(id||'default'),label:label?String(label):null}},'*');},
     saveBlob:function(name,data){return req('blob_save',{name:name,data:data});},
     loadBlob:function(name){return req('blob_load',{name:name});},
     listBlobs:function(){return req('blob_list');},
-    deleteBlob:function(name){return req('blob_delete',{name:name});}
+    deleteBlob:function(name){return req('blob_delete',{name:name});},
+    // askWorker(text,{images}): let the APP itself invoke its Specialist Worker
+    // (e.g. a 翻訳 button) — images are data: URLs. Returns {reply,command}; any
+    // returned content command is also dispatched to applyAgentCommand.
+    askWorker:function(text,opts){opts=opts||{};return req('ask_worker',{text:String(text||''),images:(opts.images||[])});}
   };
   window.addEventListener('message',function(e){var d=e.data;if(!d||!d.__af_reply)return;var cb=pending[d.id];if(cb){delete pending[d.id];cb(d.result);}});
   try{var __ls=window.localStorage;__ls.setItem('__af_probe','1');__ls.removeItem('__af_probe');}catch(_){var m={};try{Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:function(k){return Object.prototype.hasOwnProperty.call(m,k)?m[k]:null;},setItem:function(k,v){m[k]=String(v);},removeItem:function(k){delete m[k];},clear:function(){m={};},key:function(i){return Object.keys(m)[i]||null;},get length(){return Object.keys(m).length;}}});}catch(__){}}
@@ -104,6 +111,7 @@ export function AppFrame({
   live = true,
   command,
   onChatVisible,
+  onChatContext,
 }: {
   html: string;
   feature: string;
@@ -111,6 +119,7 @@ export function AppFrame({
   live?: boolean;
   command?: AgentCommand | null;
   onChatVisible?: (visible: boolean) => void;
+  onChatContext?: (context: { id: string; label?: string | null }) => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -135,14 +144,43 @@ export function AppFrame({
         onChatVisible?.(!!d.__af_chat); // per-screen app-chat visibility signal
         return;
       }
+      if (d && (d as { __af_chat_context?: unknown }).__af_chat_context) {
+        const ctx = (d as { __af_chat_context: { id?: unknown; label?: unknown } }).__af_chat_context;
+        onChatContext?.({
+          id: String(ctx.id || "default"),
+          label: ctx.label == null ? null : String(ctx.label),
+        });
+        return;
+      }
       if (!d || !d.__af) return;
       const reply = (result: unknown) =>
         fr.contentWindow?.postMessage({ __af_reply: true, id: d.id, result }, "*");
       const bp = (d.payload as { name?: string; data?: unknown }) || {};
       const bname = String(bp.name ?? "");
       if (!live) {
-        // Preview: don't persist (feature isn't published). load/list → empty.
+        // Preview: feature isn't published yet. load/list → empty; askWorker n/a.
+        if (d.op === "ask_worker") { reply({ reply: "（プレビューでは実行できません。公開後にお使いください）", command: null }); return; }
         reply(d.op === "load" || d.op === "blob_load" ? null : d.op === "blob_list" ? [] : true);
+        return;
+      }
+      if (d.op === "ask_worker") {
+        // The app invokes its OWN Specialist Worker (e.g. a 翻訳 button). Images are
+        // data: URLs → Attachment(kind=image, base64). Dispatch any returned command.
+        const p = (d.payload as { text?: string; images?: string[] }) || {};
+        const atts: Attachment[] = (p.images || []).slice(0, 4).map((u, i) => {
+          const mt = (/^data:([^;]+);base64,/.exec(u) || [])[1] || "image/png";
+          const b64 = u.includes(",") ? u.slice(u.indexOf(",") + 1) : u;
+          return { name: `img${i}.${(mt.split("/")[1] || "png")}`, mime: mt, kind: "image", content: b64 };
+        });
+        sendFeatureWorkerMessage(feature, p.text || "", atts)
+          .then((res) => {
+            if (res.command?.name) {
+              fr.contentWindow?.postMessage(
+                { __af_cmd: true, name: res.command.name, args: res.command.arguments ?? {} }, "*");
+            }
+            reply({ reply: res.reply?.text ?? "", command: res.command ?? null });
+          })
+          .catch(() => reply({ reply: "実行に失敗しました。少し待って再度お試しください。", command: null }));
         return;
       }
       if (d.op === "load") {
@@ -161,7 +199,7 @@ export function AppFrame({
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [feature, live, onChatVisible]);
+  }, [feature, live, onChatContext, onChatVisible]);
 
   return (
     <iframe

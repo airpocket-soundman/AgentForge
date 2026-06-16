@@ -10,12 +10,14 @@ change, it DETECTS it and FORWARDS the request to the main chat pipeline
 (Receptor → Orchestrator) so the user doesn't have to re-ask (spec G3) — a feature
 never restructures itself directly, but the request isn't dropped either.
 
-Conversation is stored in feature_chats/{project}_{feature}. The worker can be
-turned off per feature (feature_states.{feature}_worker = false).
+Conversation is stored per app + screen/context in
+feature_chats/{project}_{feature}_{context}. The worker can be turned off per
+feature (feature_states.{feature}_worker = false).
 """
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -31,14 +33,24 @@ from app.models.tasks import FeatureWorkerIn, Task
 router = APIRouter(prefix="/api/app/features", tags=["generated-app:feature-worker"])
 
 _VIEWS = "generated_views"
+_DEFAULT_CONTEXT = "default"
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _chat_ref(project_id: str, feature: str):
-    return get_db().collection("feature_chats").document(f"{project_id}_{feature}")
+def _context_id(raw: str | None) -> str:
+    ctx = re.sub(r"[^a-zA-Z0-9_-]+", "_", (raw or _DEFAULT_CONTEXT).strip()).strip("_")
+    return (ctx or _DEFAULT_CONTEXT)[:80]
+
+
+def _chat_doc_id(project_id: str, feature: str, context_id: str | None = None) -> str:
+    return f"{project_id}_{feature}_{_context_id(context_id)}"
+
+
+def _chat_ref(project_id: str, feature: str, context_id: str | None = None):
+    return get_db().collection("feature_chats").document(_chat_doc_id(project_id, feature, context_id))
 
 
 def _manifest(project_id: str, feature: str) -> dict:
@@ -77,11 +89,22 @@ def _work_report(command: dict | None, changed: list[dict] | None) -> ChatMessag
     return None
 
 
-def _append(project_id: str, feature: str, *messages: ChatMessage) -> None:
+def _append(
+    project_id: str,
+    feature: str,
+    context_id: str | None,
+    context_label: str | None,
+    *messages: ChatMessage,
+) -> None:
     from google.cloud import firestore  # local import keeps module import cheap
 
-    _chat_ref(project_id, feature).set(
+    ctx = _context_id(context_id)
+    _chat_ref(project_id, feature, ctx).set(
         {
+            "project_id": project_id,
+            "feature": feature,
+            "context_id": ctx,
+            "context_label": context_label or ctx,
             "messages": firestore.ArrayUnion([m.model_dump(mode="json") for m in messages]),
             "updated_at": _now_iso(),
         },
@@ -90,11 +113,17 @@ def _append(project_id: str, feature: str, *messages: ChatMessage) -> None:
 
 
 @router.get("/{feature}/worker")
-def get_worker(feature: str, project_id: str = "default") -> dict:
+def get_worker(feature: str, project_id: str = "default", context_id: str = _DEFAULT_CONTEXT) -> dict:
     require_feature_active(project_id, feature)
-    doc = _chat_ref(project_id, feature).get()
+    ctx = _context_id(context_id)
+    doc = _chat_ref(project_id, feature, ctx).get()
     data = doc.to_dict() if doc.exists else {}
-    return {"enabled": _worker_enabled(project_id, feature), "messages": data.get("messages", [])}
+    return {
+        "enabled": _worker_enabled(project_id, feature),
+        "context_id": ctx,
+        "context_label": data.get("context_label") or ctx,
+        "messages": data.get("messages", []),
+    }
 
 
 @router.post("/{feature}/worker/messages")
@@ -103,9 +132,14 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
     if not _worker_enabled(body.project_id, feature):
         raise HTTPException(status_code=409, detail="この機能のAIワーカーは無効です")
 
-    snap = _chat_ref(body.project_id, feature).get()
+    ctx = _context_id(body.context_id)
+    snap = _chat_ref(body.project_id, feature, ctx).get()
     history = snap.to_dict().get("messages", []) if snap.exists else []
     user_msg = ChatMessage(role="user", text=body.text)
+
+    # Attached images (e.g. a 翻訳 button sending a pasted photo) → vision input.
+    images = [{"mime": a.mime or "image/png", "data": a.content}
+              for a in body.attachments if getattr(a, "kind", "") == "image" and a.content][:4]
 
     command: dict | None = None
     # The `task` feature keeps its deterministic create-tasks operation (content op).
@@ -116,7 +150,8 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
         # design pipeline — structural changes are redirected to the main chat.
         # For app-kind features, returns a `command` for the running app to execute.
         reply_text, changed, command = _respond_content(
-            body.project_id, feature, body.text, history, _manifest(body.project_id, feature)
+            body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
+            images=images,
         )
 
     reply = ChatMessage(role="assistant", text=reply_text)
@@ -125,10 +160,11 @@ def post_worker_message(feature: str, body: FeatureWorkerIn) -> dict:
     # silently acting (mirrors the main-chat workers' interim progress reports).
     report = _work_report(command, changed)
     msgs = [user_msg] + ([report] if report else []) + [reply]
-    _append(body.project_id, feature, *msgs)
+    _append(body.project_id, feature, ctx, body.context_label, *msgs)
     return {
         "reply": reply.model_dump(mode="json"),
         "building": False,
+        "context_id": ctx,
         "created": changed,
         "data_changed": bool(changed),
         "command": command,  # app-kind: {name, args} for the live app to apply
@@ -264,7 +300,8 @@ def _route_to_main(project_id: str, text: str, feature: str, title: str) -> str:
 
 
 def _respond_content(
-    project_id: str, feature: str, text: str, history: list[dict], manifest: dict
+    project_id: str, feature: str, text: str, history: list[dict], manifest: dict,
+    images: list | None = None,
 ) -> tuple[str, list[dict], dict | None]:
     """Operate on the feature's CONTENT only. Returns (reply, changed_entities, command).
 
@@ -298,15 +335,17 @@ def _respond_content(
             f"対象ミニアプリ: {title}。あなたは専門ワーカーとして、宣言されたツールだけでこのアプリの中身を操作します。\n"
             f"利用可能ツール(MCP形式 name/description/inputSchema): {json.dumps(tools, ensure_ascii=False)}\n"
             f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
-            f"ユーザーの指示: {text}\n\n"
+            + ("【添付画像あり】画像内のテキストも読み取って指示の対象にすること。\n" if images else "")
+            + f"ユーザーの指示: {text}\n\n"
             "判定して JSON のみで出力:\n"
             '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
             '"command":{"name":"<toolsのname>","arguments":{<inputSchemaに沿った引数>}}}\n'
-            "・中身の操作に対応するツールがある → category=content, command を埋める（nameは必ずtoolsの中から）\n"
+            "・中身の操作に対応するツールがある → category=content, command を埋める（nameは必ずtoolsの中から）。"
+            "翻訳・要約・抽出などツールの引数に『生成したテキスト』が必要な場合は、その本文を arguments に入れる。\n"
             "・アプリ自体（UI/機能）の変更要求 → category=structure（command不要）\n"
             "・質問/相談や対応ツールが無い → category=chat（command不要）"
         )
-        data = _safe_json(llm, prompt)
+        data = _safe_json(llm, prompt, images=images)
         category = data.get("category", "chat")
         reply = str(data.get("reply", "")).strip()
         if category == "structure":
@@ -346,7 +385,7 @@ def _respond_content(
         '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
         '"ops":[{"op":"create|update|delete","entity_id":"<update/delete時>","data":{<項目に沿った値>}}]}'
     )
-    data = _safe_json(llm, prompt)
+    data = _safe_json(llm, prompt, images=images)
     category = data.get("category", "chat")
     reply = str(data.get("reply", "")).strip()
     if category == "structure":
@@ -359,10 +398,11 @@ def _respond_content(
     return reply or "承知しました。", [], None
 
 
-def _safe_json(llm, prompt: str) -> dict:
-    """Run the LLM and parse its JSON, tolerating a ```json fence. {} on failure."""
+def _safe_json(llm, prompt: str, images: list | None = None) -> dict:
+    """Run the LLM and parse its JSON, tolerating a ```json fence. {} on failure.
+    `images` (attachments) are passed for vision (e.g. translating text in a photo)."""
     try:
-        raw = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+        raw = llm.generate(prompt, tier=ModelTier.FLASH, images=images or None).strip()
         if raw.startswith("```"):
             raw = raw.strip("`").split("\n", 1)[-1]
         return json.loads(raw)
