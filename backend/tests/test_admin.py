@@ -2,6 +2,7 @@
 from fastapi.testclient import TestClient
 
 from app.auth import _split, admin_emails
+from app.config import get_settings
 from app.main import app
 
 client = TestClient(app)
@@ -14,6 +15,26 @@ def test_me_requires_login_by_default():
 
 def test_admin_config_requires_admin():
     assert client.get("/api/admin/config").status_code == 401
+
+
+def test_guest_header_requires_feature_flag(monkeypatch):
+    monkeypatch.setenv("GUEST_ACCESS_ENABLED", "false")
+    get_settings.cache_clear()
+    assert client.get("/api/me", headers={"X-AgentForge-Guest": "1"}).status_code == 401
+    get_settings.cache_clear()
+
+
+def test_guest_header_allows_non_admin_user(monkeypatch):
+    monkeypatch.setenv("GUEST_ACCESS_ENABLED", "true")
+    monkeypatch.setenv("GUEST_EMAIL", "judge@example.com")
+    get_settings.cache_clear()
+    r = client.get("/api/me", headers={"X-AgentForge-Guest": "1"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["email"] == "judge@example.com"
+    assert data["is_admin"] is False
+    assert client.get("/api/admin/config", headers={"X-AgentForge-Guest": "1"}).status_code == 403
+    get_settings.cache_clear()
 
 
 def test_admin_routes_registered():

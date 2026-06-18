@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     # Admin allowlist (separate, smaller). Only these accounts reach the admin page
     # and can edit the user allowlist / feature flags. Admins are always allowed in.
     admin_emails: str = "yamashita.3154@gmail.com"
+    # Optional contest/demo guest access. Keep off by default; enable on Cloud Run
+    # with GUEST_ACCESS_ENABLED=true for review periods. Guests are non-admin users.
+    guest_access_enabled: bool = False
+    guest_email: str = "guest@agentforge.local"
 
     @property
     def cors_origin_list(self) -> list[str]:

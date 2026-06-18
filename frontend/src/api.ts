@@ -1,6 +1,6 @@
 // Thin client for the AgentForge core API. Calls go through Vite's /api proxy
 // in dev; in production the SPA (Firebase Hosting) rewrites /api to Cloud Run.
-import { getIdToken } from "./firebase";
+import { getIdToken, isGuestSession } from "./firebase";
 
 export const PROJECT_ID = "default";
 
@@ -72,6 +72,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   const token = await getIdToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (isGuestSession()) headers["X-AgentForge-Guest"] = "1";
   const res = await fetch(url(path), { ...init, headers });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;

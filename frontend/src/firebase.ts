@@ -23,8 +23,27 @@ const config = {
 let app: FirebaseApp | undefined;
 let authInstance: Auth | undefined;
 
+const GUEST_KEY = "af_guest_access";
+
 export function isFirebaseConfigured(): boolean {
   return Boolean(config.apiKey);
+}
+
+export function isGuestAccessEnabled(): boolean {
+  return import.meta.env.VITE_GUEST_ACCESS_ENABLED === "true";
+}
+
+export function isGuestSession(): boolean {
+  return isGuestAccessEnabled() && localStorage.getItem(GUEST_KEY) === "1";
+}
+
+export function startGuestSession(): void {
+  if (!isGuestAccessEnabled()) return;
+  localStorage.setItem(GUEST_KEY, "1");
+}
+
+export function clearGuestSession(): void {
+  localStorage.removeItem(GUEST_KEY);
 }
 
 function getFirebaseApp(): FirebaseApp | undefined {
@@ -43,10 +62,12 @@ export function getAuthInstance(): Auth | undefined {
 export async function signInWithGoogle(): Promise<void> {
   const auth = getAuthInstance();
   if (!auth) throw new Error("Firebase が未設定です（.env.local を確認）");
+  clearGuestSession();
   await signInWithPopup(auth, new GoogleAuthProvider());
 }
 
 export async function signOutUser(): Promise<void> {
+  clearGuestSession();
   const auth = getAuthInstance();
   if (auth) await signOut(auth);
 }
@@ -63,6 +84,7 @@ export function onAuthChange(cb: (user: User | null) => void): () => void {
 
 /** Current user's Firebase ID token, for Authorization: Bearer headers. */
 export async function getIdToken(): Promise<string | null> {
+  if (isGuestSession()) return null;
   const user = getAuthInstance()?.currentUser;
   return user ? user.getIdToken() : null;
 }

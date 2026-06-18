@@ -11,6 +11,8 @@ Modes:
   including the admin page, is reachable without auth.
 - Prod: closed by default. A verified Firebase ID token is required, and the
   caller must be on the user allowlist or admin list.
+- Optional contest/demo guest access can be enabled by env. Guests are users,
+  never admins, and still go through the normal app routers.
 """
 from __future__ import annotations
 
@@ -77,12 +79,18 @@ def _verify(authorization: str | None) -> dict:
     return claims
 
 
-def current_user(authorization: str | None = Header(default=None)) -> CurrentUser:
+def current_user(
+    authorization: str | None = Header(default=None),
+    guest_header: str | None = Header(default=None, alias="X-AgentForge-Guest"),
+) -> CurrentUser:
     """Resolve the caller. Raises 401 (no/invalid token) / 403 (not allowlisted)."""
     if _is_local_mode():
         return CurrentUser(uid="local", email="local@dev", is_admin=True)
 
     s = get_settings()
+    if s.guest_access_enabled and (guest_header or "").strip().lower() == "1":
+        return CurrentUser(uid="guest", email=s.guest_email.lower(), is_admin=False)
+
     if not authorization:
         raise HTTPException(status_code=401, detail="ログインが必要です")
 

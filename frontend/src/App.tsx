@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
-import { isFirebaseConfigured, onAuthChange, signInWithGoogle } from "./firebase";
+import {
+  isFirebaseConfigured,
+  isGuestAccessEnabled,
+  isGuestSession,
+  onAuthChange,
+  signInWithGoogle,
+  startGuestSession,
+} from "./firebase";
 import { AppShell } from "./shell/AppShell";
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guest, setGuest] = useState(() => isGuestSession());
 
   useEffect(() => onAuthChange((u) => { setUser(u); setAuthReady(true); }), []);
 
@@ -14,7 +22,7 @@ export function App() {
     return <div className="centered">読み込み中…</div>;
   }
 
-  if (isFirebaseConfigured() && authReady && !user) {
+  if (isFirebaseConfigured() && authReady && !user && !guest) {
     return (
       <div className="centered">
         <h1>AgentForge</h1>
@@ -22,6 +30,18 @@ export function App() {
         <button className="login" onClick={() => void signInWithGoogle().catch((e) => setError(String(e)))}>
           Google でログイン
         </button>
+        {isGuestAccessEnabled() && (
+          <button
+            className="login login--guest"
+            onClick={() => {
+              startGuestSession();
+              setGuest(true);
+              setError(null);
+            }}
+          >
+            ゲストで試す
+          </button>
+        )}
         {error && <div className="error">{error}</div>}
       </div>
     );

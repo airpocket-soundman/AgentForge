@@ -76,6 +76,13 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   font-size: 15px;
   cursor: pointer;
 }
+.login--guest {
+  margin-top: 4px;
+  background: #fff;
+  color: #4a4ae0;
+  border: 1px solid #c9cae0;
+}
+.login--guest:hover { background: #f6f7fc; }
 
 /* ---- App shell (fixed chrome — intentionally not themed) ---- */
 .shell { height: 100vh; display: flex; flex-direction: column; }

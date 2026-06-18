@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { disableFeature, getFeatureStates, getMe, resetAll, stopAllWorkers, type Me } from "../api";
-import { isFirebaseConfigured, signOutUser } from "../firebase";
+import { isFirebaseConfigured, isGuestSession, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
 import { ByokView } from "../views/ByokView";
@@ -201,6 +201,7 @@ export function AppShell({ user }: { user: User | null }) {
   const navActive = (f: string) => view.kind === "feature" && view.key === f;
   const isLocalDev = !isFirebaseConfigured();
   const canFullscreenApp = view.kind === "feature";
+  const guest = isGuestSession();
 
   return (
     <div className={appFullscreen ? "shell shell--app-fullscreen" : "shell"}>
@@ -254,6 +255,12 @@ export function AppShell({ user }: { user: User | null }) {
           <span className="topbar__user">
             {user.email}
             <button className="logout" onClick={() => void signOutUser()}>ログアウト</button>
+          </span>
+        )}
+        {!user && guest && (
+          <span className="topbar__user">
+            ゲスト
+            <button className="logout" onClick={() => { void signOutUser(); window.location.reload(); }}>ログアウト</button>
           </span>
         )}
         {isLocalDev && <span className="topbar__user">（ローカル: 認証なし）</span>}
