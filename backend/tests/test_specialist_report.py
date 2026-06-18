@@ -1,5 +1,5 @@
 """Specialist Worker posts a 'what I did' report line (pure)."""
-from app.generated_app.features import _work_report
+from app.generated_app.features import _chat_doc_id, _context_id, _work_report
 
 
 def test_tool_command_report():
@@ -20,3 +20,10 @@ def test_data_change_report_generic_when_no_op():
 def test_no_report_for_pure_chat():
     assert _work_report(None, []) is None
     assert _work_report({}, None) is None
+
+
+def test_worker_context_doc_id_is_feature_and_context_scoped():
+    assert _context_id("settings") == "settings"
+    assert _context_id("詳細 123") == "123"
+    assert _chat_doc_id("p1", "paint", "settings") == "p1_paint_settings"
+    assert _chat_doc_id("p1", "paint", "") == "p1_paint_default"

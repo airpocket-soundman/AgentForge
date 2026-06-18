@@ -59,6 +59,7 @@
     <tr><th>接点</th><th>内容</th></tr>
     <tr><td><code>AF.load() / AF.save()</code></td><td>状態の永続化（サーバ側・機能単位）。localStorage/ネットワークは使えない</td></tr>
     <tr><td><code>commands</code>＋<code>applyAgentCommand(name,args)</code></td><td>MCP 形式の操作ツール宣言。Specialist Worker が自然言語→ツール呼び出しに変換して中身を編集</td></tr>
+    <tr><td><code>AF.setChatContext(id,label)</code></td><td>複数画面・詳細画面などの文脈ごとに Specialist Worker の会話履歴を分割</td></tr>
     <tr><td><code>AF.setChatVisible(true/false)</code></td><td>画面単位で下部アプリチャットの表示/非表示を制御（ワーカーは付いたまま）</td></tr>
   </table>
   <p class="lead">PC/スマホ両対応（viewport＋可変レイアウト）と「HTML 内にチャット UI を作らない」が規約（5c）。</p>

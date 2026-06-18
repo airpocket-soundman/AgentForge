@@ -59,7 +59,7 @@ class WorkPlan(BaseModel):
     planned_views: list[PlannedView] = Field(default_factory=list)
     rollback_required: bool = True
     approval_required_before_active: bool = True
-    generated_by: Literal["gemini", "stub"] = "stub"
+    generated_by: str = "stub"
     created_at: datetime = Field(default_factory=_now)
 
 

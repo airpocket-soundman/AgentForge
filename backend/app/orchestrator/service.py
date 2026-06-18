@@ -267,7 +267,7 @@ def _stub_plan(task_id: str, req: PlanRequest, feature: str) -> WorkPlan:
     return _generic_plan(task_id, req)
 
 
-# --- Gemini-generated plan (when a key is reachable) -------------------------
+# --- LLM-generated plan (when a provider is reachable) -----------------------
 
 _SCHEMA = """出力スキーマ:
 {
@@ -291,8 +291,9 @@ def _build_plan_prompt(goal: str) -> str:
     )
 
 
-def _gemini_plan(task_id: str, req: PlanRequest) -> WorkPlan:
-    raw = get_llm().generate(_build_plan_prompt(req.goal), tier=ModelTier.PRO)
+def _llm_plan(task_id: str, req: PlanRequest) -> WorkPlan:
+    llm = get_llm()
+    raw = llm.generate(_build_plan_prompt(req.goal), tier=ModelTier.PRO)
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
@@ -305,7 +306,7 @@ def _gemini_plan(task_id: str, req: PlanRequest) -> WorkPlan:
         plan=[PlanStep(**s) for s in data["plan"]],
         planned_apis=[PlannedApi(**a) for a in data.get("planned_apis", [])],
         planned_views=[PlannedView(**v) for v in data.get("planned_views", [])],
-        generated_by="gemini",
+        generated_by=llm.name,
     )
 
 
@@ -325,7 +326,7 @@ def generate_plan(req: PlanRequest) -> WorkPlan:
     feature = req.feature or infer_feature(req.goal)
     if get_llm().enabled:
         try:
-            plan = _gemini_plan(task_id, req)
+            plan = _llm_plan(task_id, req)
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> deterministic plan
             plan = _stub_plan(task_id, req, feature)
     else:

@@ -4,6 +4,8 @@ Modular monolith: reception / orchestrator / control-plane / tool-gateway are
 separate packages mounted onto one FastAPI app (one Cloud Run service), per
 IMPLEMENTATION_GUIDE.md §2. Later phases add more routers here.
 """
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -18,9 +20,21 @@ from app.orchestrator.router import router as orchestrator_router
 from app.reception.router import router as reception_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # A dev reload / crash kills in-flight build threads; without this, their
+    # 'designing' records stay locked forever while the chat claims progress.
+    from app.reception import service as reception_service
+
+    n = reception_service.recover_orphaned_builds()
+    if n:
+        print(f"[startup] reaped {n} orphaned build(s) left by the previous process")
+    yield
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="AgentForge Core API", version="0.1.0")
+    app = FastAPI(title="AgentForge Core API", version="0.1.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -40,22 +54,12 @@ def create_app() -> FastAPI:
     def root() -> dict:
         return {"message": "AgentForge core API is running."}
 
-    # All app/data routers require an allowlisted user (no-op when ALLOWED_EMAILS
-    # is empty). /health and / stay open for Cloud Run probes.
+    # All app/data routers require an allowlisted user in prod. /health and /
+    # stay open for Cloud Run probes; APP_ENV=local keeps development open.
     # Admin module carries its own per-endpoint auth (current_user / require_admin),
     # so it is mounted without the blanket user guard. /api/me identifies the caller;
     # /api/admin/* require the separate admin allowlist.
     app.include_router(admin_router)
-
-    @app.on_event("startup")
-    def _reap_orphaned_builds() -> None:
-        # A dev reload / crash kills in-flight build threads; without this, their
-        # 'designing' records stay locked forever while the chat claims progress.
-        from app.reception import service as reception_service
-
-        n = reception_service.recover_orphaned_builds()
-        if n:
-            print(f"[startup] reaped {n} orphaned build(s) left by the previous process")
 
     guard = [Depends(require_allowed_user)]
     app.include_router(reception_router, dependencies=guard)

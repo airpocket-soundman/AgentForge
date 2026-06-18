@@ -11,7 +11,7 @@ client = TestClient(app)
 
 
 def test_control_plane_health():
-    assert client.get("/api/control-plane/health").json()["module"] == "control_plane"
+    assert client.get("/api/control-plane/health").status_code == 401
 
 
 def test_expected_routes_registered():

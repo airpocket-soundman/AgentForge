@@ -9,8 +9,8 @@ Two isolated whitelists:
 Modes:
 - Local dev (app_env=local): open. Identity = ("local", admin=True) so everything,
   including the admin page, is reachable without auth.
-- Prod: enforcement is ON when env ALLOWED_EMAILS is set (Cloud Run sets it).
-  A verified Firebase ID token is required; non-admins must be on the user allowlist.
+- Prod: closed by default. A verified Firebase ID token is required, and the
+  caller must be on the user allowlist or admin list.
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def effective_allowed_emails() -> list[str]:
 
 
 def _is_local_mode() -> bool:
-    return get_settings().app_env.strip().lower() == "local"
+    return get_settings().is_local
 
 
 def _verify(authorization: str | None) -> dict:
@@ -83,17 +83,14 @@ def current_user(authorization: str | None = Header(default=None)) -> CurrentUse
         return CurrentUser(uid="local", email="local@dev", is_admin=True)
 
     s = get_settings()
-    enforcing = bool(_split(s.allowed_emails))  # env-driven; Cloud Run sets ALLOWED_EMAILS
     if not authorization:
-        if enforcing:
-            raise HTTPException(status_code=401, detail="ログインが必要です")
-        return CurrentUser(uid="anon", email="", is_admin=False)  # open prod, no token
+        raise HTTPException(status_code=401, detail="ログインが必要です")
 
     claims = _verify(authorization)
     email = (claims.get("email") or "").lower()
     uid = claims.get("user_id") or claims.get("sub") or email or "anon"
     is_admin = email in admin_emails()
-    if enforcing and not is_admin:
+    if not is_admin:
         allowed = set(_split(s.allowed_emails)) | set(stored_allowlist())
         if email not in allowed:
             raise HTTPException(status_code=403, detail="このアカウントはアクセスを許可されていません")

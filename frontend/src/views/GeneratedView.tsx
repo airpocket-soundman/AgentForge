@@ -44,6 +44,9 @@ export function GeneratedView({
   // Per-SCREEN app-chat visibility, driven by the app via AF.setChatVisible(bool).
   // The worker itself stays attached (1 per app); this only shows/hides the panel.
   const [chatVisible, setChatVisible] = useState(true);
+  // Per-screen/context worker memory. Generated apps switch this with
+  // AF.setChatContext("screen-id", "表示名") when they have multiple screens.
+  const [chatContext, setChatContext] = useState<{ id: string; label?: string | null }>({ id: "default" });
   const cmdNonce = useRef(0);
   const threadRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
@@ -92,7 +95,7 @@ export function GeneratedView({
 
   async function loadAll() {
     try {
-      const [w, c] = await Promise.all([getFeatureWorker(feature), getConversationState()]);
+      const [w, c] = await Promise.all([getFeatureWorker(feature, undefined, chatContext.id), getConversationState()]);
       setWorker(w);
       setConv(c);
       if (c.stage === "built" && c.pending_feature === feature) {
@@ -114,6 +117,7 @@ export function GeneratedView({
     setConv(null);
     setCandidate(null);
     setChatVisible(true); // default: shown; the app may hide it per screen
+    setChatContext({ id: "default" }); // default thread until the app declares a screen context
     setInput("");
     att.clear();
     getView(feature)
@@ -122,6 +126,11 @@ export function GeneratedView({
     void loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feature]);
+
+  useEffect(() => {
+    void loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatContext.id]);
 
   // Poll while a background design runs on the shared pipeline.
   useEffect(() => {
@@ -169,7 +178,14 @@ export function GeneratedView({
     att.clear();
     scrollDown();
     try {
-      const res = await sendFeatureWorkerMessage(feature, text, files);
+      const res = await sendFeatureWorkerMessage(
+        feature,
+        text,
+        files,
+        undefined,
+        chatContext.id,
+        chatContext.label,
+      );
       // mini-app: dispatch the specialist worker's MCP-style tool call to the app.
       if (res.command?.name) {
         setCommand({ name: res.command.name, args: res.command.arguments, nonce: ++cmdNonce.current });
@@ -243,7 +259,7 @@ export function GeneratedView({
 
       {worker && !worker.enabled ? (
         <>
-          <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} />
+            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatContext={setChatContext} />
           <div className="hint feature-worker__off">この機能のAIワーカーは無効です。</div>
         </>
       ) : (
@@ -253,7 +269,15 @@ export function GeneratedView({
         // (the worker stays attached; only the panel is hidden — no iframe remount).
         <div className="gv-split" ref={splitRef}>
           <div className="gv-pane gv-pane--app" style={{ flexBasis: chatVisible ? `${appRatio * 100}%` : "100%" }}>
-            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatVisible={setChatVisible} />
+            <AppFrame
+              html={manifest.html}
+              feature={feature}
+              title={manifest.title}
+              live
+              command={command}
+              onChatVisible={setChatVisible}
+              onChatContext={setChatContext}
+            />
           </div>
 
           <div
@@ -269,6 +293,11 @@ export function GeneratedView({
 
           <div className="gv-pane gv-pane--chat" style={chatVisible ? undefined : { display: "none" }}>
             <div className="feature-worker" onDrop={att.onDrop} onDragOver={(e) => e.preventDefault()}>
+              {chatContext.id !== "default" && (
+                <div className="hint feature-worker__context">
+                  コンテキスト: {chatContext.label || chatContext.id}
+                </div>
+              )}
               <div className="fw-scroll" ref={threadRef}>
                 {showPreview && (
                   <div className="chat-preview fw-preview">

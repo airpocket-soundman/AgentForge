@@ -1,5 +1,4 @@
-"""Auth/admin tests (Firestore-free). Test env = prod-default, no ALLOWED_EMAILS,
-no token -> open mode, anonymous non-admin caller."""
+"""Auth/admin tests (Firestore-free). Prod-default is closed without a token."""
 from fastapi.testclient import TestClient
 
 from app.auth import _split, admin_emails
@@ -8,16 +7,13 @@ from app.main import app
 client = TestClient(app)
 
 
-def test_me_open_mode_non_admin():
+def test_me_requires_login_by_default():
     r = client.get("/api/me")
-    assert r.status_code == 200
-    data = r.json()
-    assert data["is_admin"] is False
-    assert data["feature_flags"]["byok_visible"] is False  # default flag (Firestore absent)
+    assert r.status_code == 401
 
 
 def test_admin_config_requires_admin():
-    assert client.get("/api/admin/config").status_code == 403
+    assert client.get("/api/admin/config").status_code == 401
 
 
 def test_admin_routes_registered():

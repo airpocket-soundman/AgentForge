@@ -275,14 +275,19 @@ export function stopAllWorkers(): Promise<{ stopped: number; conversations: stri
 
 export interface FeatureWorkerState {
   enabled: boolean;
+  context_id: string;
+  context_label?: string | null;
   messages: ChatMessage[];
 }
 
 export function getFeatureWorker(
   feature: string,
   projectId = PROJECT_ID,
+  contextId = "default",
 ): Promise<FeatureWorkerState> {
-  return request(`/api/app/features/${encodeURIComponent(feature)}/worker?project_id=${encodeURIComponent(projectId)}`);
+  return request(
+    `/api/app/features/${encodeURIComponent(feature)}/worker?project_id=${encodeURIComponent(projectId)}&context_id=${encodeURIComponent(contextId)}`,
+  );
 }
 
 export function sendFeatureWorkerMessage(
@@ -290,16 +295,19 @@ export function sendFeatureWorkerMessage(
   text: string,
   attachments: Attachment[] = [],
   projectId = PROJECT_ID,
+  contextId = "default",
+  contextLabel?: string | null,
 ): Promise<{
   reply: ChatMessage;
   building: boolean;
+  context_id?: string;
   created: { task_id: string; title: string }[];
   data_changed?: boolean;
   command?: { name: string; arguments?: Record<string, unknown> } | null; // MCP-style tool call
 }> {
   return request(`/api/app/features/${encodeURIComponent(feature)}/worker/messages`, {
     method: "POST",
-    body: JSON.stringify({ project_id: projectId, text, attachments }),
+    body: JSON.stringify({ project_id: projectId, text, attachments, context_id: contextId, context_label: contextLabel }),
   });
 }
 
