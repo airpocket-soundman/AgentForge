@@ -55,6 +55,21 @@ def test_reviewer_flags_commands_without_handler():
     assert any("applyAgentCommand" in f for f in r["findings"])
 
 
+def test_reviewer_requires_persistence_for_games():
+    r = reviewer.review(_manifest(feature="tetris", title="テトリス", commands=[]), "テトリスを作って")
+    assert r["verdict"] == "needs_revision"
+    assert any("AF.load" in f and "AF.save" in f for f in r["findings"])
+
+
+def test_reviewer_accepts_game_persistence_bridge():
+    html = _GOOD_HTML.replace(
+        "window.applyAgentCommand",
+        "AF.load().then(function(){});AF.save({board:[]});window.applyAgentCommand",
+    )
+    r = reviewer.review(_manifest(feature="tetris", title="テトリス", html=html, commands=[]), "テトリスを作って")
+    assert not any("途中状態" in f for f in r["findings"])
+
+
 # --- Tester -----------------------------------------------------------------
 
 def test_tester_passes_runnable_app():
@@ -75,3 +90,9 @@ def test_tester_fails_commands_without_handler():
     t = tester.verify(_manifest(html=html), "お絵描き")
     assert t["verdict"] == "fail"
     assert any("applyAgentCommand" in e for e in t["errors"])
+
+
+def test_tester_requires_persistence_for_games():
+    t = tester.verify(_manifest(feature="tetris", title="テトリス", commands=[]), "テトリスを作って")
+    assert t["verdict"] == "fail"
+    assert any("AF.load" in e and "AF.save" in e for e in t["errors"])

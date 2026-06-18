@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # app_env: "prod" (default) | "local". docker-compose.dev sets "local".
     app_env: str = "prod"
     # llm_provider: "" = auto by env (local->claude-cli, else gemini).
-    # Or force one of: "gemini" | "claude-cli" | "stub".
+    # Or force one of: "gemini" | "claude-cli" | "codex" | "stub".
     llm_provider: str = ""
     # claude-cli talks to a host bridge wrapping `claude -p` (LOCAL only; saves
     # Gemini cost). Not reachable on Cloud Run. See scripts/claude_bridge.py.
@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # generous and the user controls waiting.
     claude_flash_model: str = ""  # "" = bridge/session default (canonical: haiku)
     claude_pro_model: str = ""    # "" = bridge/session default (canonical: opus)
+    # codex talks to a host bridge wrapping `codex exec` (LOCAL/demo only).
+    codex_bridge_url: str = "http://host.docker.internal:8766/generate"
+    codex_flash_model: str = ""
+    codex_pro_model: str = ""
     # Read timeout for an LLM call. High-capability models (PRO) trade quality for
     # time: full-app generation legitimately takes minutes, and the deploy-time
     # gate adds more calls. Keep this generous (and >= the host bridge's
@@ -59,9 +63,9 @@ class Settings(BaseSettings):
     )
 
     # --- Access control ---
-    # Allowlist of permitted login emails. EMPTY = enforcement OFF (open, e.g. local
-    # dev). Set in prod (ALLOWED_EMAILS) to restrict who can use the app. Separate
-    # multiple with ';' or space (NOT comma — gcloud --set-env-vars uses comma).
+    # Allowlist of permitted login emails. Prod is closed by default; an empty
+    # value means only ADMIN_EMAILS can enter. Local dev is open via APP_ENV=local.
+    # Separate multiple with ';' or space (NOT comma — gcloud --set-env-vars uses comma).
     # The admin page can ADD more allowed emails at runtime (stored in Firestore);
     # this env value is the bootstrap set.
     allowed_emails: str = ""
@@ -78,6 +82,10 @@ class Settings(BaseSettings):
         import re
 
         return [e.strip().lower() for e in re.split(r"[;,\s]+", self.allowed_emails) if e.strip()]
+
+    @property
+    def is_local(self) -> bool:
+        return self.app_env.strip().lower() == "local"
 
 
 @lru_cache

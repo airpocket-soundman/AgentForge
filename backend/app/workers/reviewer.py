@@ -17,6 +17,26 @@ from app.llm.gateway import ModelTier, get_llm
 
 _ALLOWED_THEMES = {"default", "warm", "forest", "ocean"}
 
+_PERSISTENCE_KEYWORDS = (
+    "保存", "復元", "途中", "履歴", "メモ", "タスク", "todo", "フォーム", "設定",
+    "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル", "ライン", "手番",
+    "クイズ", "進捗", "家計簿", "日記", "予定", "スケジュール",
+)
+
+
+def _requires_persistence(goal: str, design_plan: dict | None, requirements: list[str] | None) -> bool:
+    """Whether the requested app has user/session state that must survive navigation."""
+    if design_plan and design_plan.get("persistence") is True:
+        return True
+    hay = "\n".join(
+        [
+            goal or "",
+            json.dumps(design_plan or {}, ensure_ascii=False),
+            "\n".join(requirements or []),
+        ]
+    ).lower()
+    return any(k.lower() in hay for k in _PERSISTENCE_KEYWORDS)
+
 
 def _static_findings(manifest: dict) -> list[str]:
     """Deterministic convention checks (no LLM)."""
@@ -53,6 +73,13 @@ def review(manifest: dict, goal: str, design_plan: dict | None = None,
     """Review a generated manifest: conventions (static + LLM) AND fit to the
     user's need — the approved design plan / the feature's pinned requirements."""
     findings = _static_findings(manifest)
+    if (manifest.get("kind") or "app") == "app" and _requires_persistence(goal, design_plan, requirements):
+        html = manifest.get("html") or ""
+        if "AF.load" not in html or "AF.save" not in html:
+            findings.append(
+                "状態を持つミニアプリなのに AF.load()/AF.save() によるサーバ側保存が無い"
+                "（画面遷移・リロード後に途中状態を復元できない）"
+            )
 
     llm = get_llm()
     if llm.enabled:

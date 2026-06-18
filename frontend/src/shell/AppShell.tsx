@@ -23,6 +23,19 @@ export function AppShell({ user }: { user: User | null }) {
   const [prevView, setPrevView] = useState<View>({ kind: "chat" });
   const [denied, setDenied] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [appFullscreen, setAppFullscreen] = useState(false);
+  const [restorePos, setRestorePos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("af_restore_pos") || "null") as { x?: number; y?: number } | null;
+      if (parsed && typeof parsed.x === "number" && typeof parsed.y === "number") {
+        return { x: parsed.x, y: parsed.y };
+      }
+    } catch {
+      /* ignore */
+    }
+    return { x: 24, y: 24 };
+  });
+  const restoreMovedRef = useRef(false);
 
   // Resizable / collapsible feature-list sidebar (persisted across reloads).
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -74,8 +87,45 @@ export function AppShell({ user }: { user: User | null }) {
   useEffect(() => { void getMe().then(setMe).catch(() => {}); }, []); // identity + flags
 
   function openOverlay(kind: "byok" | "status") {
+    setAppFullscreen(false);
     setPrevView(view);
     setView({ kind });
+  }
+  useEffect(() => {
+    if (view.kind !== "feature") setAppFullscreen(false);
+  }, [view.kind]);
+  useEffect(() => {
+    localStorage.setItem("af_restore_pos", JSON.stringify(restorePos));
+  }, [restorePos]);
+
+  function beginRestoreDrag(e: React.PointerEvent) {
+    e.preventDefault();
+    restoreMovedRef.current = false;
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const rect = target.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    const move = (ev: PointerEvent) => {
+      restoreMovedRef.current = true;
+      const maxX = Math.max(0, window.innerWidth - rect.width - 8);
+      const maxY = Math.max(0, window.innerHeight - rect.height - 8);
+      setRestorePos({
+        x: Math.max(8, Math.min(maxX, ev.clientX - offsetX)),
+        y: Math.max(8, Math.min(maxY, ev.clientY - offsetY)),
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        target.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   const [stoppingAll, setStoppingAll] = useState(false);
@@ -149,9 +199,11 @@ export function AppShell({ user }: { user: User | null }) {
   const currentFeature = view.kind === "feature" ? view.key : null;
   const mainTheme = currentFeature ? themeOf(currentFeature) : "default";
   const navActive = (f: string) => view.kind === "feature" && view.key === f;
+  const isLocalDev = !isFirebaseConfigured();
+  const canFullscreenApp = view.kind === "feature";
 
   return (
-    <div className="shell">
+    <div className={appFullscreen ? "shell shell--app-fullscreen" : "shell"}>
       <header className="topbar">
         <div className="topbar__brand">AgentForge</div>
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
@@ -185,16 +237,26 @@ export function AppShell({ user }: { user: User | null }) {
             ⟲ 機能を巻き戻す
           </button>
         )}
-        <button className="reset-top" title="【開発用】全データを削除して初期状態に戻す" onClick={() => void handleReset()}>
-          🗑 初期化
+        <button
+          className="fullscreen-top"
+          title={canFullscreenApp ? "現在のアプリ画面を全画面化" : "ミニアプリを開いているときに使えます"}
+          onClick={() => setAppFullscreen(true)}
+          disabled={!canFullscreenApp}
+        >
+          ⛶ アプリ全画面化
         </button>
+        {isLocalDev && (
+          <button className="reset-top" title="【開発用】全データを削除して初期状態に戻す" onClick={() => void handleReset()}>
+            🗑 初期化
+          </button>
+        )}
         {user && (
           <span className="topbar__user">
             {user.email}
             <button className="logout" onClick={() => void signOutUser()}>ログアウト</button>
           </span>
         )}
-        {!isFirebaseConfigured() && <span className="topbar__user">（ローカル: 認証なし）</span>}
+        {isLocalDev && <span className="topbar__user">（ローカル: 認証なし）</span>}
       </header>
 
       <div className="body" ref={bodyRef}>
@@ -257,6 +319,21 @@ export function AppShell({ user }: { user: User | null }) {
           {view.kind === "status" && <StatusView onBack={() => setView(prevView)} />}
         </main>
       </div>
+
+      {appFullscreen && (
+        <button
+          className="app-restore"
+          style={{ left: restorePos.x, top: restorePos.y }}
+          title="ドラッグで移動 / クリックで元に戻す"
+          onPointerDown={beginRestoreDrag}
+          onClick={() => {
+            if (restoreMovedRef.current) return;
+            setAppFullscreen(false);
+          }}
+        >
+          ↙ 元に戻す
+        </button>
+      )}
     </div>
   );
 }

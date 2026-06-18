@@ -240,10 +240,14 @@ def get_flow(project_id: str) -> dict:
     return data.get("flow") or {"stage": _STAGE_IDLE}
 
 
-def _set_flow(conversation_id: str, **fields) -> None:
-    # Write the full flow object each time so stale keys from a prior stage are
-    # overwritten (Firestore deep-merges nested maps otherwise).
-    flow = {
+def _flow_record(fields: dict) -> dict:
+    """Build a complete flow object.
+
+    Firestore deep-merges nested maps, so every flow write must include every
+    transient key. Otherwise a previous confirmation's template/images can leak
+    into the next unrelated request.
+    """
+    return {
         "stage": fields.get("stage", _STAGE_IDLE),
         "mode": fields.get("mode", "create"),  # "create" | "edit"
         "goal": fields.get("goal"),
@@ -251,8 +255,16 @@ def _set_flow(conversation_id: str, **fields) -> None:
         "feature": fields.get("feature"),
         "approval_id": fields.get("approval_id"),
         "candidate": fields.get("candidate"),  # generated ViewManifest dict (preview source)
+        "template": fields.get("template"),
+        "pending_images": fields.get("pending_images"),
         "updated_at": _now_iso(),
     }
+
+
+def _set_flow(conversation_id: str, **fields) -> None:
+    # Write the full flow object each time so stale keys from a prior stage are
+    # overwritten (Firestore deep-merges nested maps otherwise).
+    flow = _flow_record(fields)
     get_db().collection(_COLLECTION).document(conversation_id).set({"flow": flow}, merge=True)
 
 
@@ -655,15 +667,15 @@ def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
                     "・このデフォルトでよければ「**お願い**」\n"
                     "・一から設計してほしいときは「**一から**」とお送りください。")
     # Keep attachments with the pending request so they survive to dispatch.
-    _set_flow(conversation_id, stage=_STAGE_CONFIRM, mode=action, goal=goal, feature=feature)
-    if tkey:
-        get_db().collection(_COLLECTION).document(conversation_id).set(
-            {"flow": {"template": tkey}}, merge=True
-        )
-    if images:
-        get_db().collection(_COLLECTION).document(conversation_id).set(
-            {"flow": {"pending_images": images}}, merge=True
-        )
+    _set_flow(
+        conversation_id,
+        stage=_STAGE_CONFIRM,
+        mode=action,
+        goal=goal,
+        feature=feature,
+        template=tkey,
+        pending_images=images,
+    )
     append_message(conversation_id, ChatMessage(role="assistant", text=restate))
     # The Receptor is now waiting on the user's OK — show that in the monitor.
     worker_status.record_status("Receptor", project_id, worker_status.IDLE,

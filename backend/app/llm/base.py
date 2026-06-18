@@ -4,6 +4,7 @@ A single interface so the app can switch LLM providers per environment / user
 without touching call sites:
   - gemini     : Gemini API (prod default)
   - claude-cli : host `claude -p` via a small bridge (local default; saves Gemini cost)
+  - codex      : host `codex exec` via a small bridge (demo/local)
   - stub       : deterministic, no network (unit tests / no key)
 
 Model routing tiers map to each provider's cheap/capable models:

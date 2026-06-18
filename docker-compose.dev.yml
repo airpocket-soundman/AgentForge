@@ -35,10 +35,14 @@ services:
       GOOGLE_CLOUD_REGION: asia-northeast1
       FIRESTORE_EMULATOR_HOST: firestore:8080
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      # LLM Provider Gateway (§2.6): local default = claude-cli (saves Gemini cost).
-      # Needs the host bridge running:  python scripts/claude_bridge.py
-      # Force another provider here if needed: LLM_PROVIDER=stub | gemini
+      # LLM Provider Gateway (§2.6): demo default = codex via host bridge.
+      # Needs the host bridge running:  python scripts/codex_bridge.py
+      # Force another provider here if needed: LLM_PROVIDER=stub | gemini | claude-cli
       APP_ENV: local
+      LLM_PROVIDER: codex
+      CODEX_BRIDGE_URL: http://host.docker.internal:8766/generate
+      CODEX_FLASH_MODEL: gpt-5.5
+      CODEX_PRO_MODEL: gpt-5.5
       CLAUDE_BRIDGE_URL: http://host.docker.internal:8765/generate
       # Capability tiers (canonical): PRO = Opus (matches Gemini Pro — code
       # generation quality), FLASH = Haiku (matches Gemini Flash — light steps).
@@ -55,7 +59,7 @@ services:
       - path: ./backend/.env
         required: false
     extra_hosts:
-      - "host.docker.internal:host-gateway" # reach the host claude bridge (Linux parity)
+      - "host.docker.internal:host-gateway" # reach host LLM bridges (Linux parity)
     volumes:
       - ./backend/app:/app/app:cached # live reload on host edits
     depends_on:

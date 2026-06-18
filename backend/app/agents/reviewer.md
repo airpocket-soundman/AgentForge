@@ -7,6 +7,8 @@
 - 単一の完結 HTML（`<!DOCTYPE html>` 始まり）。説明文や謝罪文を html に混ぜない。
 - 外部通信なしで自己完結：`fetch` / `XMLHttpRequest` / 外部 CDN・外部リソース読込は禁止。
 - 保存は `AF.load()/AF.save()` のみ。`localStorage` / `sessionStorage` / `cookie` は禁止。
+- 状態を持つアプリ（タスク/メモ/フォーム/設定/ゲームの盤面・スコア・進行状態など）は、画面遷移・
+  リロード後に復元できるよう `AF.load()` と `AF.save()` を使っていること。ゲームも保存対象。
 - 操作ツール契約（MCP 形式）：`commands` を宣言するなら `window.applyAgentCommand(name,args)` を実装し、
   名前が一致していること。主要な操作を網羅していること。
 - テーマは `default` / `warm` / `forest` / `ocean` のみ。`feature` スラッグは英小文字（`[a-z0-9_]`）。
@@ -26,8 +28,8 @@
   マニフェストに無くて当然なので、欠落を規約違反としない。
 - **「チャット/指示入力欄が無い」ことを指摘しない。** アプリチャットは**シェルが下部に別パネルで用意**する。
   生成 HTML（アプリ表示エリア）にチャットが無いのは**正しい**。
-- **`AF.setChatVisible` / `AF.saveBlob` / `AF.loadBlob` / `AF.listBlobs` / `AF.deleteBlob` の使用を指摘しない。**
-  いずれも公式ブリッジ API（画面チャット制御・端末内Blob保存）で、外部通信でも規約違反でもない。
+- **`AF.setChatVisible` / `AF.setChatContext` / `AF.saveBlob` / `AF.loadBlob` / `AF.listBlobs` / `AF.deleteBlob` の使用を指摘しない。**
+  いずれも公式ブリッジ API（画面チャット制御・画面別コンテキスト分割・端末内Blob保存）で、外部通信でも規約違反でもない。
 - 逆に**大きいファイル（PDF/画像等の base64）を `AF.save` の状態に入れていたら指摘する**（約1MB上限で
   保存失敗→リロードで消える）。原本は `AF.saveBlob`、状態にはメタ/抽出テキストのみが正。
 - Blob は端末ローカルなので、`loadBlob` が null の場合の**欠落表示が無いコードは指摘**する。

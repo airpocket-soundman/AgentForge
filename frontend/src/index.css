@@ -136,6 +136,21 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .stopall-top:hover { background: #50263a; }
 .stopall-top:disabled { opacity: .5; cursor: not-allowed; }
 .byok-top--active { background: #3a3a58; }
+.fullscreen-top {
+  padding: 6px 12px;
+  border: 1px solid #3f4f80;
+  border-radius: 8px;
+  background: #2a2a44;
+  color: #cfe0ff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.fullscreen-top:hover { background: #3a3a58; }
+.fullscreen-top:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 
 /* Status monitor view */
 .status-actions { display: flex; gap: 10px; align-items: center; margin: 4px 0 8px; }
@@ -344,6 +359,62 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
 .view--app .gen-desc { flex: 0 0 auto; margin: 0; }
 .view--app .gen-app-frame { flex: 1 1 auto; height: auto; min-height: 0; }
 
+/* Main-app fullscreen for the generated app area. This is shell chrome, not a
+   generated-app feature: the iframe content is left untouched while surrounding
+   navigation/chat panes are hidden. */
+.shell--app-fullscreen .topbar,
+.shell--app-fullscreen .sidebar,
+.shell--app-fullscreen .nav-divider,
+.shell--app-fullscreen .view--app .view__head,
+.shell--app-fullscreen .gv-divider,
+.shell--app-fullscreen .gv-pane--chat {
+  display: none !important;
+}
+.shell--app-fullscreen .body,
+.shell--app-fullscreen .main,
+.shell--app-fullscreen .view--app,
+.shell--app-fullscreen .gv-split {
+  width: 100vw;
+  height: 100vh;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+}
+.shell--app-fullscreen .main {
+  flex: 1 1 auto;
+}
+.shell--app-fullscreen .gv-pane--app {
+  flex: 1 1 auto !important;
+  flex-basis: 100% !important;
+  width: 100%;
+  height: 100%;
+}
+.shell--app-fullscreen .gen-app-frame {
+  border: 0;
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+}
+.app-restore {
+  position: fixed;
+  z-index: 1000;
+  min-width: 112px;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
+  background: rgba(26, 26, 46, .92);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: grab;
+  box-shadow: 0 10px 28px rgba(0,0,0,.28);
+  touch-action: none;
+  user-select: none;
+}
+.app-restore:hover { background: rgba(42, 42, 68, .96); }
+.app-restore:active { cursor: grabbing; }
+
 /* Attachments (paste / drag-drop / ＋ button) shared by chat composers. */
 .attach-add { flex: 0 0 auto; width: 40px; align-self: stretch; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--gv-border-strong); background: var(--gv-surface); border-radius: 9px; font-size: 24px; font-weight: 400; line-height: 1; color: var(--gv-muted-2, #667); cursor: pointer; }
 .attach-add:hover { border-color: var(--gv-accent, #6366f1); color: var(--gv-accent, #6366f1); }
@@ -420,7 +491,7 @@ h3 { font-size: 14px; margin: 0 0 6px; color: #44456a; }
   box-shadow: 0 1px 3px rgba(26, 26, 46, 0.06);
 }
 .navitem, .composer button, .task-add button, .gen-form > button, .admin-save, .login,
-.rollback-top, .reset-top, .admin-top, .byok-top, .back, .gen-del {
+.rollback-top, .reset-top, .fullscreen-top, .admin-top, .byok-top, .back, .gen-del {
   transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
 }
 input:focus-visible, textarea:focus-visible, select:focus-visible {

@@ -19,6 +19,17 @@ _STRUCT_RE = re.compile(
     r"<(?:html|body|canvas|svg|button|form|table|main|section|div|input|h[1-6]|ul|ol|p)\b", re.I
 )
 
+_PERSISTENCE_KEYWORDS = (
+    "保存", "復元", "途中", "リロード", "画面遷移", "メモ", "タスク", "todo", "フォーム", "設定",
+    "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル", "ライン", "手番",
+    "クイズ", "進捗", "家計簿", "日記", "予定", "スケジュール",
+)
+
+
+def _requires_persistence(goal: str, criteria: list[str] | None) -> bool:
+    hay = "\n".join([goal or "", "\n".join(criteria or [])]).lower()
+    return any(k.lower() in hay for k in _PERSISTENCE_KEYWORDS)
+
 
 def _static_checks(manifest: dict) -> tuple[list[str], list[str]]:
     """Deterministic load/structure checks. Returns (checks_passed, errors)."""
@@ -60,6 +71,12 @@ def verify(manifest: dict, goal: str, criteria: list[str] | None = None) -> dict
     ✅/❌ — instead of one opaque overall verdict."""
     checks, errors = _static_checks(manifest)
     criteria_results: list[dict] = []
+    if (manifest.get("kind") or "app") == "app" and _requires_persistence(goal, criteria):
+        html = manifest.get("html") or ""
+        if "AF.load" in html and "AF.save" in html:
+            checks.append("途中状態を AF.load()/AF.save() で保存・復元する実装がある")
+        else:
+            errors.append("画面遷移・リロード後に途中状態を復元する AF.load()/AF.save() 実装が無い")
 
     llm = get_llm()
     # Only ask the model when the artifact is at least structurally loadable.

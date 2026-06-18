@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">AgentForge DevOps flow</title>
+  <desc id="desc">DevOps flow diagram for AgentForge from user request to preview, approval, publish, and rollback.</desc>
+  <defs>
+    <style>
+      .bg{fill:#fbfbfd}
+      .box{fill:#fff;stroke:#d8deea;stroke-width:2}
+      .user{fill:#f1f6ff;stroke:#9ebcf4;stroke-width:2}
+      .ai{fill:#f1fbf4;stroke:#98d5ab;stroke-width:2}
+      .gate{fill:#fff7e6;stroke:#e6b94b;stroke-width:2}
+      .bad{fill:#fff0f0;stroke:#e99b9b;stroke-width:2}
+      .title{font:700 34px Arial, sans-serif;fill:#172033}
+      .h{font:700 21px Arial, sans-serif;fill:#172033}
+      .t{font:500 16px Arial, sans-serif;fill:#344053}
+      .s{font:400 14px Arial, sans-serif;fill:#5a6678}
+      .num{font:700 16px Arial, sans-serif;fill:#fff}
+      .arrow{stroke:#657084;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .loop{stroke:#c74242;stroke-width:3;fill:none;stroke-dasharray:8 8;marker-end:url(#arrowRed)}
+    </style>
+    <marker id="arrow" markerWidth="14" markerHeight="10" refX="12" refY="5" orient="auto">
+      <path d="M0,0 L14,5 L0,10 Z" fill="#657084"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="14" markerHeight="10" refX="12" refY="5" orient="auto">
+      <path d="M0,0 L14,5 L0,10 Z" fill="#c74242"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1600" height="900"/>
+  <text x="70" y="70" class="title">会話から公開までの DevOps フロー</text>
+  <text x="70" y="106" class="s">AIが作るが、公開判断は人間が握る。生成物は検証・レビューを通るまで active 化されない。</text>
+
+  <g transform="translate(70,160)">
+    <rect x="0" y="0" width="250" height="120" rx="16" class="user"/>
+    <circle cx="34" cy="34" r="18" fill="#2f6fed"/><text x="28" y="40" class="num">1</text>
+    <text x="68" y="36" class="h">依頼</text>
+    <text x="28" y="74" class="t">ユーザーがチャットで依頼</text>
+    <text x="28" y="98" class="s">例: 「テトリス作って」</text>
+  </g>
+  <g transform="translate(370,160)">
+    <rect x="0" y="0" width="250" height="120" rx="16" class="ai"/>
+    <circle cx="34" cy="34" r="18" fill="#198f4a"/><text x="28" y="40" class="num">2</text>
+    <text x="68" y="36" class="h">受付確認</text>
+    <text x="28" y="74" class="t">Receptorが内容を具体化</text>
+    <text x="28" y="98" class="s">「お願い」で次へ</text>
+  </g>
+  <g transform="translate(670,160)">
+    <rect x="0" y="0" width="250" height="120" rx="16" class="ai"/>
+    <circle cx="34" cy="34" r="18" fill="#198f4a"/><text x="28" y="40" class="num">3</text>
+    <text x="68" y="36" class="h">設計</text>
+    <text x="28" y="74" class="t">Orchestratorが計画化</text>
+    <text x="28" y="98" class="s">機能・保存・操作を整理</text>
+  </g>
+  <g transform="translate(970,160)">
+    <rect x="0" y="0" width="250" height="120" rx="16" class="gate"/>
+    <circle cx="34" cy="34" r="18" fill="#d99000"/><text x="28" y="40" class="num">4</text>
+    <text x="68" y="36" class="h">設計承認</text>
+    <text x="28" y="74" class="t">ユーザーが設計を確認</text>
+    <text x="28" y="98" class="s">「これで作って」</text>
+  </g>
+  <g transform="translate(1270,160)">
+    <rect x="0" y="0" width="250" height="120" rx="16" class="ai"/>
+    <circle cx="34" cy="34" r="18" fill="#198f4a"/><text x="28" y="40" class="num">5</text>
+    <text x="68" y="36" class="h">コード生成</text>
+    <text x="28" y="74" class="t">HTML / API / Worker設定</text>
+    <text x="28" y="98" class="s">ミニアプリを作る</text>
+  </g>
+
+  <path d="M320 220 L370 220" class="arrow"/>
+  <path d="M620 220 L670 220" class="arrow"/>
+  <path d="M920 220 L970 220" class="arrow"/>
+  <path d="M1220 220 L1270 220" class="arrow"/>
+
+  <g transform="translate(220,430)">
+    <rect x="0" y="0" width="290" height="132" rx="16" class="gate"/>
+    <circle cx="34" cy="34" r="18" fill="#d99000"/><text x="28" y="40" class="num">6</text>
+    <text x="68" y="36" class="h">Tester</text>
+    <text x="28" y="76" class="t">実際に起動して動作確認</text>
+    <text x="28" y="102" class="s">受け入れ条件ごとに合否</text>
+  </g>
+  <g transform="translate(575,430)">
+    <rect x="0" y="0" width="290" height="132" rx="16" class="gate"/>
+    <circle cx="34" cy="34" r="18" fill="#d99000"/><text x="28" y="40" class="num">7</text>
+    <text x="68" y="36" class="h">Reviewer</text>
+    <text x="28" y="76" class="t">規約・安全性を静的確認</text>
+    <text x="28" y="102" class="s">sandbox / 保存API / UI契約</text>
+  </g>
+  <g transform="translate(930,430)">
+    <rect x="0" y="0" width="290" height="132" rx="16" class="ai"/>
+    <circle cx="34" cy="34" r="18" fill="#198f4a"/><text x="28" y="40" class="num">8</text>
+    <text x="68" y="36" class="h">プレビュー</text>
+    <text x="28" y="76" class="t">pendingとして登録</text>
+    <text x="28" y="102" class="s">公開済み版はまだ変えない</text>
+  </g>
+  <g transform="translate(1285,430)">
+    <rect x="0" y="0" width="250" height="132" rx="16" class="gate"/>
+    <circle cx="34" cy="34" r="18" fill="#d99000"/><text x="28" y="40" class="num">9</text>
+    <text x="68" y="36" class="h">公開承認</text>
+    <text x="28" y="76" class="t">ユーザーが確認</text>
+    <text x="28" y="102" class="s">「反映して」でactive化</text>
+  </g>
+
+  <path d="M1395 280 C1395 345 365 345 365 430" class="arrow"/>
+  <path d="M510 496 L575 496" class="arrow"/>
+  <path d="M865 496 L930 496" class="arrow"/>
+  <path d="M1220 496 L1285 496" class="arrow"/>
+
+  <g transform="translate(560,680)">
+    <rect x="0" y="0" width="480" height="116" rx="16" class="bad"/>
+    <text x="30" y="42" class="h">NGなら公開せず再生成</text>
+    <text x="30" y="76" class="t">Tester / Reviewer のどちらかがNGなら、指摘を反映してコード生成へ戻る。</text>
+    <text x="30" y="100" class="s">未完成・規約違反・保存忘れ・要求不足は active 化されない。</text>
+  </g>
+  <path d="M720 562 C720 620 800 620 800 680" class="loop"/>
+  <path d="M800 680 C800 610 1395 610 1395 280" class="loop"/>
+
+  <g transform="translate(1130,700)">
+    <rect x="0" y="0" width="380" height="82" rx="14" class="box"/>
+    <text x="26" y="36" class="h">巻き戻し</text>
+    <text x="26" y="64" class="s">公開ごとのスナップショットからLLMなしで直前版へ復元</text>
+  </g>
+</svg>

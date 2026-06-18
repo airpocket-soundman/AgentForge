@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">AgentForge system architecture</title>
+  <desc id="desc">Architecture diagram for AgentForge showing browser UI, Cloud Run backend, AI workers, Firestore persistence, Gemini API, and safety boundaries.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f7f8fb}
+      .panel{fill:#fff;stroke:#d9deea;stroke-width:2}
+      .panel2{fill:#f1f6ff;stroke:#b8cef7;stroke-width:2}
+      .panel3{fill:#f4fbf6;stroke:#b8dfc2;stroke-width:2}
+      .panel4{fill:#fff7e6;stroke:#f0ca72;stroke-width:2}
+      .danger{fill:#fff0f0;stroke:#ee9a9a;stroke-width:2}
+      .title{font:700 34px Arial, sans-serif;fill:#172033}
+      .h{font:700 24px Arial, sans-serif;fill:#172033}
+      .t{font:500 17px Arial, sans-serif;fill:#253047}
+      .s{font:400 15px Arial, sans-serif;fill:#526070}
+      .pill{font:700 14px Arial, sans-serif;fill:#fff}
+      .arrow{stroke:#586275;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#586275;stroke-width:3;fill:none;stroke-dasharray:8 8;marker-end:url(#arrow)}
+      .safe{stroke:#1d8f4a;stroke-width:3;fill:none;marker-end:url(#arrowGreen)}
+      .no{stroke:#d43d3d;stroke-width:3;fill:none}
+    </style>
+    <marker id="arrow" markerWidth="14" markerHeight="10" refX="12" refY="5" orient="auto">
+      <path d="M0,0 L14,5 L0,10 Z" fill="#586275"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="14" markerHeight="10" refX="12" refY="5" orient="auto">
+      <path d="M0,0 L14,5 L0,10 Z" fill="#1d8f4a"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="1000"/>
+  <text x="70" y="70" class="title">AgentForge システム構成</text>
+  <text x="70" y="106" class="s">会話からミニアプリを生成し、検証・レビュー・承認・巻き戻しまでを安全に回す DevOps AI Agent Workbench</text>
+
+  <rect x="70" y="150" width="355" height="680" rx="18" class="panel2"/>
+  <text x="105" y="195" class="h">ユーザー / ブラウザ</text>
+  <rect x="105" y="230" width="285" height="88" rx="12" class="panel"/>
+  <text x="130" y="265" class="t">メインチャット</text>
+  <text x="130" y="292" class="s">作って / 直して / 戻して</text>
+  <rect x="105" y="350" width="285" height="120" rx="12" class="panel"/>
+  <text x="130" y="385" class="t">ミニアプリ表示</text>
+  <text x="130" y="412" class="s">sandbox iframe</text>
+  <text x="130" y="438" class="s">生成HTMLを隔離実行</text>
+  <rect x="105" y="502" width="285" height="108" rx="12" class="panel"/>
+  <text x="130" y="537" class="t">アプリチャット</text>
+  <text x="130" y="564" class="s">Specialist Workerに依頼</text>
+  <rect x="105" y="642" width="285" height="108" rx="12" class="panel"/>
+  <text x="130" y="677" class="t">状態モニター / 履歴</text>
+  <text x="130" y="704" class="s">進捗・モデル・変更履歴</text>
+
+  <rect x="515" y="150" width="520" height="680" rx="18" class="panel"/>
+  <text x="550" y="195" class="h">Cloud Run: Core API</text>
+  <text x="550" y="224" class="s">FastAPI backend。受付、生成、承認、公開、巻き戻しを統括。</text>
+  <rect x="550" y="265" width="210" height="92" rx="12" class="panel2"/>
+  <text x="575" y="300" class="t">Receptor</text>
+  <text x="575" y="327" class="s">受付・復唱・進捗報告</text>
+  <rect x="790" y="265" width="210" height="92" rx="12" class="panel3"/>
+  <text x="815" y="300" class="t">Orchestrator</text>
+  <text x="815" y="327" class="s">計画・生成・プレビュー</text>
+  <rect x="550" y="390" width="210" height="92" rx="12" class="panel4"/>
+  <text x="575" y="425" class="t">Tester</text>
+  <text x="575" y="452" class="s">実行検証・受入条件</text>
+  <rect x="790" y="390" width="210" height="92" rx="12" class="panel4"/>
+  <text x="815" y="425" class="t">Reviewer</text>
+  <text x="815" y="452" class="s">規約・安全性レビュー</text>
+  <rect x="550" y="515" width="210" height="92" rx="12" class="panel2"/>
+  <text x="575" y="550" class="t">Control Plane</text>
+  <text x="575" y="577" class="s">承認・active化・rollback</text>
+  <rect x="790" y="515" width="210" height="92" rx="12" class="panel2"/>
+  <text x="815" y="550" class="t">Generated App API</text>
+  <text x="815" y="577" class="s">AF.load / AF.save</text>
+  <rect x="550" y="642" width="450" height="112" rx="12" class="danger"/>
+  <text x="575" y="677" class="t">安全境界</text>
+  <text x="575" y="704" class="s">AIは勝手に本公開しない。外部通信・localStorageは禁止。</text>
+  <text x="575" y="730" class="s">公開は「反映して」の人間承認後だけ。</text>
+
+  <rect x="1125" y="150" width="405" height="680" rx="18" class="panel3"/>
+  <text x="1160" y="195" class="h">Google Cloud / Firebase</text>
+  <rect x="1160" y="240" width="320" height="95" rx="12" class="panel"/>
+  <text x="1185" y="276" class="t">Gemini API</text>
+  <text x="1185" y="303" class="s">本番LLM。計画・生成・レビュー補助</text>
+  <rect x="1160" y="370" width="320" height="112" rx="12" class="panel"/>
+  <text x="1185" y="406" class="t">Firestore</text>
+  <text x="1185" y="433" class="s">会話 / worker_runs / approvals</text>
+  <text x="1185" y="459" class="s">生成HTML / 状態 / 版スナップショット</text>
+  <rect x="1160" y="520" width="320" height="95" rx="12" class="panel"/>
+  <text x="1185" y="556" class="t">Firebase Hosting / Auth</text>
+  <text x="1185" y="583" class="s">フロント配信・許可ユーザー制御</text>
+  <rect x="1160" y="650" width="320" height="95" rx="12" class="panel"/>
+  <text x="1185" y="686" class="t">Cloud Run Runtime</text>
+  <text x="1185" y="713" class="s">scale-to-zeroで本番稼働</text>
+
+  <path d="M425 300 C470 300 470 300 515 300" class="arrow"/>
+  <path d="M425 410 C470 410 470 410 515 410" class="arrow"/>
+  <path d="M1000 300 C1070 300 1070 288 1160 288" class="dash"/>
+  <path d="M1000 560 C1080 560 1080 426 1160 426" class="safe"/>
+  <path d="M1000 700 C1080 700 1080 700 1160 700" class="arrow"/>
+
+  <rect x="1190" y="850" width="42" height="22" rx="11" fill="#2f6fed"/>
+  <text x="1245" y="867" class="s">LLM呼び出し</text>
+  <rect x="1190" y="885" width="42" height="22" rx="11" fill="#1d8f4a"/>
+  <text x="1245" y="902" class="s">永続化・復元</text>
+  <rect x="1190" y="920" width="42" height="22" rx="11" fill="#d43d3d"/>
+  <text x="1245" y="937" class="s">禁止操作を境界で遮断</text>
+</svg>

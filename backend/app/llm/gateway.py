@@ -1,7 +1,7 @@
 """LLM Provider Gateway: selects the active provider (IMPLEMENTATION_GUIDE.md §2.6).
 
 Selection order:
-  1. settings.llm_provider  (explicit: "gemini" | "claude-cli" | "stub")
+  1. settings.llm_provider  (explicit: "gemini" | "claude-cli" | "codex" | "stub")
   2. else by environment:    app_env == "local" -> "claude-cli", otherwise "gemini"
 
 The switching mechanism ships in prod too, but the *available* providers differ by
@@ -16,12 +16,14 @@ from functools import lru_cache
 from app.config import get_settings
 from app.llm.base import LLMProvider, ModelTier  # noqa: F401  (re-exported)
 from app.llm.providers.claude_cli import ClaudeCliProvider
+from app.llm.providers.codex_cli import CodexCliProvider
 from app.llm.providers.gemini import GeminiProvider
 from app.llm.providers.stub import StubProvider
 
 _REGISTRY = {
     "gemini": GeminiProvider,
     "claude-cli": ClaudeCliProvider,
+    "codex": CodexCliProvider,
     "stub": StubProvider,
 }
 

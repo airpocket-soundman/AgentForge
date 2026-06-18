@@ -14,7 +14,7 @@ client = TestClient(app)
 
 def test_health_endpoints():
     assert client.get("/health").json()["status"] == "ok"
-    assert client.get("/api/reception/health").json()["module"] == "reception"
+    assert client.get("/api/reception/health").status_code == 401
 
 
 def test_detect_intent_task():
@@ -42,3 +42,14 @@ def test_classify_conversational_control():
     # A build request that incidentally mentions a control word (戻す) must still
     # be treated as a build, not a rollback.
     assert service.classify("お絵描きツールを作って。元に戻すボタンも") == "build_feature:unknown"
+
+
+def test_flow_record_clears_transient_template_fields():
+    flow = service._flow_record({
+        "stage": "confirm",
+        "mode": "create",
+        "goal": "テトリス作って",
+        "feature": None,
+    })
+    assert flow["template"] is None
+    assert flow["pending_images"] is None

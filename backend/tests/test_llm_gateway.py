@@ -18,6 +18,7 @@ def test_select_provider_name_by_env():
 def test_select_provider_name_explicit_wins():
     assert select_provider_name("stub", "local") == "stub"
     assert select_provider_name("GEMINI", "local") == "gemini"  # case-insensitive
+    assert select_provider_name("codex", "local") == "codex"
 
 
 def test_stub_disabled_and_deterministic():
