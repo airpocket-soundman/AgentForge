@@ -29,6 +29,14 @@ class CurrentUser:
     uid: str
     email: str
     is_admin: bool
+    is_guest: bool = False
+
+    @property
+    def project_id(self) -> str:
+        if not self.is_guest:
+            return "default"
+        safe_uid = re.sub(r"[^a-zA-Z0-9_-]+", "_", self.uid).strip("_") or "guest"
+        return f"guest_{safe_uid[:80]}"
 
 
 def _split(raw: str) -> list[str]:
@@ -57,6 +65,22 @@ def effective_allowed_emails() -> list[str]:
     return sorted(set(_split(s.allowed_emails)) | set(admin_emails()) | set(stored_allowlist()))
 
 
+def guest_access_enabled() -> bool:
+    """Runtime guest access switch. Firestore overrides env when explicitly set."""
+    s = get_settings()
+    try:
+        from app.firestore import get_db
+
+        snap = get_db().collection("admin_config").document("feature_flags").get()
+        if snap.exists:
+            data = snap.to_dict() or {}
+            if "guest_access_enabled" in data:
+                return bool(data.get("guest_access_enabled"))
+    except Exception:  # noqa: BLE001 — Firestore unavailable -> fall back to env
+        pass
+    return bool(s.guest_access_enabled)
+
+
 def _is_local_mode() -> bool:
     return get_settings().is_local
 
@@ -81,16 +105,12 @@ def _verify(authorization: str | None) -> dict:
 
 def current_user(
     authorization: str | None = Header(default=None),
-    guest_header: str | None = Header(default=None, alias="X-AgentForge-Guest"),
 ) -> CurrentUser:
     """Resolve the caller. Raises 401 (no/invalid token) / 403 (not allowlisted)."""
     if _is_local_mode():
         return CurrentUser(uid="local", email="local@dev", is_admin=True)
 
     s = get_settings()
-    if s.guest_access_enabled and (guest_header or "").strip().lower() == "1":
-        return CurrentUser(uid="guest", email=s.guest_email.lower(), is_admin=False)
-
     if not authorization:
         raise HTTPException(status_code=401, detail="ログインが必要です")
 
@@ -101,6 +121,8 @@ def current_user(
     if not is_admin:
         allowed = set(_split(s.allowed_emails)) | set(stored_allowlist())
         if email not in allowed:
+            if guest_access_enabled():
+                return CurrentUser(uid=uid, email=email, is_admin=False, is_guest=True)
             raise HTTPException(status_code=403, detail="このアカウントはアクセスを許可されていません")
     return CurrentUser(uid=uid, email=email, is_admin=is_admin)
 
@@ -109,6 +131,12 @@ def require_admin(user: CurrentUser = Depends(current_user)) -> CurrentUser:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="管理者のみがアクセスできます")
     return user
+
+
+def require_project_access(user: CurrentUser, project_id: str) -> None:
+    """Guests are locked to their own project scope; allowed users keep legacy default."""
+    if user.is_guest and project_id != user.project_id:
+        raise HTTPException(status_code=403, detail="このゲスト環境にはアクセスできません")
 
 
 # Backward-compatible guard name used by main.py / routers (return value ignored).

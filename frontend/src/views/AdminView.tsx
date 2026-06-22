@@ -12,6 +12,7 @@ export function AdminView({ onBack }: { onBack?: () => void }) {
   const [cfg, setCfg] = useState<AdminConfig | null>(null);
   const [emailsText, setEmailsText] = useState("");
   const [byok, setByok] = useState(false);
+  const [guestAccess, setGuestAccess] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +22,7 @@ export function AdminView({ onBack }: { onBack?: () => void }) {
         setCfg(c);
         setEmailsText(c.allowlist_editable.join("\n"));
         setByok(c.feature_flags.byok_visible);
+        setGuestAccess(c.feature_flags.guest_access_enabled);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }
@@ -49,6 +51,20 @@ export function AdminView({ onBack }: { onBack?: () => void }) {
       setStatus("機能フラグを保存しました。");
     } catch (e) {
       setByok(!next);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function toggleGuestAccess(next: boolean) {
+    setGuestAccess(next);
+    setStatus(null);
+    setError(null);
+    try {
+      const f = await setFeatureFlags({ guest_access_enabled: next });
+      setGuestAccess(f.guest_access_enabled);
+      setStatus(next ? "ゲストアクセスを有効にしました。" : "ゲストアクセスを無効にしました。");
+    } catch (e) {
+      setGuestAccess(!next);
       setError(e instanceof Error ? e.message : String(e));
     }
   }
@@ -88,7 +104,27 @@ export function AdminView({ onBack }: { onBack?: () => void }) {
       </section>
 
       <section className="admin-card">
-        <h3>機能フラグ</h3>
+        <h3>本番公開設定</h3>
+        <div className="admin-switch-row">
+          <div>
+            <b>ゲストモード</b>
+            <p className="hint">
+              OFF のとき、許可リスト外の Google アカウントはアプリに入れません。
+              ON のときだけ、審査員などの許可外ユーザーが個別のゲスト環境に入れます。
+            </p>
+          </div>
+          <label className={`admin-switch ${guestAccess ? "admin-switch--on" : ""}`}>
+            <input
+              type="checkbox"
+              checked={guestAccess}
+              onChange={(e) => void toggleGuestAccess(e.target.checked)}
+            />
+            <span className="admin-switch__track"><span className="admin-switch__thumb" /></span>
+            <span className="admin-switch__state">{guestAccess ? "ON" : "OFF"}</span>
+          </label>
+        </div>
+
+        <h3>その他の機能フラグ</h3>
         <label className="admin-flag">
           <input type="checkbox" checked={byok} onChange={(e) => void toggleByok(e.target.checked)} />
           BYOK（自分のAPIキー設定）の入口をユーザーに表示する

@@ -78,3 +78,22 @@ def stop_all() -> dict:
             )
             stopped.append(doc.id)
     return {"stopped": len(stopped), "conversations": stopped}
+
+
+def stop_project(project_id: str) -> dict:
+    """Stop running background workers for one project only."""
+    db = get_db()
+    stopped: list[str] = []
+    target = f"conv_{project_id}"
+    for doc in db.collection(_CONVERSATIONS).stream():
+        if doc.id != target:
+            continue
+        data = doc.to_dict() or {}
+        build = data.get("build") or {}
+        if build.get("status") == "designing":
+            doc.reference.set(
+                {"build": {"status": "error", "error": "stopped by user (stop)", "updated_at": _now_iso()}},
+                merge=True,
+            )
+            stopped.append(doc.id)
+    return {"stopped": len(stopped), "conversations": stopped}

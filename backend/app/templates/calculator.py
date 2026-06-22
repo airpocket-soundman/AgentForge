@@ -80,4 +80,14 @@ MANIFEST = {
          "inputSchema": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},
         {"name": "clear", "description": "全消去(AC)", "inputSchema": {"type": "object", "properties": {}}},
     ],
+    "worker_instructions": (
+        "電卓操作用ワーカー。計算式の実行、キー入力、全消去を担当する。"
+        "数式が含まれる依頼は compute。『押して/入力して』は press。『クリア/消して/リセット』は clear。"
+        "式が曖昧なら、計算したい式を聞き返す。"
+    ),
+    "worker_examples": [
+        {"user": "12+3を計算して", "command": {"name": "compute", "arguments": {"expression": "12+3"}}, "reply": "計算します。"},
+        {"user": "ACして", "command": {"name": "clear", "arguments": {}}, "reply": "電卓をクリアします。"},
+        {"user": "1 2 + 3 を押して", "command": {"name": "press", "arguments": {"keys": "12+3"}}, "reply": "キーを入力します。"},
+    ],
 }

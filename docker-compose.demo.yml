@@ -1,0 +1,27 @@
+# AgentForge — local demo auth overlay.
+#
+# Usage:
+#   1) Fill frontend/.env.local from frontend/.env.example with the Firebase Web app config.
+#   2) docker compose -f docker-compose.dev.yml -f docker-compose.demo.yml up --build
+#
+# This keeps Firestore local (emulator) but uses real Firebase Google login, so the
+# demo matches production auth behavior:
+# - allowlisted Google accounts use project_id=default
+# - non-allowlisted Google accounts can enter only when guest access is enabled
+# - each guest gets an isolated project_id=guest_<firebase_uid>
+services:
+  backend:
+    environment:
+      APP_ENV: prod
+      ALLOWED_EMAILS: airpocket.soundman@gmail.com
+      ADMIN_EMAILS: airpocket.soundman@gmail.com;yamashita.3154@gmail.com
+      GUEST_ACCESS_ENABLED: "true"
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174
+
+  frontend:
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8080
+
+  frontend-admin:
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8080

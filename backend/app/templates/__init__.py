@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from app.models.generated import ViewManifest
 
-from . import calculator, memo, paint, schedule, task_manager, translate
+from . import calculator, household_budget, memo, paint, schedule, task_manager, translate
 
-_MODULES = [calculator, task_manager, schedule, memo, translate, paint]
+_MODULES = [calculator, task_manager, schedule, memo, household_budget, translate, paint]
 
 # feature slug -> manifest dict
 TEMPLATES: dict[str, dict] = {m.MANIFEST["feature"]: m.MANIFEST for m in _MODULES}
@@ -28,6 +28,7 @@ _KEYWORDS: dict[str, tuple[str, ...]] = {
     "task_manager": ("タスク", "todo", "to-do", "やること", "やる事", "task"),
     "schedule": ("スケジュール", "予定", "カレンダー", "schedule", "calendar"),
     "memo": ("メモ", "memo", "ノート", "notepad", "note"),
+    "household_budget": ("家計簿", "かけいぼ", "支出管理", "収支", "出費", "expense", "budget"),
     "translate": ("翻訳", "translate", "translation", "ほんやく"),
     "paint": ("ペイント", "お絵描き", "おえかき", "お絵かき", "落書き", "paint", "drawing", "draw"),
 }
@@ -66,5 +67,9 @@ def to_manifest(key: str) -> ViewManifest | None:
     return ViewManifest(
         feature=m["feature"], title=m["title"], description=m["description"],
         kind="app", theme=m["theme"], html=m["html"], commands=m["commands"],
+        worker_instructions=m.get("worker_instructions", ""),
+        worker_examples=m.get("worker_examples", []),
+        worker_state_mode=m.get("worker_state_mode", "commands"),
+        state_schema=m.get("state_schema", {}),
         generated_by="template",
     )

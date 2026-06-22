@@ -38,6 +38,62 @@ _APPROVE_KEYWORDS = ("反映", "承認", "approve", "apply")
 _ROLLBACK_KEYWORDS = ("戻し", "戻す", "ロールバック", "rollback", "取り消", "無効化")
 
 _FEATURE_LABELS = {"task": "タスク管理", "pdf_memo": "PDFメモ", "unknown": "ご要望の機能"}
+_QUESTION_MARKERS = (
+    "？", "?", "どんな", "何が", "なにが", "教えて", "ありますか", "ある？",
+    "できますか", "できる？", "使い方", "とは", "一覧",
+)
+_DIRECT_BUILD_PHRASES = (
+    "作って", "つくって", "追加して", "入れて", "実装して", "直して", "変更して", "修正して",
+    "作成して", "生成して", "build", "create", "add",
+)
+
+
+def user_context_instruction(user_call_name: str | None) -> str:
+    """Instruction block shared by Receptor/Orchestrator/Specialist prompts."""
+    name = " ".join((user_call_name or "").split())[:40]
+    if not name:
+        return ""
+    return (
+        "\n\n[ユーザー設定]\n"
+        f"ユーザーの呼び名: {name}\n"
+        "以後、自然な範囲でこの呼び名でユーザーに呼びかけてください。"
+        "ただし毎回・毎文のように過度には呼ばないでください。"
+    )
+
+
+def strip_user_context(text: str) -> str:
+    marker = "\n\n[ユーザー設定]\n"
+    return (text or "").split(marker, 1)[0].rstrip()
+
+
+def is_receptor_direct_question(text: str) -> bool:
+    """Questions/consultations should stay with Receptor, not start the pipeline."""
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if any(p in t for p in _DIRECT_BUILD_PHRASES):
+        return False
+    return any(q in t for q in _QUESTION_MARKERS)
+
+
+def is_template_catalogue_question(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return (
+        any(w in t for w in ("デフォルト", "テンプレ", "template", "サンプル", "最初から"))
+        and any(q in t for q in _QUESTION_MARKERS)
+    )
+
+
+def template_catalogue_reply() -> str:
+    from app import templates
+
+    rows = templates.list_templates()
+    lines = [f"・{r['title']}: {r['description']}" for r in rows]
+    return (
+        "デフォルトで用意しているミニアプリは次の通りです。\n"
+        + "\n".join(lines)
+        + "\n\n使う場合は、たとえば「電卓を作って」「翻訳を入れて」のように送ってください。"
+    )
 
 
 def feature_label(feature: str) -> str:
@@ -161,6 +217,10 @@ _CANCEL_PHRASES = (
     "キャンセル", "中止して", "中止に", "破棄して", "取りやめ", "やめたい",
     "やめにして", "やめましょう", "やめよう", "やっぱりやめ",
 )
+_REJECTION_EXACT = {
+    "いいえ", "いえ", "いや", "いらない", "不要", "ちがう", "違う",
+    "違います", "ちがいます", "だめ", "ダメ", "なし", "無し", "no", "n", "nope",
+}
 
 
 def _normalize_short(text: str) -> str:
@@ -179,6 +239,16 @@ def is_cancel(text: str) -> bool:
     if t in _CANCEL_EXACT:
         return True
     return len(t) <= 20 and any(k in t for k in _CANCEL_PHRASES)
+
+
+def is_rejection(text: str) -> bool:
+    """A bare negative answer to a pending confirmation/proposal.
+
+    Detailed replies such as "いいえ、色を赤にして" are intentionally not matched;
+    those still count as revision feedback.
+    """
+    t = _normalize_short(text)
+    return t in _REJECTION_EXACT
 
 
 # Timeout 3-choice replies (workers.html §3(b)): ② wait / ③ stop & retry.
@@ -560,6 +630,7 @@ def handle_request(
     goal: str,
     images: list[dict] | None = None,
     hint_feature: str | None = None,
+    user_call_name: str | None = None,
 ) -> dict:
     """Single pipeline entry for a substantive request, from the main chat OR a
     feature screen. The ORCHESTRATOR decides create-vs-edit-vs-chat; we then run the
@@ -595,7 +666,11 @@ def handle_request(
 
 
 def handle_request_bg(
-    project_id: str, goal: str, images: list[dict] | None = None, hint_feature: str | None = None
+    project_id: str,
+    goal: str,
+    images: list[dict] | None = None,
+    hint_feature: str | None = None,
+    user_call_name: str | None = None,
 ) -> None:
     """Run classify+route on a background thread so the Receptor can answer instantly.
 
@@ -603,12 +678,16 @@ def handle_request_bg(
     slow. The Receptor now acknowledges at once; this thread classifies and either
     kicks the build (which posts its own progress) or posts a chat reply."""
     threading.Thread(
-        target=_handle_request_worker, args=(project_id, goal, images, hint_feature), daemon=True
+        target=_handle_request_worker, args=(project_id, goal, images, hint_feature, user_call_name), daemon=True
     ).start()
 
 
 def _handle_request_worker(
-    project_id: str, goal: str, images: list[dict] | None, hint_feature: str | None
+    project_id: str,
+    goal: str,
+    images: list[dict] | None,
+    hint_feature: str | None,
+    user_call_name: str | None,
 ) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.orchestrator import service as orchestrator
@@ -632,9 +711,11 @@ def _handle_request_worker(
         if action in ("edit", "create"):
             # Don't dispatch yet — the Receptor restates what it will ask the
             # Orchestrator and waits for the user's OK (then start_confirm path).
-            _start_confirm(project_id, action, feature, pipeline_goal, images=images)
+            _start_confirm(project_id, action, feature, pipeline_goal, images=images, user_call_name=user_call_name)
         else:
-            append_message(conversation_id, ChatMessage(role="assistant", text=_receptor_chat(project_id, goal)))
+            append_message(conversation_id, ChatMessage(
+                role="assistant", text=_receptor_chat(project_id, goal, user_call_name=user_call_name)
+            ))
             worker_status.record_status("Receptor", project_id, worker_status.IDLE, detail=None)
     except Exception as exc:  # noqa: BLE001
         append_message(
@@ -651,8 +732,14 @@ def _handle_request_worker(
 # user's OK does it dispatch (start_plan / start_edit). Stored on the flow at
 # stage="confirm": mode=action(create|edit), feature=edit target, goal=instruction.
 
-def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
-                   images: list[dict] | None = None) -> None:
+def _start_confirm(
+    project_id: str,
+    action: str,
+    feature: str | None,
+    goal: str,
+    images: list[dict] | None = None,
+    user_call_name: str | None = None,
+) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.orchestrator import service as orchestrator
 
@@ -660,7 +747,7 @@ def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
     # the Receptor asks the user whether to start from that default (vs from scratch).
     judged = orchestrator.judge_template(goal) if action == "create" else {"template": None}
     tkey = judged.get("template")
-    restate = _confirm_restatement(project_id, action, feature, goal)
+    restate = _confirm_restatement(project_id, action, feature, goal, user_call_name=user_call_name)
     if tkey:
         restate += (f"\n\n💡 ご要望には、用意済みの**デフォルト「{judged.get('title') or tkey}」**が土台に使えそうです"
                     "（動く土台から改良するのが簡単です）。\n"
@@ -682,13 +769,27 @@ def _start_confirm(project_id: str, action: str, feature: str | None, goal: str,
                                 detail="依頼内容の確認待ち（「お願い」）")
 
 
-def start_confirm_bg(project_id: str, action: str, feature: str | None, goal: str) -> None:
+def start_confirm_bg(
+    project_id: str,
+    action: str,
+    feature: str | None,
+    goal: str,
+    user_call_name: str | None = None,
+) -> None:
     """Re-run the restatement in the background (used when the user revises at the
     confirm stage), so the HTTP reply stays instant."""
-    threading.Thread(target=_start_confirm, args=(project_id, action, feature, goal), daemon=True).start()
+    threading.Thread(
+        target=_start_confirm, args=(project_id, action, feature, goal, None, user_call_name), daemon=True
+    ).start()
 
 
-def _confirm_restatement(project_id: str, action: str, feature: str | None, goal: str) -> str:
+def _confirm_restatement(
+    project_id: str,
+    action: str,
+    feature: str | None,
+    goal: str,
+    user_call_name: str | None = None,
+) -> str:
     """The Receptor's restatement of what it will ask the Orchestrator + a request
     to confirm. LLM-generated (its own words); minimal fallback when offline."""
     from app import agents
@@ -700,6 +801,7 @@ def _confirm_restatement(project_id: str, action: str, feature: str | None, goal
     if llm.enabled:
         prompt = (
             f"{agents.load('reception')}\n\n"
+            f"{user_context_instruction(user_call_name)}\n\n"
             "あなたは受付（Receptor）。これから制作チーム（Orchestrator）に渡す依頼内容を、"
             "ユーザーに復唱して確認します。次の依頼を1〜3文で具体的に要約して復唱し、最後に必ず\n"
             "『この内容で制作を依頼してよいですか？修正があれば教えてください。よければ「お願い」とお送りください。』\n"
@@ -727,7 +829,7 @@ def dispatch_confirmed(project_id: str) -> dict:
     flow = get_flow(project_id)
     action = flow.get("mode")
     feature = flow.get("feature")
-    instruction = flow.get("goal") or ""
+    instruction = strip_user_context(flow.get("goal") or "")
     tkey = flow.get("template")
     snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
     images = ((snap.to_dict() or {}).get("flow") or {}).get("pending_images") if snap.exists else None
@@ -782,7 +884,7 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
             "building": False}
 
 
-def _receptor_chat(project_id: str, text: str) -> str:
+def _receptor_chat(project_id: str, text: str, user_call_name: str | None = None) -> str:
     """Receptor's conversational reply — LLM-generated (its own words), not a fixed
     template. Falls back to a minimal line only when no LLM is reachable."""
     from app import agents
@@ -802,6 +904,7 @@ def _receptor_chat(project_id: str, text: str) -> str:
         ) or "（まだ無し）"
         prompt = (
             f"{agents.load('reception')}\n\n"
+            f"{user_context_instruction(user_call_name)}\n\n"
             "あなたは受付AIワーカー（Receptor）。軽い処理のみで即応し、ユーザーと自然に簡潔に会話します。\n"
             "重要な役割：ユーザーの意図が『機能の作成・改変』っぽいが、まだ**何を・どう**するかが具体的でないときは、"
             "いきなり制作チーム（Orchestrator）に投げず、**具体化する質問を返す**。\n"
@@ -1054,7 +1157,12 @@ def retry_build(project_id: str) -> str:
     return "planning"
 
 
-def building_status_reply(project_id: str, text: str, diag: dict) -> str:
+def building_status_reply(
+    project_id: str,
+    text: str,
+    diag: dict,
+    user_call_name: str | None = None,
+) -> str:
     """The reception worker INVESTIGATES the pipeline (diagnose_build) and explains
     the real situation in its own words — it reasons over the diagnostic facts with
     the reception-agent prompt, rather than emitting a fixed 'please wait' template.
@@ -1082,6 +1190,7 @@ def building_status_reply(project_id: str, text: str, diag: dict) -> str:
     if llm.enabled:
         prompt = (
             f"{agents.load('reception')}\n\n"
+            f"{user_context_instruction(user_call_name)}\n\n"
             "あなたは受付AIワーカーです。バックグラウンドで動くアプリ生成パイプラインの稼働状況を、"
             "下の診断結果に基づいて正直に説明してください。定型文は禁止。いまどの工程か、順調か/"
             "遅いか/止まっていそうか、ユーザーは待てばよいか・中止(「キャンセル」)すべきかを、"
@@ -1150,12 +1259,12 @@ def pipeline_status(project_id: str) -> dict:
     }
 
 
-def pipeline_status_reply(project_id: str, text: str) -> str:
+def pipeline_status_reply(project_id: str, text: str, user_call_name: str | None = None) -> str:
     """Answer a status query at ANY stage. While a build runs, defer to the
     grounded build-status reply; otherwise narrate the pipeline_status snapshot."""
     st = pipeline_status(project_id)
     if st["building"]:
-        return building_status_reply(project_id, text, diagnose_build(project_id))
+        return building_status_reply(project_id, text, diagnose_build(project_id), user_call_name=user_call_name)
 
     from app import agents
     from app.llm.gateway import ModelTier, get_llm
@@ -1171,6 +1280,7 @@ def pipeline_status_reply(project_id: str, text: str) -> str:
     if llm.enabled:
         prompt = (
             f"{agents.load('reception')}\n\n"
+            f"{user_context_instruction(user_call_name)}\n\n"
             "あなたは受付AIワーカー。下のパイプライン状況（実測）に基づいて、いま何が起きていて"
             "次に何をすればよいかを2〜3文で正直に答えてください。定型文や、根拠のない完了見込みは禁止。\n\n"
             f"【パイプライン状況】\n{facts}\n\n【ユーザーの発言】{text}\n\n受付ワーカーの返答:"
@@ -1601,6 +1711,8 @@ def detect_intent(text: str) -> str | None:
 
 def compose_reply(text: str, intent: str | None) -> str:
     """Deterministic reply. Replaced by Gemini-routed responses in Phase 2."""
+    if is_template_catalogue_question(text):
+        return template_catalogue_reply()
     if intent and intent.startswith("build_feature:"):
         feature = intent.split(":", 1)[1]
         label = {
@@ -1614,7 +1726,4 @@ def compose_reply(text: str, intent: str | None) -> str:
             "進捗はこの画面にリアルタイムで表示されます。"
             "（※現在 Phase 1：Orchestrator 連携は Phase 2 で有効化されます）"
         )
-    return (
-        "メッセージを受け取りました。"
-        "「タスク管理を追加して」のように、追加したい機能を伝えてください。"
-    )
+    return "はい。質問や相談ならそのまま答えます。作りたいものが決まっている場合は、作りたい内容を具体的に送ってください。"

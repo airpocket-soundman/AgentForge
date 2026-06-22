@@ -1,8 +1,12 @@
 // Thin client for the AgentForge core API. Calls go through Vite's /api proxy
 // in dev; in production the SPA (Firebase Hosting) rewrites /api to Cloud Run.
-import { getIdToken, isGuestSession } from "./firebase";
+import { getIdToken } from "./firebase";
 
-export const PROJECT_ID = "default";
+export let PROJECT_ID = "default";
+
+export function setProjectId(projectId: string): void {
+  PROJECT_ID = projectId || "default";
+}
 
 // When VITE_API_BASE is set (e.g. the Cloud Run URL), call the deployed API
 // directly (real Gemini / real Firestore). Otherwise use relative paths that the
@@ -11,6 +15,18 @@ const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 function url(path: string): string {
   return `${API_BASE}${path}`;
+}
+
+function userCallName(): string | undefined {
+  try {
+    const raw = localStorage.getItem("af_user_settings");
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as { callName?: unknown } | null;
+    const name = typeof parsed?.callName === "string" ? parsed.callName.trim() : "";
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface ChatMessage {
@@ -72,7 +88,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   const token = await getIdToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (isGuestSession()) headers["X-AgentForge-Guest"] = "1";
   const res = await fetch(url(path), { ...init, headers });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -94,7 +109,7 @@ export function sendMessage(
 ): Promise<ReceptionReply> {
   return request<ReceptionReply>("/api/reception/messages", {
     method: "POST",
-    body: JSON.stringify({ text, project_id: projectId, attachments }),
+    body: JSON.stringify({ text, project_id: projectId, attachments, user_call_name: userCallName() }),
   });
 }
 
@@ -308,7 +323,14 @@ export function sendFeatureWorkerMessage(
 }> {
   return request(`/api/app/features/${encodeURIComponent(feature)}/worker/messages`, {
     method: "POST",
-    body: JSON.stringify({ project_id: projectId, text, attachments, context_id: contextId, context_label: contextLabel }),
+    body: JSON.stringify({
+      project_id: projectId,
+      text,
+      attachments,
+      context_id: contextId,
+      context_label: contextLabel,
+      user_call_name: userCallName(),
+    }),
   });
 }
 
@@ -327,17 +349,29 @@ export function setFeatureWorker(
 
 export interface FeatureFlags {
   byok_visible: boolean;
+  guest_access_enabled: boolean;
 }
 
 export interface Me {
   uid: string;
   email: string;
   is_admin: boolean;
+  is_guest: boolean;
+  project_id: string;
   feature_flags: FeatureFlags;
 }
 
 export function getMe(): Promise<Me> {
   return request<Me>("/api/me");
+}
+
+export interface PublicConfig {
+  guest_access_enabled: boolean;
+  auth_required: boolean;
+}
+
+export function getPublicConfig(): Promise<PublicConfig> {
+  return request<PublicConfig>("/api/public/config");
 }
 
 export interface AdminConfig {
@@ -409,6 +443,10 @@ export interface ViewManifest {
   html?: string;
   // MCP-style tool definitions the mini-app exposes for its specialist worker.
   commands?: { name: string; description?: string; inputSchema?: Record<string, unknown> }[];
+  worker_state_mode?: "commands" | "state" | "hybrid";
+  state_schema?: Record<string, unknown>;
+  worker_instructions?: string;
+  worker_examples?: Record<string, unknown>[];
   generated_by: string;
 }
 

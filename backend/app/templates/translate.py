@@ -137,4 +137,34 @@ MANIFEST = {
         {"name": "save_phrase", "description": "原文と訳を単語帳に保存",
          "inputSchema": {"type": "object", "properties": {"src": {"type": "string"}, "dst": {"type": "string"}}, "required": ["src", "dst"]}},
     ],
+    "worker_state_mode": "hybrid",
+    "state_schema": {
+        "type": "object",
+        "properties": {
+            "book": {
+                "type": "array",
+                "description": "単語帳に保存した原文と訳の一覧",
+                "items": {
+                    "type": "object",
+                    "properties": {"src": {"type": "string"}, "dst": {"type": "string"}},
+                    "required": ["src", "dst"],
+                },
+            },
+            "from": {"type": "string", "description": "翻訳元言語 auto/ja/en/zh/ko/fr"},
+            "to": {"type": "string", "description": "翻訳先言語 ja/en/zh/ko/fr"},
+            "src": {"type": "string", "description": "原文欄"},
+            "out": {"type": "string", "description": "訳文欄"},
+        },
+    },
+    "worker_instructions": (
+        "翻訳操作用ワーカー。原文入力、言語設定、翻訳結果表示、単語帳保存を担当する。"
+        "『英語にして/日本語に訳して』は set_languages と set_translation を適切に使う。"
+        "原文が指定されたら翻訳して set_translation に訳文を入れる。画像添付がある場合は画像内テキストも読む。"
+        "『保存して/単語帳に入れて』は save_phrase。原文や翻訳先が不明なら聞き返す。"
+    ),
+    "worker_examples": [
+        {"user": "Helloを日本語に訳して", "command": {"name": "set_translation", "arguments": {"text": "こんにちは"}}, "reply": "訳文を表示します。"},
+        {"user": "翻訳先を英語にして", "command": {"name": "set_languages", "arguments": {"to": "en"}}, "reply": "翻訳先を英語にします。"},
+        {"user": "この訳を単語帳に保存して", "command": {"name": "save_phrase", "arguments": {"src": "<原文>", "dst": "<訳文>"}}, "reply": "単語帳に保存します。"},
+    ],
 }

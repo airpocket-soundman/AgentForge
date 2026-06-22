@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # Separate multiple with ';' or space (NOT comma — gcloud --set-env-vars uses comma).
     # The admin page can ADD more allowed emails at runtime (stored in Firestore);
     # this env value is the bootstrap set.
-    allowed_emails: str = ""
+    allowed_emails: str = "airpocket.soundman@gmail.com"
     # Admin allowlist (separate, smaller). Only these accounts reach the admin page
     # and can edit the user allowlist / feature flags. Admins are always allowed in.
     admin_emails: str = "yamashita.3154@gmail.com"

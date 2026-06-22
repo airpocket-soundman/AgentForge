@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { disableFeature, getFeatureStates, getMe, resetAll, stopAllWorkers, type Me } from "../api";
-import { isFirebaseConfigured, isGuestSession, signOutUser } from "../firebase";
+import { disableFeature, getFeatureStates, getMe, resetAll, setProjectId, stopAllWorkers, type Me } from "../api";
+import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
 import { ByokView } from "../views/ByokView";
 import { StatusView } from "../views/StatusView";
+import { loadUserSettings, UserSettingsView, type UserSettings } from "../views/UserSettingsView";
 
 // Admin is a SEPARATE app (frontend/admin.html), not reachable from here.
 // EVERY feature (incl. task management) is AI-generated and rendered by the
@@ -16,13 +17,16 @@ type View =
   | { kind: "byok" }
   | { kind: "status" };
 
-export function AppShell({ user }: { user: User | null }) {
+export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?: () => void }) {
   // Raw feature_states doc: { <feature>: "active"|"disabled", <feature>_title, _theme, _worker, ... }
   const [states, setStates] = useState<Record<string, string>>({});
   const [view, setView] = useState<View>({ kind: "chat" });
   const [prevView, setPrevView] = useState<View>({ kind: "chat" });
   const [denied, setDenied] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
+  const [userSettings, setUserSettings] = useState<UserSettings>(() => loadUserSettings());
+  const [userSettingsOpen, setUserSettingsOpen] = useState(false);
+  const [identityReady, setIdentityReady] = useState(false);
   const [appFullscreen, setAppFullscreen] = useState(false);
   const [restorePos, setRestorePos] = useState<{ x: number; y: number }>(() => {
     try {
@@ -83,8 +87,19 @@ export function AppShell({ user }: { user: User | null }) {
       });
   }
 
-  useEffect(() => { void loadStates(); }, []);
-  useEffect(() => { void getMe().then(setMe).catch(() => {}); }, []); // identity + flags
+  useEffect(() => {
+    void getMe()
+      .then((m) => {
+        setMe(m);
+        setProjectId(m.project_id);
+        return loadStates();
+      })
+      .catch((e: unknown) => {
+        const status = (e as { status?: number })?.status;
+        if (status === 401 || status === 403) setDenied(true);
+      })
+      .finally(() => setIdentityReady(true));
+  }, []); // identity + flags + project scope
 
   function openOverlay(kind: "byok" | "status") {
     setAppFullscreen(false);
@@ -153,6 +168,10 @@ export function AppShell({ user }: { user: User | null }) {
     );
   }
 
+  if (!identityReady) {
+    return <div className="centered">読み込み中…</div>;
+  }
+
   // Active features are keys whose value is exactly "active" (meta keys like
   // *_title / *_theme / *_worker / updated_at don't match and are filtered out).
   const activeFeatures = Object.keys(states).filter((k) => states[k] === "active");
@@ -200,15 +219,25 @@ export function AppShell({ user }: { user: User | null }) {
   const mainTheme = currentFeature ? themeOf(currentFeature) : "default";
   const navActive = (f: string) => view.kind === "feature" && view.key === f;
   const isLocalDev = !isFirebaseConfigured();
+  const canReset = import.meta.env.DEV || Boolean(me?.is_admin);
   const canFullscreenApp = view.kind === "feature";
-  const guest = isGuestSession();
-
+  const userLabel = user ? (me?.is_guest ? `ゲスト: ${user.email}` : user.email || "ユーザー") : "ローカルユーザー";
+  const avatarText = (userSettings.iconText || (user?.email ?? "A").slice(0, 1) || "A").slice(0, 2);
+  function openUserSettings() {
+    setAppFullscreen(false);
+    setUserSettingsOpen(true);
+  }
   return (
     <div className={appFullscreen ? "shell shell--app-fullscreen" : "shell"}>
       <header className="topbar">
         <div className="topbar__brand">AgentForge</div>
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
         <span className="spacer" />
+        {onShowHome && (
+          <button className="byok-top" title="説明トップページを開く" onClick={onShowHome}>
+            トップ
+          </button>
+        )}
         <button
           className="stopall-top"
           title="実行中のワーカーをすべて停止（全セッション）"
@@ -246,24 +275,25 @@ export function AppShell({ user }: { user: User | null }) {
         >
           ⛶ アプリ全画面化
         </button>
-        {isLocalDev && (
+        {canReset && (
           <button className="reset-top" title="【開発用】全データを削除して初期状態に戻す" onClick={() => void handleReset()}>
             🗑 初期化
           </button>
         )}
-        {user && (
-          <span className="topbar__user">
-            {user.email}
-            <button className="logout" onClick={() => void signOutUser()}>ログアウト</button>
-          </span>
-        )}
-        {!user && guest && (
-          <span className="topbar__user">
-            ゲスト
-            <button className="logout" onClick={() => { void signOutUser(); window.location.reload(); }}>ログアウト</button>
-          </span>
-        )}
-        {isLocalDev && <span className="topbar__user">（ローカル: 認証なし）</span>}
+        <span className="topbar__user">
+          <button
+            className={userSettingsOpen ? "topbar-user-button topbar-user-button--active" : "topbar-user-button"}
+            title="ユーザー設定を開く"
+            onClick={openUserSettings}
+          >
+            <span className={userSettings.iconImageDataUrl ? "topbar-user-avatar topbar-user-avatar--image" : "topbar-user-avatar"} style={userSettings.iconImageDataUrl ? undefined : { background: userSettings.iconColor }}>
+              {userSettings.iconImageDataUrl ? <img src={userSettings.iconImageDataUrl} alt="" /> : avatarText}
+            </span>
+            <span className="topbar-user-label">{userLabel}</span>
+          </button>
+          {user && <button className="logout" onClick={() => void signOutUser()}>ログアウト</button>}
+          {isLocalDev && <span className="topbar-local-label">認証なし</span>}
+        </span>
       </header>
 
       <div className="body" ref={bodyRef}>
@@ -326,6 +356,18 @@ export function AppShell({ user }: { user: User | null }) {
           {view.kind === "status" && <StatusView onBack={() => setView(prevView)} />}
         </main>
       </div>
+
+      {userSettingsOpen && (
+        <div className="settings-modal-backdrop" role="presentation" onMouseDown={() => setUserSettingsOpen(false)}>
+          <div className="settings-modal" role="dialog" aria-modal="true" aria-label="ユーザー設定" onMouseDown={(e) => e.stopPropagation()}>
+            <UserSettingsView
+              onClose={() => setUserSettingsOpen(false)}
+              userEmail={userLabel}
+              onSaved={(settings) => setUserSettings(settings)}
+            />
+          </div>
+        </div>
+      )}
 
       {appFullscreen && (
         <button

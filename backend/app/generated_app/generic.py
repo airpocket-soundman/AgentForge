@@ -13,8 +13,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import CurrentUser, current_user, require_project_access
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
 from app.models.generated import EntityIn, EntityUpdate, StateIn
@@ -39,8 +40,9 @@ def _view_doc_id(project_id: str, feature: str) -> str:
 
 
 @router.get("/view/{feature}")
-def get_view(feature: str, project_id: str = "default") -> dict:
+def get_view(feature: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """The active view_manifest for a generated feature (what the renderer draws)."""
+    require_project_access(user, project_id)
     require_feature_active(project_id, feature)
     snap = get_db().collection(_VIEWS).document(_view_doc_id(project_id, feature)).get()
     if not snap.exists:
@@ -49,9 +51,10 @@ def get_view(feature: str, project_id: str = "default") -> dict:
 
 
 @router.get("/preview/{feature}")
-def preview_view(feature: str, project_id: str = "default") -> dict:
+def preview_view(feature: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """The view_manifest for a feature regardless of approval status, so the chat
     can show a PREVIEW of generated code before the user publishes it."""
+    require_project_access(user, project_id)
     snap = get_db().collection(_VIEWS).document(_view_doc_id(project_id, feature)).get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="プレビュー対象が見つかりません")
@@ -59,7 +62,8 @@ def preview_view(feature: str, project_id: str = "default") -> dict:
 
 
 @router.get("/entities")
-def list_entities(feature: str, project_id: str = "default") -> dict:
+def list_entities(feature: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
     require_feature_active(project_id, feature)
     docs = (
         get_db()
@@ -74,7 +78,8 @@ def list_entities(feature: str, project_id: str = "default") -> dict:
 
 
 @router.post("/entities")
-def create_entity(body: EntityIn) -> dict:
+def create_entity(body: EntityIn, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, body.project_id)
     require_feature_active(body.project_id, body.feature)
     entity_id = f"e_{uuid.uuid4().hex[:12]}"
     doc = {
@@ -90,12 +95,13 @@ def create_entity(body: EntityIn) -> dict:
 
 
 @router.patch("/entities/{entity_id}")
-def update_entity(entity_id: str, body: EntityUpdate) -> dict:
+def update_entity(entity_id: str, body: EntityUpdate, user: CurrentUser = Depends(current_user)) -> dict:
     ref = get_db().collection(_ENTITIES).document(entity_id)
     snap = ref.get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="not found")
     cur = snap.to_dict()
+    require_project_access(user, cur["project_id"])
     require_feature_active(cur["project_id"], cur["feature"])
     merged = {**cur.get("data", {}), **body.data}
     ref.set({"data": merged, "updated_at": _now_iso()}, merge=True)
@@ -103,8 +109,9 @@ def update_entity(entity_id: str, body: EntityUpdate) -> dict:
 
 
 @router.get("/state/{feature}")
-def get_state(feature: str, project_id: str = "default") -> dict:
+def get_state(feature: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """Whole-app persisted state for a generated app (AF.load() reads this)."""
+    require_project_access(user, project_id)
     require_feature_active(project_id, feature)
     snap = get_db().collection(_STATE).document(_state_doc_id(project_id, feature)).get()
     if not snap.exists:
@@ -113,8 +120,9 @@ def get_state(feature: str, project_id: str = "default") -> dict:
 
 
 @router.put("/state/{feature}")
-def put_state(feature: str, body: StateIn) -> dict:
+def put_state(feature: str, body: StateIn, user: CurrentUser = Depends(current_user)) -> dict:
     """Persist the whole-app state blob (AF.save() writes this)."""
+    require_project_access(user, body.project_id)
     require_feature_active(body.project_id, feature)
     get_db().collection(_STATE).document(_state_doc_id(body.project_id, feature)).set(
         {
@@ -128,12 +136,13 @@ def put_state(feature: str, body: StateIn) -> dict:
 
 
 @router.delete("/entities/{entity_id}")
-def delete_entity(entity_id: str) -> dict:
+def delete_entity(entity_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     ref = get_db().collection(_ENTITIES).document(entity_id)
     snap = ref.get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="not found")
     cur = snap.to_dict()
+    require_project_access(user, cur["project_id"])
     require_feature_active(cur["project_id"], cur["feature"])
     ref.delete()
     return {"deleted": entity_id}

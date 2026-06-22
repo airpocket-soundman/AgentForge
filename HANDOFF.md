@@ -51,7 +51,7 @@
   cd ~/AgentForge && git pull && cd backend
   gcloud run deploy agentforge-core-api --source . --region=asia-northeast1 \
     --allow-unauthenticated --min-instances=0 \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1,ALLOWED_EMAILS=yamashita.3154@gmail.com" \
+    --set-env-vars="GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1,ALLOWED_EMAILS=yamashita.3154@gmail.com,GUEST_ACCESS_ENABLED=false" \
     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
   ```
 - **アクセス制限**: `ALLOWED_EMAILS`（`;`区切り）で**許可メールのみ利用可**。許可外は API 403／UIは「アクセス権限がありません」。空＝制限なし。審査員に見せるなら審査員メールを追加。

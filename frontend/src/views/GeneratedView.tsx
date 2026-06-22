@@ -41,6 +41,8 @@ export function GeneratedView({
   const [acting, setActing] = useState(false);
   // app-kind: a content command from the worker for the running app to execute.
   const [command, setCommand] = useState<AgentCommand | null>(null);
+  // Direct state edits happen server-side; remount the iframe so AF.load() sees them.
+  const [appReloadNonce, setAppReloadNonce] = useState(0);
   // Per-SCREEN app-chat visibility, driven by the app via AF.setChatVisible(bool).
   // The worker itself stays attached (1 per app); this only shows/hides the panel.
   const [chatVisible, setChatVisible] = useState(true);
@@ -118,6 +120,7 @@ export function GeneratedView({
     setCandidate(null);
     setChatVisible(true); // default: shown; the app may hide it per screen
     setChatContext({ id: "default" }); // default thread until the app declares a screen context
+    setAppReloadNonce(0);
     setInput("");
     att.clear();
     getView(feature)
@@ -189,6 +192,8 @@ export function GeneratedView({
       // mini-app: dispatch the specialist worker's MCP-style tool call to the app.
       if (res.command?.name) {
         setCommand({ name: res.command.name, args: res.command.arguments, nonce: ++cmdNonce.current });
+      } else if (res.data_changed) {
+        setAppReloadNonce((n) => n + 1);
       }
       await loadAll();
     } catch (e) {
@@ -259,7 +264,7 @@ export function GeneratedView({
 
       {worker && !worker.enabled ? (
         <>
-            <AppFrame html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatContext={setChatContext} />
+            <AppFrame key={`live-${feature}-${appReloadNonce}`} html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatContext={setChatContext} />
           <div className="hint feature-worker__off">この機能のAIワーカーは無効です。</div>
         </>
       ) : (
@@ -270,6 +275,7 @@ export function GeneratedView({
         <div className="gv-split" ref={splitRef}>
           <div className="gv-pane gv-pane--app" style={{ flexBasis: chatVisible ? `${appRatio * 100}%` : "100%" }}>
             <AppFrame
+              key={`live-${feature}-${appReloadNonce}`}
               html={manifest.html}
               feature={feature}
               title={manifest.title}

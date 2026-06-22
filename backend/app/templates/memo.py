@@ -63,6 +63,7 @@ body{background:var(--bg);font-family:system-ui,sans-serif;color:var(--fg)}
   document.getElementById('newb').onclick=function(){add('','');};
   window.applyAgentCommand=function(name,args){args=args||{};
     if(name==='add_note'){add(args.title,args.body);}
+    else if(name==='update_note'){var u=notes.find(function(x){return title(x)===args.title;});if(u){if(args.new_title!==undefined)u.title=args.new_title;if(args.body!==undefined)u.body=args.body;u.updated=Date.now();save();open(u);}}
     else if(name==='append_note'){var n=cur||notes[0];if(n){n.body=(n.body?n.body+'\n':'')+(args.text||'');n.updated=Date.now();save();open(n);}}
     else if(name==='delete_note'){notes=notes.filter(function(x){return title(x)!==args.title;});if(cur&&notes.indexOf(cur)<0)cur=null;save();renderList();}
   };
@@ -80,9 +81,44 @@ MANIFEST = {
     "commands": [
         {"name": "add_note", "description": "新しいメモを作成",
          "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}}},
+        {"name": "update_note", "description": "タイトル一致のメモを更新（new_title/body）",
+         "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "new_title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title"]}},
         {"name": "append_note", "description": "現在のメモに本文を追記",
          "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
         {"name": "delete_note", "description": "タイトル一致のメモを削除",
          "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
+    ],
+    "worker_state_mode": "hybrid",
+    "state_schema": {
+        "type": "object",
+        "properties": {
+            "notes": {
+                "type": "array",
+                "description": "メモ一覧",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "body": {"type": "string"},
+                        "updated": {"type": "number"},
+                    },
+                    "required": ["id", "title", "body"],
+                },
+            }
+        },
+        "required": ["notes"],
+    },
+    "worker_instructions": (
+        "メモ帳操作用ワーカー。メモの作成、本文更新、本文追記、削除を担当する。"
+        "『新しいメモ/メモを作って』は add_note。『本文を変えて/書き換えて』は update_note。"
+        "『追記/書き足して』は append_note。『消して/削除』は delete_note。"
+        "削除や更新で対象タイトルが不明なら、どのメモか聞き返す。"
+    ),
+    "worker_examples": [
+        {"user": "買い物メモを作って", "command": {"name": "add_note", "arguments": {"title": "買い物", "body": ""}}, "reply": "メモを作成します。"},
+        {"user": "牛乳も追記して", "command": {"name": "append_note", "arguments": {"text": "牛乳"}}, "reply": "現在のメモに追記します。"},
+        {"user": "買い物メモを消して", "command": {"name": "delete_note", "arguments": {"title": "買い物"}}, "reply": "メモを削除します。"},
+        {"user": "本文を書き換えて", "command": {"name": "", "arguments": {}}, "reply": "どのメモを、どんな本文に変更しますか？"},
     ],
 }

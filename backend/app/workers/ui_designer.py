@@ -25,6 +25,11 @@ from app.llm.gateway import ModelTier, get_llm
 from app.models.generated import DesignPlan, ViewManifest
 
 _ALLOWED_THEMES = {"default", "warm", "forest", "ocean"}
+_PERSISTENCE_KEYWORDS = (
+    "保存", "復元", "途中", "リロード", "画面遷移", "履歴", "メモ", "タスク", "todo",
+    "フォーム", "設定", "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル",
+    "ライン", "手番", "クイズ", "進捗", "家計簿", "日記", "予定", "スケジュール",
+)
 
 _PLAN_SCHEMA = '''ユーザーの要求から「設計案」だけをJSONで出力してください（コードはまだ書かない・JSONのみ・前後の説明やコードフェンス不要）:
 {
@@ -52,8 +57,25 @@ _SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した�
   "description": "<1〜2文。何ができるアプリかを説明>",
   "theme": "default|warm|forest|ocean",
   "html": "<!DOCTYPE html> から始まる完結した単一HTML文書",
-  "commands": [{"name": "<英小文字スラッグ>", "description": "<日本語の説明>", "inputSchema": {"type": "object", "properties": {"<引数名>": {"type": "string|number|boolean", "description": "<説明>"}}}}]
+  "commands": [{"name": "<英小文字スラッグ>", "description": "<日本語の説明>", "inputSchema": {"type": "object", "properties": {"<引数名>": {"type": "string|number|boolean", "description": "<説明>"}}}}],
+  "worker_state_mode": "commands|state|hybrid",
+  "state_schema": {"type": "object", "properties": {"<AF.saveするstateのキー>": {"type": "array|object|string|number|boolean", "description": "<意味>"}}},
+  "worker_instructions": "<専門ワーカー向け。ユーザーが言いそうな操作意図、各APIの使い分け、足りない情報の聞き返し方を具体的に書く>",
+  "worker_examples": [{"user": "<想定ユーザー指示>", "command": {"name": "<commandsのname または空>", "arguments": {}}, "reply": "<短い返答または聞き返し>"}]
 }
+
+worker_state_mode / state_schema の要件（重要・未知アプリ対応）:
+- データ中心アプリ（予定、タスク、メモ、在庫、顧客管理、家計簿、日記、フォーム、記録、一覧、台帳、CRM、学習カード等）は、
+  専門ワーカーが狭いAPIに縛られず state を直接更新できるよう `worker_state_mode` を `hybrid` または `state` にする。
+- `state_schema` には、AF.save で保存する state の主要構造を JSON Schema 風に具体化する。
+  例: {"type":"object","properties":{"events":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"date":{"type":"string"},"time":{"type":"string"},"title":{"type":"string"},"memo":{"type":"string"}}}}}}
+- HTML は `AF.load()` でこの state を読み、UI 操作時も同じ構造を `AF.save(state)` で保存する。state_schema と実際の保存形式を一致させる。
+- `state` は、専門ワーカーが persisted state を直接編集するモード。`commands` は空配列でもよい。
+- `hybrid` は、データ更新は state 直接編集、ペン色変更・電卓入力・ゲーム操作など UI 操作は commands を併用するモード。
+- `commands` は、状態データではなく「今表示中のUIへ送った方が自然な操作」に使う。データ中心アプリでは全CRUDをcommandsだけに閉じ込めず、state_schemaを必ず用意する。
+- お絵描き・ゲーム・電卓など、状態全体をLLMが直接書き換えるより UI 操作APIの方が安全なアプリは commands を併用してよい。
+  ただしゲーム・お絵描きなど状態を持つものは `AF.load()` / `AF.save()` または Blob API で必ず復元できるようにし、
+  `worker_state_mode` は `hybrid` を基本にする。`commands` のみにして保存を省略してはいけない。
 
 commands の要件（重要・標準仕様 / MCP形式のツール契約）:
 - これは「ミニアプリ」。その中身を担当する「専門ワーカー」が自然言語で内容を編集できるよう、操作を
@@ -65,6 +87,19 @@ commands の要件（重要・標準仕様 / MCP形式のツール契約）:
   例（お絵描き）: set_color{color} / set_brush_size{size} / set_background{color} / set_mode{pen|eraser} / clear / undo
   例（電卓）: input{keys} / clear    例（タスク）: add_item{title} / toggle{index} / remove{index} / clear_done
   例（テキスト/メモ）: set_text{text} / append_text{text} / clear
+- APIは「ユーザーが自然に言いそうな依頼」から逆算して設計する。
+  作成/追加、更新/変更/移動、削除/消去/一括削除、完了/未完了、並べ替え、絞り込み、メモ追記、
+  設定変更、初期化/クリア、Undo など、そのアプリ領域で起こりやすい操作を具体的に想定する。
+  例: スケジュールなら「22日の予定を全部消して」に対応する delete_event{date, all:true} のように、
+  タイトル指定だけでは表せない自然な依頼もAPI化する。
+- worker_instructions には、専門ワーカーが迷わずAPIを選べるように以下を書く:
+  1. このアプリで扱う対象物と専門ワーカーの役割。
+  2. state_schema のどの配列/オブジェクトをどう変えるか。commands を使う場合は各 command の意味、必須引数、任意引数、自然言語の言い換え。
+  3. 削除語・更新語・追加語など、誤分類しやすい表現の扱い。
+  4. 情報不足・対象不明・異常値のときに実行せず聞き返す文例。
+  5. 直近の確認にユーザーが「はい」「それで」と返した時に、履歴から補って実行する方針。
+- worker_examples には、そのアプリで実際に来そうな指示を8〜12件入れる。
+  正常系だけでなく、削除、一括操作、曖昧な対象、異常値、確認質問への返答も含める。
 - 操作が無いミニアプリ（純粋表示のみ等）は空配列でよい。
 
 html の要件（重要）:
@@ -114,6 +149,17 @@ html の要件（重要）:
 
 def _slug(goal: str) -> str:
     return "gen_" + hashlib.sha1(goal.encode("utf-8")).hexdigest()[:8]
+
+
+def _requires_persistence(goal: str, plan: dict | None = None, requirements: list[str] | None = None) -> bool:
+    if plan and plan.get("persistence") is True:
+        return True
+    hay = "\n".join([
+        goal or "",
+        json.dumps(plan or {}, ensure_ascii=False),
+        "\n".join(requirements or []),
+    ]).lower()
+    return any(k.lower() in hay for k in _PERSISTENCE_KEYWORDS)
 
 
 # A real generated app is an HTML document, not an apology/explanation string the
@@ -202,9 +248,17 @@ def plan_feature(
         feature=_slug(goal),
         title=goal[:60],
         summary=goal[:200],
-        features=[],
-        persistence=False,
+        features=[
+            "要求された中心操作を実際に動かす",
+            "PC とスマホの両方で操作できる",
+            "必要な状態を保存し、リロード後も復元する",
+        ] if _requires_persistence(goal) else [],
+        persistence=_requires_persistence(goal),
         theme="default",
+        acceptance=[
+            "主要操作が画面上で実行できる",
+            "リロード後も途中状態が復元される",
+        ] if _requires_persistence(goal) else [],
     )
 
 
@@ -253,6 +307,12 @@ def design(
                         "ユーザーが承認した設計案（これに忠実に実装すること）:\n"
                         + json.dumps(plan, ensure_ascii=False)
                     )
+                if _requires_persistence(goal, plan, requirements):
+                    parts.append(
+                        "この要求は状態保存が必須です。HTML内で必ず AF.load() と AF.save(state) を使い、"
+                        "ゲームならスコア・ゲームオーバー・設定・進行状態などリロード後に復元すべき状態を保存してください。"
+                        "manifest は worker_state_mode='hybrid' を基本にし、state_schema に保存する state 構造を具体的に書いてください。"
+                    )
                 parts.append(_SCHEMA)
             prompt = "\n\n".join(parts)
             raw = llm.generate(prompt, tier=ModelTier.PRO, images=images).strip()
@@ -270,6 +330,11 @@ def design(
                 theme = theme if theme in _ALLOWED_THEMES else "default"
                 commands = data.get("commands")
                 commands = [c for c in commands if isinstance(c, dict) and c.get("name")] if isinstance(commands, list) else []
+                examples = data.get("worker_examples")
+                examples = [e for e in examples if isinstance(e, dict)] if isinstance(examples, list) else []
+                state_mode = str(data.get("worker_state_mode") or "commands")
+                state_mode = state_mode if state_mode in {"commands", "state", "hybrid"} else "commands"
+                state_schema = data.get("state_schema") if isinstance(data.get("state_schema"), dict) else {}
                 return ViewManifest(
                     kind="app",
                     feature=feature,
@@ -278,6 +343,10 @@ def design(
                     theme=theme,
                     html=html,
                     commands=commands,
+                    worker_state_mode=state_mode,
+                    state_schema=state_schema,
+                    worker_instructions=str(data.get("worker_instructions") or "")[:4000],
+                    worker_examples=examples[:16],
                     generated_by=llm.name,
                 )
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> placeholder page
@@ -356,7 +425,11 @@ _PATCH_SCHEMA = '''既存アプリへの修正を「差分パッチ」で出力�
   "full_rewrite": false,
   "patches": [{"search": "<現コードから一字一句コピーした一意な部分文字列>", "replace": "<置換後>"}],
   "description": "<変更後の説明が変わる場合のみ。1〜2文>",
-  "commands": [<操作ツールが増減・変更される場合のみ、全量を再宣言>]
+  "commands": [<操作ツールが増減・変更される場合のみ、全量を再宣言>],
+  "worker_state_mode": "commands|state|hybrid（操作方式やstate構造が変わる場合のみ）",
+  "state_schema": {<AF.save state の構造が変わる場合のみ、全量を再宣言>},
+  "worker_instructions": "<操作ツールや想定指示が変わる場合のみ、全量を再宣言>",
+  "worker_examples": [<操作ツールや想定指示が変わる場合のみ、全量を再宣言>]
 }
 
 パッチの規則（厳守）:
@@ -422,6 +495,9 @@ def design_patch(
         commands = data.get("commands")
         commands = ([c for c in commands if isinstance(c, dict) and c.get("name")]
                     if isinstance(commands, list) and commands else (current.get("commands") or []))
+        state_mode = str(data.get("worker_state_mode") or current.get("worker_state_mode", "commands"))
+        state_mode = state_mode if state_mode in {"commands", "state", "hybrid"} else "commands"
+        state_schema = data.get("state_schema") if isinstance(data.get("state_schema"), dict) else current.get("state_schema", {})
         return ViewManifest(
             kind="app",
             feature=current.get("feature") or _slug(goal),
@@ -430,6 +506,14 @@ def design_patch(
             theme=current.get("theme", "default") if current.get("theme") in _ALLOWED_THEMES else "default",
             html=new_html,
             commands=commands,
+            worker_state_mode=state_mode,
+            state_schema=state_schema if isinstance(state_schema, dict) else {},
+            worker_instructions=str(data.get("worker_instructions") or current.get("worker_instructions", ""))[:4000],
+            worker_examples=(
+                [e for e in data.get("worker_examples", []) if isinstance(e, dict)][:16]
+                if isinstance(data.get("worker_examples"), list)
+                else current.get("worker_examples", [])
+            ),
             generated_by=llm.name,
         )
     except Exception:  # noqa: BLE001 — any failure → fall back to a full rewrite

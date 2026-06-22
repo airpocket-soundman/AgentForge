@@ -26,6 +26,22 @@ docker compose -f docker-compose.dev.yml up --build
 - 停止: `docker compose -f docker-compose.dev.yml down`
 - backend ホストポートが 8000 なのは、ホスト 8080 が WSL relay 使用中だったため（コンテナ内部は 8080 のまま）
 
+### (A2) 認証込みローカルデモ：Docker Compose overlay
+
+本番と同じ Firebase Google ログイン、許可リスト、ゲスト個別環境をローカルで確認する場合は、通常スタックに
+`docker-compose.demo.yml` を重ねる。Firestore はローカルエミュレータのままなので本番データは触らない。
+
+```bash
+# 事前に frontend/.env.local に Firebase Web app config を設定
+docker compose -f docker-compose.dev.yml -f docker-compose.demo.yml up --build
+```
+
+- frontend http://localhost:5173 / admin http://localhost:5174/admin.html / backend http://localhost:8000
+- backend は `APP_ENV=prod` で動くため、API は Firebase ID token を要求する。
+- `airpocket.soundman@gmail.com` と `yamashita.3154@gmail.com` は管理者。`airpocket.soundman@gmail.com` は通常ユーザー allowlist にも入る。
+- allowlist 外の Google アカウントは、ゲストアクセス ON 時だけ `guest_<Firebase uid>` の `project_id` に分離される。
+- 通常開発で認証を省きたい場合は overlay なしの `(A)` を使う。
+
 ### (B) ツール環境を揃える：Dev Container
 1. そのPCに **Docker Desktop** をインストール（Windowsは WSL2 バックエンド有効化。要管理者権限・1回のみ）
 2. `git clone <このリポジトリ>`

@@ -9,8 +9,9 @@ Responsibilities:
     chat            -> templated reply
 - Reply immediately; the browser also subscribes to Firestore for live state.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.auth import CurrentUser, current_user, require_project_access
 from app.control_plane import approvals, registry, worker_status
 from app.models.reception import ChatMessage, MessageIn, ReceptionReply
 from app.reception import service
@@ -24,13 +25,14 @@ def reception_health() -> dict:
 
 
 @router.get("/state/{project_id}")
-def get_state(project_id: str) -> dict:
+def get_state(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     """Full chat state for the browser to render from scratch and poll while a
     background design runs (survives navigation / reload).
 
     The poll doubles as the Receptor's stall watch (VISION 柱5): while a build is
     running it judges slow/stuck and PROACTIVELY posts the ①②③ choices — the user
     doesn't have to speak first. Poll-driven ⇒ pauses while the app is closed."""
+    require_project_access(user, project_id)
     try:
         service.judge_stall_on_poll(project_id)
     except Exception:  # noqa: BLE001 — the watch must never break state reads
@@ -39,13 +41,15 @@ def get_state(project_id: str) -> dict:
 
 
 @router.get("/candidate/{project_id}")
-def get_candidate(project_id: str) -> dict:
+def get_candidate(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     """The generated app awaiting publish (new or edited), for the chat preview."""
+    require_project_access(user, project_id)
     return {"manifest": service.get_candidate(project_id)}
 
 
 @router.post("/messages", response_model=ReceptionReply)
-def post_message(body: MessageIn) -> ReceptionReply:
+def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> ReceptionReply:
+    require_project_access(user, body.project_id)
     conversation_id = service.conversation_id_for(body.project_id)
     # Receptor is active while handling a message (returns to idle below).
     worker_status.record_status("Receptor", body.project_id, worker_status.ACTIVE, model=service._model_for_phase("planning"))
@@ -95,7 +99,13 @@ def post_message(body: MessageIn) -> ReceptionReply:
             return _busy_reply(service._timeout_prompt_text(diag), "timeout_prompt", True)
 
         # progressing → normal, grounded status reply
-        return _busy_reply(service.building_status_reply(body.project_id, body.text, diag), "busy", True)
+        return _busy_reply(
+            service.building_status_reply(
+                body.project_id, body.text, diag, user_call_name=body.user_call_name
+            ),
+            "busy",
+            True,
+        )
 
     # Attachments: text/data files are inlined into the request; images go to the
     # LLM for vision. Intent/feature resolution still keys off the typed text only.
@@ -107,7 +117,10 @@ def post_message(body: MessageIn) -> ReceptionReply:
     # confirm-revision / build request. (During a build the busy block above already
     # answered with the grounded status.)
     if service.is_status_query(body.text):
-        r = ChatMessage(role="assistant", text=service.pipeline_status_reply(body.project_id, body.text))
+        r = ChatMessage(
+            role="assistant",
+            text=service.pipeline_status_reply(body.project_id, body.text, user_call_name=body.user_call_name),
+        )
         service.append_message(conversation_id, r)
         worker_status.record_status("Receptor", body.project_id, worker_status.IDLE)
         return ReceptionReply(conversation_id=conversation_id, reply=r, detected_intent="status",
@@ -150,6 +163,9 @@ def post_message(body: MessageIn) -> ReceptionReply:
         if service.is_cancel(body.text):
             service.clear_flow(body.project_id)
             reply_text = "承知しました。依頼を取りやめました。新しいご依頼をどうぞ。"
+        elif service.is_rejection(body.text):
+            service.clear_flow(body.project_id)
+            reply_text = "承知しました。この依頼はいったん取り下げます。作り直したい内容があれば、改めて教えてください。"
         elif flow.get("template") and service.is_scratch(body.text):
             # A default was offered but the user wants it built from scratch.
             res = service.decline_template(body.project_id)
@@ -172,7 +188,8 @@ def post_message(body: MessageIn) -> ReceptionReply:
             # Anything else = a correction; re-consolidate and re-confirm.
             service.start_confirm_bg(
                 body.project_id, flow.get("mode", "create"), flow.get("feature"),
-                (flow.get("goal") or "") + "\n\n[ユーザーの修正・追記] " + goal_text,
+                service.strip_user_context(flow.get("goal") or "") + "\n\n[ユーザーの修正・追記] " + goal_text,
+                user_call_name=body.user_call_name,
             )
             reply_text = "承知しました。内容を更新して、もう一度確認します…"
 
@@ -181,6 +198,9 @@ def post_message(body: MessageIn) -> ReceptionReply:
         if service.is_cancel(body.text):
             service.clear_flow(body.project_id)
             reply_text = "設計をキャンセルしました。新しく機能を依頼してください。"
+        elif service.is_rejection(body.text):
+            service.clear_flow(body.project_id)
+            reply_text = "承知しました。この設計案は取り下げました。作り直したい内容があれば、改めて教えてください。"
         elif service.is_plan_ok(body.text):
             allowed, count = service.guard_run(body.project_id)
             if not allowed:
@@ -198,7 +218,7 @@ def post_message(body: MessageIn) -> ReceptionReply:
         else:
             # Anything else = a revision instruction; rebuild the proposal.
             service.start_plan(
-                body.project_id, flow["goal"], feedback=goal_text, previous=flow["plan"], images=images
+                body.project_id, service.strip_user_context(flow["goal"]), feedback=goal_text, previous=flow["plan"], images=images
             )
             building = True
             reply_text = "修正を反映して設計案を作り直します。"
@@ -276,12 +296,24 @@ def post_message(body: MessageIn) -> ReceptionReply:
                 disabled_feature = None
                 reply_text = f"「{title}」を直前の版に巻き戻しました。"
 
+    elif service.is_receptor_direct_question(body.text):
+        # Questions/consultations are Receptor's job. Do not show the build-style
+        # "受け付けました" ack or route to Orchestrator unless the user gives a
+        # concrete create/edit instruction.
+        reply_text = (
+            service.template_catalogue_reply()
+            if service.is_template_catalogue_question(body.text)
+            else service._receptor_chat(body.project_id, body.text, user_call_name=body.user_call_name)
+        )
+
     else:
         # Substantive request. Classification calls an LLM, so run it (and the
         # routing) in the background and acknowledge IMMEDIATELY — the Receptor does
         # only light work synchronously. The background then posts progress/results
         # (build) or a conversational reply (chat).
-        service.handle_request_bg(body.project_id, goal_text, images=images)
+        service.handle_request_bg(
+            body.project_id, goal_text, images=images, user_call_name=body.user_call_name
+        )
         building = True
         dispatched_bg = True
         reply_text = "受け付けました。内容を確認して進めます。"

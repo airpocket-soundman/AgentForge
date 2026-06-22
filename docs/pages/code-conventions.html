@@ -50,6 +50,19 @@
     <li><strong>変更可能な主要プロパティを網羅的にツール化</strong>する（ユーザーが言いそうな操作を広めに）。</li>
     <li>公開した操作を <code>commands</code>（<code>[{name, description, inputSchema}]</code>）に列挙。
       <code>name</code> は <code>applyAgentCommand</code> と一致、<code>inputSchema</code> は引数の JSON Schema。</li>
+    <li><strong>自然言語の想定から逆算して API を設計する</strong>。作成/追加だけでなく、更新/変更、
+      削除/消去、一括操作、対象指定、メモ追記、設定変更、初期化/クリア、Undo など、そのアプリで
+      ユーザーが言いそうな依頼を具体的に想定してツール化する。</li>
+    <li><strong>データ中心アプリは state 直接編集をパイプラインに含める</strong>。予定、タスク、メモ、在庫、
+      家計簿、日記、CRM、台帳、フォーム等は、<code>commands</code> だけに閉じ込めず、
+      <code>worker_state_mode</code> を <code>state</code> または <code>hybrid</code> にし、
+      <code>state_schema</code> に <code>AF.save()</code> する状態構造を具体的に宣言する。
+      Specialist Worker は現在の state を schema に沿って直接編集でき、未知の新アプリにも対応できる。</li>
+    <li><code>hybrid</code> は、データ更新は state 直接編集、UI操作や即時表示操作は <code>commands</code> を併用する方式。
+      お絵描き・ゲーム・電卓のように UI 操作 API が自然なものは <code>commands</code> を選んでよい。</li>
+    <li>生成 manifest には <code>worker_instructions</code> と <code>worker_examples</code> を含め、
+      Specialist Worker が役割・利用可能 API・state_schema の編集方針・自然言語から操作への対応・曖昧な場合の聞き返し方を
+      アプリごとに理解できるようにする。</li>
     <li>純粋表示のみのアプリは <code>commands</code> を空配列にしてよい。</li>
   </ul>
 
@@ -159,7 +172,7 @@
     <tr><td>1</td><td>出力が規定 JSON・<code>html</code> が実体の完結 HTML</td><td>コードフェンス付き／説明文が <code>html</code> に混入</td></tr>
     <tr><td>2</td><td>外部通信なしで自己完結・サンドボックス禁止 API 不使用</td><td><code>fetch</code>/外部CDN/<code>localStorage</code> 使用</td></tr>
     <tr><td>3</td><td>状態を持つアプリは <code>AF.load/save</code> でサーバ保存・復元</td><td><code>localStorage</code> に保存している／ゲームの盤面・スコアが画面遷移で消える</td></tr>
-    <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合（主要操作を網羅）</td><td>ツール未実装／<code>commands</code> と名前不一致／操作が乏しい</td></tr>
+    <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合、または <code>worker_state_mode</code>＋<code>state_schema</code> による state 直接編集設計。専門ワーカー向け指示も必須</td><td>ツール未実装／<code>commands</code> と名前不一致／データ中心アプリなのに <code>state_schema</code> が無い／<code>worker_instructions</code> が無く自然言語運用の想定が薄い</td></tr>
     <tr><td>5</td><td>要求機能を実際に動く形で実装（代替・省略なし）</td><td>「お絵描き」がフォーム＋一覧になっている</td></tr>
     <tr><td>6</td><td>テーマは4種のみ・<code>feature</code> は英小文字</td><td>独自テーマ／スラッグに日本語</td></tr>
     <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code>・<strong>PC/スマホ両対応（viewport メタ＋可変レイアウト）</strong></td><td>タッチで操作不能／固定幅でスマホで崩れる・viewport メタなし</td></tr>

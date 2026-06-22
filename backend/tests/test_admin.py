@@ -17,23 +17,35 @@ def test_admin_config_requires_admin():
     assert client.get("/api/admin/config").status_code == 401
 
 
-def test_guest_header_requires_feature_flag(monkeypatch):
+def test_guest_requires_feature_flag(monkeypatch):
     monkeypatch.setenv("GUEST_ACCESS_ENABLED", "false")
+    monkeypatch.setenv("ALLOWED_EMAILS", "")
     get_settings.cache_clear()
-    assert client.get("/api/me", headers={"X-AgentForge-Guest": "1"}).status_code == 401
+    monkeypatch.setattr(
+        "app.auth._verify",
+        lambda _authorization: {"email": "judge@example.com", "user_id": "judge-uid"},
+    )
+    r = client.get("/api/me", headers={"Authorization": "Bearer test"})
+    assert r.status_code == 403
     get_settings.cache_clear()
 
 
-def test_guest_header_allows_non_admin_user(monkeypatch):
+def test_guest_mode_allows_google_user_with_separate_project(monkeypatch):
     monkeypatch.setenv("GUEST_ACCESS_ENABLED", "true")
-    monkeypatch.setenv("GUEST_EMAIL", "judge@example.com")
+    monkeypatch.setenv("ALLOWED_EMAILS", "")
     get_settings.cache_clear()
-    r = client.get("/api/me", headers={"X-AgentForge-Guest": "1"})
+    monkeypatch.setattr(
+        "app.auth._verify",
+        lambda _authorization: {"email": "judge@example.com", "user_id": "judge-uid"},
+    )
+    r = client.get("/api/me", headers={"Authorization": "Bearer test"})
     assert r.status_code == 200
     data = r.json()
     assert data["email"] == "judge@example.com"
     assert data["is_admin"] is False
-    assert client.get("/api/admin/config", headers={"X-AgentForge-Guest": "1"}).status_code == 403
+    assert data["is_guest"] is True
+    assert data["project_id"] == "guest_judge-uid"
+    assert client.get("/api/admin/config", headers={"Authorization": "Bearer test"}).status_code == 403
     get_settings.cache_clear()
 
 
@@ -41,6 +53,7 @@ def test_admin_routes_registered():
     paths = {r.path for r in app.routes}
     assert {
         "/api/me",
+        "/api/public/config",
         "/api/admin/config",
         "/api/admin/allowlist",
         "/api/admin/feature-flags",

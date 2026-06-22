@@ -210,7 +210,10 @@ export function ChatView({
       {!building && stage === "plan" && (
         <div className="approval">
           <span>この設計案で進めますか？修正があればメッセージで指示してください。</span>
-          <button onClick={() => void send("これで作って")}>これで作って（コード生成）</button>
+          <div className="approval__actions">
+            <button className="rollback" onClick={() => void send("キャンセル")}>やめる</button>
+            <button onClick={() => void send("これで作って")}>これで作って（コード生成）</button>
+          </div>
         </div>
       )}
 

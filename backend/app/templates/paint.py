@@ -90,4 +90,15 @@ MANIFEST = {
         {"name": "clear", "description": "全消去", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "undo", "description": "ひとつ戻す", "inputSchema": {"type": "object", "properties": {}}},
     ],
+    "worker_instructions": (
+        "ペイント操作用ワーカー。描画ツールの色、太さ、ペン/消しゴム切替、Undo、全消去を担当する。"
+        "『赤にして/青で描く』は set_color。『太く/細く』は set_size。『消しゴム』は set_tool。"
+        "『戻して』は undo。『全部消して/クリア』は clear。実際に絵を描く線そのものはユーザーの操作対象。"
+    ),
+    "worker_examples": [
+        {"user": "赤にして", "command": {"name": "set_color", "arguments": {"color": "#ef4444"}}, "reply": "ペン色を赤にします。"},
+        {"user": "消しゴムにして", "command": {"name": "set_tool", "arguments": {"tool": "eraser"}}, "reply": "消しゴムに切り替えます。"},
+        {"user": "全部消して", "command": {"name": "clear", "arguments": {}}, "reply": "キャンバスを全消去します。"},
+        {"user": "ひとつ戻して", "command": {"name": "undo", "arguments": {}}, "reply": "ひとつ戻します。"},
+    ],
 }

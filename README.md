@@ -42,6 +42,21 @@ curl http://localhost:8000/health
 > backend のホストポートが 8000 なのは、ホストの 8080 を WSL relay が使用していたため。
 > コンテナ内部は 8080 のままで、frontend の `/api` プロキシはコンテナ間通信なので影響なし。
 
+### 認証込みローカルデモ
+
+本番と同じ Google ログイン、許可リスト、ゲスト個別環境をローカルで確認する場合は overlay を重ねます。
+Firestore は引き続きローカルエミュレータを使います。
+
+```bash
+# 事前に frontend/.env.local に Firebase Web app config を設定
+docker compose -f docker-compose.dev.yml -f docker-compose.demo.yml up --build
+```
+
+- ユーザー画面: http://localhost:5173
+- 管理画面: http://localhost:5174/admin.html
+- `airpocket.soundman@gmail.com` は管理者/通常ユーザーとして入れます。
+- allowlist 外の Google アカウントは、管理画面でゲストアクセスが ON のときだけ `guest_<Firebase uid>` の個別環境で入れます。
+
 ### Dev Container（同一ツール環境）
 VS Code の「Reopen in Container」（`.devcontainer/`）で Python 3.12 / Node 24 / gcloud / firebase を揃えた開発シェルに入れます。上の compose はアプリ実行用、Dev Container はツール環境用で役割が異なります。
 

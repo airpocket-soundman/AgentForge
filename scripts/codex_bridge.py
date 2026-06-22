@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(os.environ.get("CODEX_BRIDGE_PORT", "8766"))
@@ -34,6 +35,13 @@ def _default_codex_cmd() -> str:
         match = re.search(r"CODEX_CLI_PATH\s*=\s*['\"]([^'\"]+)['\"]", text)
         if match and os.path.exists(match.group(1)):
             return match.group(1)
+    except OSError:
+        pass
+    local_bin = Path(os.path.expanduser("~")) / "AppData" / "Local" / "OpenAI" / "Codex" / "bin"
+    try:
+        matches = sorted(local_bin.glob("*/codex.exe"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if matches:
+            return str(matches[0])
     except OSError:
         pass
     return "codex"
@@ -54,7 +62,7 @@ _NO_TOOLS_TEXT = (
 
 
 def run_codex(prompt: str, model: str | None) -> str:
-    exe = shutil.which(CODEX_CMD) or CODEX_CMD
+    exe = shutil.which(CODEX_CMD) or (CODEX_CMD if os.path.exists(CODEX_CMD) else CODEX_CMD)
     cmd = [exe, *DEFAULT_ARGS]
     if model:
         cmd += ["--model", model]
@@ -98,7 +106,7 @@ def _send(handler: BaseHTTPRequestHandler, code: int, obj: dict) -> None:
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path.rstrip("/") in ("", "/health"):
-            _send(self, 200, {"status": "ok", "codex": bool(shutil.which(CODEX_CMD))})
+            _send(self, 200, {"status": "ok", "codex": bool(shutil.which(CODEX_CMD) or os.path.exists(CODEX_CMD))})
         else:
             _send(self, 404, {"error": "not found"})
 
@@ -120,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    found = shutil.which(CODEX_CMD)
+    found = shutil.which(CODEX_CMD) or (CODEX_CMD if os.path.exists(CODEX_CMD) else None)
     if not found:
         print(f"[codex-bridge] WARNING: '{CODEX_CMD}' not found on PATH.", file=sys.stderr)
     print(f"[codex-bridge] listening on http://{HOST}:{PORT}  (codex={found})")

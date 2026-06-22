@@ -34,6 +34,7 @@ class MessageIn(BaseModel):
     project_id: str = Field(default="default", description="Project scope for the conversation")
     text: str = Field(min_length=1, max_length=4000)
     attachments: list[Attachment] = Field(default_factory=list)
+    user_call_name: str | None = Field(default=None, max_length=80)
 
 
 class ChatMessage(BaseModel):

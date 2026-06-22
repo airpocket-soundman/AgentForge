@@ -59,6 +59,7 @@ li.done .ck{background:var(--ac)}
   window.applyAgentCommand=function(name,args){args=args||{};
     if(name==='add_task'){add(args.title);}
     else if(name==='toggle_task'){var t=tasks.find(function(x){return x.title===args.title;});if(t){t.done=args.done!==undefined?!!args.done:!t.done;save();render();}}
+    else if(name==='rename_task'){var r=tasks.find(function(x){return x.title===args.title;});if(r&&args.new_title){r.title=args.new_title;save();render();}}
     else if(name==='delete_task'){tasks=tasks.filter(function(x){return x.title!==args.title;});save();render();}
     else if(name==='clear_done'){tasks=tasks.filter(function(x){return !x.done;});save();render();}
   };
@@ -78,8 +79,42 @@ MANIFEST = {
          "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
         {"name": "toggle_task", "description": "完了/未完了を切替（done省略でトグル）",
          "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "done": {"type": "boolean"}}, "required": ["title"]}},
+        {"name": "rename_task", "description": "タスク名を変更",
+         "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}, "new_title": {"type": "string"}}, "required": ["title", "new_title"]}},
         {"name": "delete_task", "description": "タスクを削除",
          "inputSchema": {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"]}},
         {"name": "clear_done", "description": "完了タスクを一括削除", "inputSchema": {"type": "object", "properties": {}}},
+    ],
+    "worker_state_mode": "hybrid",
+    "state_schema": {
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "description": "タスク一覧",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "title": {"type": "string"},
+                        "done": {"type": "boolean"},
+                    },
+                    "required": ["id", "title", "done"],
+                },
+            }
+        },
+        "required": ["tasks"],
+    },
+    "worker_instructions": (
+        "タスク管理操作用ワーカー。タスクの追加、完了/未完了切替、名前変更、削除、完了済み一括削除を担当する。"
+        "『追加/入れて/作って』は add_task。『終わった/完了にして/未完了に戻して』は toggle_task。"
+        "『名前を変えて/リネーム』は rename_task。『消して/削除』は delete_task、"
+        "『完了済みを全部消して』は clear_done。対象タスク名が不明なら聞き返す。"
+    ),
+    "worker_examples": [
+        {"user": "買い物を追加して", "command": {"name": "add_task", "arguments": {"title": "買い物"}}, "reply": "タスクを追加します。"},
+        {"user": "買い物は終わった", "command": {"name": "toggle_task", "arguments": {"title": "買い物", "done": True}}, "reply": "完了にします。"},
+        {"user": "買い物を消して", "command": {"name": "delete_task", "arguments": {"title": "買い物"}}, "reply": "タスクを削除します。"},
+        {"user": "完了済みを全部消して", "command": {"name": "clear_done", "arguments": {}}, "reply": "完了済みタスクを削除します。"},
     ],
 }

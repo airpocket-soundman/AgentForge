@@ -11,6 +11,12 @@
   リロード後に復元できるよう `AF.load()` と `AF.save()` を使っていること。ゲームも保存対象。
 - 操作ツール契約（MCP 形式）：`commands` を宣言するなら `window.applyAgentCommand(name,args)` を実装し、
   名前が一致していること。主要な操作を網羅していること。
+- データ中心アプリで `worker_state_mode` が `state` / `hybrid` の場合は、`state_schema` があり、
+  HTML の `AF.load()/AF.save()` の状態構造と一致していること。未知の新アプリでも専門ワーカーが
+  state を直接編集できるよう、schema が具体的であること。
+- `commands` があるアプリは、専門ワーカー向けの `worker_instructions` と `worker_examples` を持つこと。
+  ユーザーが言いそうな自然文（追加・更新・削除・一括操作・曖昧な対象・異常値など）とAPI/state編集の対応が
+  具体的に設計されているかを見る。
 - テーマは `default` / `warm` / `forest` / `ocean` のみ。`feature` スラッグは英小文字（`[a-z0-9_]`）。
 - ユーザー要求を「実際に動く形」で満たしているか（フォーム＋一覧での代替や機能削りをしていないか）。
 

@@ -63,8 +63,31 @@ def _static_findings(manifest: dict) -> list[str]:
         findings.append(f"theme が規定外: '{theme}'（default/warm/forest/ocean のみ）")
 
     commands = manifest.get("commands") or []
+    state_mode = str(manifest.get("worker_state_mode") or "commands")
+    state_schema = manifest.get("state_schema") or {}
+    if state_mode not in {"commands", "state", "hybrid"}:
+        findings.append(f"worker_state_mode が規定外: '{state_mode}'（commands/state/hybrid のみ）")
+    if state_mode in {"state", "hybrid"}:
+        if not isinstance(state_schema, dict) or not state_schema:
+            findings.append("worker_state_mode が state/hybrid なのに state_schema が無い（専門ワーカーが未知アプリの状態を安全に編集できない）")
+        if "AF.load" not in html or "AF.save" not in html:
+            findings.append("worker_state_mode が state/hybrid なのに HTML が AF.load()/AF.save() の状態保存に結びついていない")
+        if not str(manifest.get("worker_instructions") or "").strip():
+            findings.append("worker_state_mode が state/hybrid なのに worker_instructions が無い")
+        if not manifest.get("worker_examples"):
+            findings.append("worker_state_mode が state/hybrid なのに worker_examples が無い")
     if commands and "applyAgentCommand" not in html:
         findings.append("commands を宣言しているが window.applyAgentCommand が未実装（操作が効かない）")
+    if commands and not str(manifest.get("worker_instructions") or "").strip():
+        findings.append(
+            "commands があるのに worker_instructions が無い"
+            "（専門ワーカーが自然言語の意図、APIの使い分け、聞き返し方を判断しにくい）"
+        )
+    if commands and not manifest.get("worker_examples"):
+        findings.append(
+            "commands があるのに worker_examples が無い"
+            "（ユーザーが言いそうな操作指示とAPI対応例を生成過程に含める必要がある）"
+        )
     return findings
 
 

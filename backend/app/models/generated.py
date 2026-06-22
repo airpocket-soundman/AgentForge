@@ -93,6 +93,20 @@ class ViewManifest(BaseModel):
     # instruction to one of these and the RUNNING app executes it (e.g. clear the
     # canvas, add an item, set a color) — so the worker edits content, not code.
     commands: list[dict] = Field(default_factory=list)  # [{name, description, params}]
+    # Guidance generated together with commands so the Specialist Worker knows
+    # what natural-language intents users are likely to express, which API each
+    # maps to, and when to ask a clarifying question instead of guessing.
+    worker_instructions: str = ""
+    worker_examples: list[dict] = Field(default_factory=list)
+    # How the Specialist Worker operates this app:
+    # - commands: map NL to window.applyAgentCommand tools.
+    # - state: edit the persisted AF.load/AF.save state directly.
+    # - hybrid: prefer direct state edits for data changes, keep commands for
+    #   UI-like actions that are safer to perform in the running iframe.
+    worker_state_mode: Literal["commands", "state", "hybrid"] = "commands"
+    # JSON Schema-like description of the persisted AF state. This lets the
+    # Specialist Worker update unknown future data apps without hand-written APIs.
+    state_schema: dict[str, Any] = Field(default_factory=dict)
     generated_by: str = "stub"   # gemini | claude-cli | stub
 
 

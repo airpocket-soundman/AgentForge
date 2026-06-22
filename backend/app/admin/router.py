@@ -16,15 +16,17 @@ from app.auth import (
     admin_emails,
     current_user,
     effective_allowed_emails,
+    guest_access_enabled,
     require_admin,
     stored_allowlist,
 )
+from app.config import get_settings
 from app.firestore import get_db
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
-# Feature flags the admin can toggle. byok_visible: show the (stub) BYOK entry.
-_FLAG_DEFAULTS: dict[str, bool] = {"byok_visible": False}
+# Feature flags the admin can toggle.
+_FLAG_DEFAULTS: dict[str, bool] = {"byok_visible": False, "guest_access_enabled": False}
 
 
 def _now_iso() -> str:
@@ -37,7 +39,9 @@ def get_feature_flags() -> dict:
         data = snap.to_dict() if snap.exists else {}
     except Exception:  # noqa: BLE001 — Firestore unavailable -> defaults
         data = {}
-    return {**_FLAG_DEFAULTS, **{k: bool(v) for k, v in (data or {}).items() if k in _FLAG_DEFAULTS}}
+    flags = {**_FLAG_DEFAULTS, **{k: bool(v) for k, v in (data or {}).items() if k in _FLAG_DEFAULTS}}
+    flags["guest_access_enabled"] = guest_access_enabled()
+    return flags
 
 
 class AllowlistIn(BaseModel):
@@ -46,6 +50,13 @@ class AllowlistIn(BaseModel):
 
 class FeatureFlagsIn(BaseModel):
     byok_visible: bool | None = None
+    guest_access_enabled: bool | None = None
+
+
+@router.get("/public/config")
+def public_config() -> dict:
+    """Unauthenticated browser bootstrap settings."""
+    return {"guest_access_enabled": guest_access_enabled(), "auth_required": not get_settings().is_local}
 
 
 @router.get("/me")
@@ -55,6 +66,8 @@ def me(user: CurrentUser = Depends(current_user)) -> dict:
         "uid": user.uid,
         "email": user.email,
         "is_admin": user.is_admin,
+        "is_guest": user.is_guest,
+        "project_id": user.project_id,
         "feature_flags": get_feature_flags(),
     }
 

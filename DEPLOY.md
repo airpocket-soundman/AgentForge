@@ -43,7 +43,7 @@ gcloud run deploy agentforge-core-api \
   --region=$REGION \
   --allow-unauthenticated \
   --min-instances=0 \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_REGION=$REGION,ALLOWED_EMAILS=yamashita.3154@gmail.com" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_REGION=$REGION,ALLOWED_EMAILS=yamashita.3154@gmail.com,GUEST_ACCESS_ENABLED=false" \
   --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
 ```
 - `ALLOWED_EMAILS`：このメール**以外はログインしてもアプリを使えない**（API 403／UIはアクセス拒否画面）。

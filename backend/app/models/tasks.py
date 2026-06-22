@@ -36,6 +36,7 @@ class FeatureWorkerIn(BaseModel):
     attachments: list[Attachment] = Field(default_factory=list)
     context_id: str = Field(default="default", min_length=1, max_length=80)
     context_label: str | None = Field(default=None, max_length=120)
+    user_call_name: str | None = Field(default=None, max_length=80)
 
 
 class WorkerToggleIn(BaseModel):

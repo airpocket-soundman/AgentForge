@@ -1,7 +1,7 @@
 """Control Plane HTTP surface — approval gate and feature lifecycle."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import CurrentUser, current_user
+from app.auth import CurrentUser, current_user, require_project_access
 from app.config import get_settings
 from app.control_plane import approvals, guard, monitor, registry, worker_bus, worker_status
 from app.models.tasks import WorkerToggleIn
@@ -15,22 +15,39 @@ def control_plane_health() -> dict:
 
 
 @router.get("/approvals")
-def list_approvals(project_id: str | None = None) -> dict:
+def list_approvals(project_id: str | None = None, user: CurrentUser = Depends(current_user)) -> dict:
+    if user.is_guest and project_id is None:
+        project_id = user.project_id
+    if project_id:
+        require_project_access(user, project_id)
     return {"pending": approvals.list_pending(project_id)}
 
 
 @router.post("/approvals/{approval_id}/approve")
-def approve(approval_id: str) -> dict:
+def approve(approval_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    if user.is_guest:
+        from app.firestore import get_db
+
+        snap = get_db().collection("approval_requests").document(approval_id).get()
+        if snap.exists:
+            require_project_access(user, (snap.to_dict() or {}).get("project_id", ""))
     return approvals.approve(approval_id)
 
 
 @router.post("/approvals/{approval_id}/reject")
-def reject(approval_id: str) -> dict:
+def reject(approval_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    if user.is_guest:
+        from app.firestore import get_db
+
+        snap = get_db().collection("approval_requests").document(approval_id).get()
+        if snap.exists:
+            require_project_access(user, (snap.to_dict() or {}).get("project_id", ""))
     return approvals.reject(approval_id)
 
 
 @router.get("/features/{project_id}")
-def feature_states(project_id: str) -> dict:
+def feature_states(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
     from app.firestore import get_db
 
     snap = get_db().collection("feature_states").document(project_id).get()
@@ -38,43 +55,49 @@ def feature_states(project_id: str) -> dict:
 
 
 @router.post("/features/{project_id}/{feature}/disable")
-def disable_feature(project_id: str, feature: str) -> dict:
+def disable_feature(project_id: str, feature: str, user: CurrentUser = Depends(current_user)) -> dict:
     """Rollback: soft-disable (never delete) a feature."""
+    require_project_access(user, project_id)
     return approvals.disable_feature(project_id, feature)
 
 
 @router.post("/features/{project_id}/{feature}/worker")
-def set_worker(project_id: str, feature: str, body: WorkerToggleIn) -> dict:
+def set_worker(project_id: str, feature: str, body: WorkerToggleIn, user: CurrentUser = Depends(current_user)) -> dict:
     """Show/hide a feature's managing AI worker (instruction area)."""
+    require_project_access(user, project_id)
     return approvals.set_worker(project_id, feature, body.enabled)
 
 
 @router.get("/workers")
-def workers(project_id: str = "default") -> dict:
+def workers(project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """Status monitor: the worker registry (type/status/model/freshness), the live
     background builds, and this project's run usage."""
+    require_project_access(user, project_id)
     return {
         "registry": worker_status.list_workers(project_id),
-        "workers": monitor.running_workers(),
+        "workers": [w for w in monitor.running_workers() if w.get("project_id") == project_id],
         "usage": guard.usage(project_id),
     }
 
 
 @router.post("/worker/{worker_type}/start")
-def worker_start(worker_type: str, project_id: str = "default") -> dict:
+def worker_start(worker_type: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """Start/wake a worker (spec §5: other workers start/stop one another)."""
+    require_project_access(user, project_id)
     return worker_status.start_worker(worker_type, project_id)
 
 
 @router.post("/worker/{worker_type}/stop")
-def worker_stop(worker_type: str, project_id: str = "default") -> dict:
+def worker_stop(worker_type: str, project_id: str = "default", user: CurrentUser = Depends(current_user)) -> dict:
     """Stop a worker."""
+    require_project_access(user, project_id)
     return worker_status.stop_worker(worker_type, project_id)
 
 
 @router.get("/runs")
-def runs(project_id: str = "default", limit: int = 20) -> dict:
+def runs(project_id: str = "default", limit: int = 20, user: CurrentUser = Depends(current_user)) -> dict:
     """Developer view: recent pipeline runs (goal / span / last status)."""
+    require_project_access(user, project_id)
     return {"runs": worker_bus.list_runs(project_id, limit)}
 
 
@@ -87,9 +110,10 @@ def templates_catalogue() -> dict:
 
 
 @router.get("/pipeline-status/{project_id}")
-def pipeline_status(project_id: str) -> dict:
+def pipeline_status(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     """Pipeline-status API the Receptor uses to answer 状況照会: current stage, live
     build diagnosis, executor liveness, latest run outcome, and the next action."""
+    require_project_access(user, project_id)
     from app.reception import service as reception_service
 
     return reception_service.pipeline_status(project_id)
@@ -102,20 +126,24 @@ def messages(task_id: str) -> dict:
 
 
 @router.post("/stop-all")
-def stop_all() -> dict:
+def stop_all(user: CurrentUser = Depends(current_user)) -> dict:
     """Stop ALL running background workers across sessions (release every locked chat)."""
+    if user.is_guest:
+        return monitor.stop_project(user.project_id)
     return monitor.stop_all()
 
 
 @router.get("/history/{project_id}")
-def history(project_id: str, limit: int = 100) -> dict:
+def history(project_id: str, limit: int = 100, user: CurrentUser = Depends(current_user)) -> dict:
     """User-facing change history: who/what/when/why, newest first (from audit_logs)."""
+    require_project_access(user, project_id)
     return {"project_id": project_id, "history": registry.list_history(project_id, limit)}
 
 
 @router.get("/versions/{project_id}/{feature}")
-def versions(project_id: str, feature: str) -> dict:
+def versions(project_id: str, feature: str, user: CurrentUser = Depends(current_user)) -> dict:
     """Published version stack for a feature (rollback targets), oldest→newest."""
+    require_project_access(user, project_id)
     vs = registry.list_versions(project_id, feature)
     # Don't ship full HTML in the list view; just metadata.
     meta = [{"seq": v.get("seq"), "action": v.get("action"), "created_at": v.get("created_at"),
