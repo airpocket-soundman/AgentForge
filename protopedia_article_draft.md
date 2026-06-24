@@ -1,6 +1,6 @@
 # AgentForge ProtoPedia 投稿原稿
 
-作成日: 2026-06-18
+作成日: 2026-06-24
 
 ## 公式項目メモ
 
@@ -24,7 +24,7 @@ AgentForge - 会話だけで自分専用アプリを育てる DevOps AI Agent Wo
 
 ## 概要
 
-AgentForge は、非エンジニアがチャットで話すだけで、自分専用のミニアプリを作成・改変・公開・巻き戻しできる自己拡張型アプリです。裏側では Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が協業し、要求整理、設計、コード生成、検証、レビュー、プレビュー、承認公開までの DevOps サイクルを安全に代行します。
+AgentForge は、非エンジニアがメインチャットで話すだけで、自分専用のミニアプリを作成・改変・公開・巻き戻しできる自己拡張型の AI ワークベンチです。ユーザー体験は「話す」「AI が作る」「確認して反映」の3ステップですが、裏側では Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が役割分担し、要求整理、設計、コード生成、実行検証、規約レビュー、プレビュー、承認公開までを1本の DevOps パイプラインとして管理します。生成物は見た目の HTML だけではなく、state、commands、Worker prompt、評価ケースを含む「公開後にワーカーが操作できる contract」として作ります。Safety Harness は公開前の最終安全判定を行い、Agent Harness は判断・成果物・検証結果・承認履歴を記録して、ユーザーには短い進捗と承認前サマリーとして見せます。
 
 ## ライセンス
 
@@ -46,15 +46,20 @@ AgentForge は、ユーザーが触るフロントエンド、ミニアプリ生
 - `protopedia_assets/agentforge_devops_flow.png`: 会話から公開までの DevOps フロー
 - `protopedia_assets/agentforge_app_screen.png`: アプリ画面構造
 
-同じ内容の編集用 SVG も `protopedia_assets/` に保存しています。
+投稿用画像はすべて PNG 形式で `protopedia_assets/` に保存しています。
 
-- フロントエンド: React + Vite。メインチャット、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。
+- フロントエンド: React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。
 - バックエンド: FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、承認・巻き戻しAPIを提供。
 - AI ワーカー: Receptor / Orchestrator / Tester / Reviewer / Specialist Worker。役割ごとに文脈を分け、MCP 的な request/report で非同期に連携。
+- パイプライン: ユーザー発話を `task_id` 付きの作業単位に変換し、設計、生成、検証、レビュー、プレビュー、公開承認までを一連の流れとして扱う。修正指示、検証 NG、停滞時はそれぞれ明示的な戻り先を持つ。
+- 生成 contract: 自己完結 HTML、`state_schema`、`commands[]`、`window.applyAgentCommand(name,args)`、Worker prompt、`worker_eval_cases`、危険操作方針、版メタデータを同時に設計する。
+- Safety Harness: Tester / Reviewer の結果、禁止 API、外部リソース、Worker 契約、stub 生成物の有無を統合して、通過した候補だけを preview / publish に進める公開前安全ゲート。
+- Agent Harness: `pipeline_runs` にワーカーの判断、進捗、生成物メタ、Tester/Reviewer/Safety Harness 結果、リトライ、承認を記録。一般ユーザーには raw trace を見せず、進捗・失敗理由・承認前サマリーに変換して表示。
 - LLM: 本番は Gemini API を想定。開発・デモでは Codex CLI ブリッジを使い、同じワーカー構造でコストを抑えて検証。
 - 実行基盤: Cloud Run 上でアプリ本体を実行。Firebase Hosting / Auth、Firestore を組み合わせ、会話、ワーカー状態、生成ミニアプリ、承認、監査ログ、アプリ状態を保存。
 - 安全境界: 生成ミニアプリは sandbox iframe 内で実行し、外部通信や localStorage を禁止。保存は AF.load / AF.save 経由でサーバ側に限定。
-- DevOps 制御: 生成物はすぐ公開せず、Tester と Reviewer のゲートを通したうえでプレビュー登録。ユーザーが「反映して」と承認したときだけ active 化し、公開ごとのスナップショットから即時巻き戻しできる。
+- DevOps 制御: 生成物はすぐ公開せず、Tester、Reviewer、Safety Harness のゲートを通したうえでプレビュー登録。ユーザーが「反映して」と承認したときだけ active 化し、公開ごとのスナップショットから即時巻き戻しできる。
+- Specialist Worker Eval: 生成時に `worker_eval_cases`、`clarification_policy`、`dangerous_action_policy` を作り、各ミニアプリの専門ワーカーが「削除」「一括操作」「異常値」「曖昧な対象」「担当外の構造変更」などを誤判断しにくいようにする。
 
 ## 開発素材
 
@@ -95,6 +100,8 @@ FastAPI
 
 AgentForge は、このギャップを埋めるためのアプリです。ユーザーは「計算機を作って」「テトリスを作って」「ボタンを大きくして」のように話すだけです。裏側では複数の AI ワーカーが、要求の具体化、設計、コード生成、検証、レビュー、プレビュー、承認公開、巻き戻しまでを担当します。
 
+単なる「コードを生成するチャット」ではなく、AI エージェントが DevOps の工程を分担し、途中経過を説明し、失敗時には検証結果をもとに再試行し、公開前には人間の承認を求める仕組みにした点が特徴です。
+
 ### 想定ユーザー
 
 主な想定ユーザーは、プログラミング経験はないが、自分用の小さなアプリを持ちたい一般ユーザーです。
@@ -103,23 +110,66 @@ AgentForge は、このギャップを埋めるためのアプリです。ユー
 
 ### プロダクトの特徴
 
-AgentForge の最大の特徴は、アプリの中でアプリ自身を拡張できる再帰的な構造です。ユーザーがメインチャットで依頼すると、AgentForge 自身の中に新しいミニアプリが追加されます。生成されたミニアプリには専属の Specialist Worker が付き、そのアプリの中から内容の編集や操作を依頼できます。
+AgentForge の最大の特徴は、アプリの中でアプリ自身を拡張できる再帰的な構造です。ユーザーがメインチャットで依頼すると、AgentForge 自身の中に新しいミニアプリが追加されます。生成されたミニアプリには専属の Specialist Worker が付き、そのアプリの中から内容の編集や操作を依頼できます。トップページでは、初めて触る人にも分かるように「1. 話す」「2. AI が作る」「3. 確認して反映」という3ステップの体験として説明しています。
+
+#### 1. 自然言語を検証済みミニアプリへ変換する Pipeline
+
+AgentForge は、ユーザーの発話を単発のコード生成に投げるだけではありません。Receptor が要求、質問、相談、アプリ操作を分類し、曖昧な目的語や危険操作は聞き返します。その後、依頼は `task_id` 付きの作業単位として Agent Harness に記録され、Orchestrator が画面構造、保存 state、操作 API、Specialist Worker プロンプト、受け入れ条件を設計します。
+
+コード生成後は Tester と Reviewer の両方を通ります。Tester は実際に動くか、主要操作が動作するかを確認します。Reviewer は sandbox、保存API、操作ツール、レスポンシブ対応、チャットUIの分離などの規約に合っているかを確認します。どちらかが NG ならコード生成に戻り、公開済み版には触りません。長時間の無音停滞は Receptor が検知し、停止、もう少し待つ、直前の成功段階から再トライをユーザーに選ばせます。
+
+#### 2. 役割を分けた Architecture
+
+AgentForge は、1つの AI に全権を渡す構造ではありません。ユーザーと話す Receptor、設計と生成を担う Orchestrator、実行検証の Tester、規約判定の Reviewer、公開後のミニアプリを操作する Specialist Worker を分離します。その外側で Control Plane、Safety Harness、Agent Harness、Sandbox、Version 管理が副作用を制御します。
+
+Control Plane は、公開、巻き戻し、承認、バージョン管理、ワーカー状態を扱う決定的な制御層です。AI が直接本公開や権限変更を行わないように、強い副作用はここに閉じ込めます。ワーカーは必要時に起動し、状態、待機理由、最終更新、使用モデルを記録します。固着した場合は Receptor が回収します。
+
+#### 3. 生成物を「操作可能な contract」として作る
+
+このとき Orchestrator は、単にコードを書く係ではありません。ユーザーの依頼が新規作成なのか既存改修なのか、データ中心アプリなのか操作中心アプリなのか、専門ワーカーが `commands` を使うべきか、保存 state を直接編集するべきか、あるいは hybrid にするべきかを判断します。
+
+AgentForge は、自然言語から見た目だけを作るのではなく、公開後に Specialist Worker が継続操作できる contract まで生成します。HTML、state、commands、Worker prompt、評価ケースを同時に設計し、受け入れ条件、Tester の検証観点、Reviewer の確認観点、Specialist Worker の操作例までを 1 つの生成単位として扱います。
+
+生成される成果物は次のようなものです。
+
+- View artifact: `<!DOCTYPE html>` から始まる自己完結 HTML。外部 CDN、fetch、cookie、localStorage なしで sandbox 実行する。
+- State contract: タスク、予定、家計簿、メモなどのデータ中心アプリでは `worker_state_mode=state/hybrid` と `state_schema` を生成する。
+- Command surface: `window.applyAgentCommand(name,args)` と `commands[]` を一致させ、Worker が UI やデータを安全に操作できるようにする。
+- Worker prompt pack: 役割、API 仕様、聞き返し方針、危険操作方針、自然言語例をアプリごとに Specialist Worker へ渡す。
+- Eval cases: 一括削除、曖昧な対象、異常値、担当外の構造変更など、失敗しやすい指示をテストケース化する。
+- Version metadata: feature、title、theme、manifest 参照、承認 ID、公開版スナップショットを Control Plane が管理する。
+- Runtime context: 複数画面や詳細画面では `AF.setChatContext()` でアプリチャットの文脈を分ける。
 
 ただし、AI が勝手に公開することはありません。AgentForge には 3 つの人間承認ゲートがあります。まず Receptor が依頼内容を整理し、ユーザーが「お願い」と承認してから制作に入ります。次に設計案を見て、ユーザーが「これで作って」と承認してからコード生成します。最後にプレビューを確認し、ユーザーが「反映して」と言ったときだけ公開します。
 
-公開前には Tester と Reviewer の両方が生成物を確認します。Tester は実際に動くか、受け入れ条件を満たすかを検証します。Reviewer は sandbox、保存API、操作ツール、レスポンシブ対応、チャットUIの分離などの規約に合っているかを確認します。片方でも NG なら公開せず、修正ループに戻します。
+#### 4. Safety Harness と Quality Gates
+
+公開前には Safety Harness が最終判定します。Tester / Reviewer の合否、禁止 API、外部リソース、Worker 契約の有無、stub 生成物の有無を統合し、通過した候補だけを preview / publish に進めます。片方でも NG、または Safety Harness 未通過なら公開せず、修正ループに戻します。
+
+Quality Gates では、主に以下を確認します。
+
+- Sandbox: 外部通信、cookie、localStorage、別ウィンドウに依存しないこと。
+- Persistence: 状態を持つアプリが `AF.load()` / `AF.save()` に接続され、画面遷移後も復元すること。
+- Worker operability: 主要操作が `commands` または `state_schema` で表現され、自然言語から到達できること。
+- UX fidelity: ユーザー要求をフォームだけで代替せず、実際に使える UI とレスポンシブ性を満たすこと。
+- Chat boundary: 生成 HTML 内にチャット UI を入れず、アプリ表示エリアと下部アプリチャットを分離すること。
+- Deletion safety: 削除は巻き戻し可能削除と完全削除を分け、監査ログを残すこと。
+
+さらに、各ミニアプリの Specialist Worker には `worker_eval_cases` を持たせます。例えばスケジュールアプリなら「22日の予定を全部消して」は削除、「15:65にテスト」は即実行せず確認質問、というように、ユーザーが実際に言いそうな自然言語指示を事前に想定します。これにより、未知の新しいアプリでも「画面だけ作る」のではなく、「そのアプリを扱う専門ワーカーの運用能力」まで生成過程に含めます。
 
 ミニアプリは sandbox iframe 内で動作し、外部通信、localStorage、cookie を使わせません。状態保存は AF.load / AF.save 経由でサーバ側に限定します。これにより、画面遷移やリロード後もアプリ状態を復元でき、同時に生成コードの権限を限定できます。
 
 また、公開ごとにスナップショットを保存するため、「戻して」と言うだけで直前の公開版へ巻き戻せます。これは LLM に再生成させるのではなく、保存済みの版を復元する決定的な操作です。生成AIに任せる部分と、決定的に制御する部分を分けることで、安全に自己拡張する体験を作っています。
 
-DevOps × AI Agent Hackathon の 3 つのコンセプトに対して、AgentForge は次のように対応します。
+Agent Harness はこの裏側を支える実行基盤です。各パイプライン実行について、依頼、設計案、生成物メタ、検証結果、レビュー結果、Safety Harness 結果、リトライ、承認を `pipeline_runs` として記録します。ただし、一般ユーザーに細かい trace をそのまま見せるとノイズになるため、通常画面では「設計案を作っています」「動作確認しています」「保存処理を修正して再確認しています」のような短い進捗に変換します。プレビュー承認前には、変更内容、ワーカーができること、検証済み項目、注意点をまとめたサマリーを表示します。
+
+AgentForge は、アプリを作る、運用する、届ける流れを 1 つの体験として扱います。
 
 - つくる: Gemini API を中心に、複数の AI ワーカーがユーザー要求を解釈し、ミニアプリを設計・生成する。
-- まわす: 設計、生成、検証、レビュー、承認、履歴、巻き戻しを一連の DevOps サイクルとして回す。
+- まわす: 設計、生成、検証、レビュー、安全判定、承認、履歴、巻き戻しを一連の DevOps サイクルとして回す。Safety Harness により未通過成果物の公開を止め、Agent Harness により判断・成果物・検証結果を後から追える。
 - とどける: Cloud Run / Firebase / Firestore を使い、実際にアクセスできるアプリとしてユーザーへ届ける。
 
-AI エージェントである必然性は、単なるコード生成ではなく、曖昧な自然言語要求から「何を作るか」「どう分解するか」「どのワーカーが何を確認するか」「どの段階で人間承認を求めるか」を判断し続ける点にあります。AgentForge は、AI が強い権限を直接持つのではなく、Control Plane と承認ゲートの中で安全に働く DevOps AI Agent Workbench です。
+AI エージェントである必然性は、単なるコード生成ではなく、曖昧な自然言語要求から「何を作るか」「どう分解するか」「どのワーカーが何を確認するか」「専門ワーカーにどんな操作能力を持たせるか」「どの段階で人間承認を求めるか」を判断し続ける点にあります。AgentForge は、AI が強い権限を直接持つのではなく、Control Plane、Safety Harness、Agent Harness、承認ゲートの中で安全に働く DevOps AI Agent Workbench です。
 
 ## 関連リンク
 

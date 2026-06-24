@@ -53,3 +53,33 @@ def test_flow_record_clears_transient_template_fields():
     })
     assert flow["template"] is None
     assert flow["pending_images"] is None
+
+
+def test_resolve_feature_delete_accepts_slug_without_scope(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "_active_features",
+        lambda _project_id: {
+            "task_manager": "active",
+            "task_manager_title": "task_manager",
+            "schedule": "active",
+            "schedule_title": "スケジュール",
+        },
+    )
+    assert service.resolve_feature_delete("default", "task_managerを削除してください") == "task_manager"
+
+
+def test_resolve_feature_delete_accepts_template_name_with_app_scope(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "_active_features",
+        lambda _project_id: {
+            "task_manager": "active",
+            "task_manager_title": "task_manager",
+            "schedule": "active",
+            "schedule_title": "スケジュール",
+        },
+    )
+    assert service.resolve_feature_delete("default", "タスク管理アプリを削除してください") == "task_manager"
+    assert service.resolve_feature_delete("default", "タスク管理を削除してください") is None
+    assert service.resolve_feature_delete("default", "予定を削除してください") is None

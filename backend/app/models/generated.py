@@ -98,6 +98,11 @@ class ViewManifest(BaseModel):
     # maps to, and when to ask a clarifying question instead of guessing.
     worker_instructions: str = ""
     worker_examples: list[dict] = Field(default_factory=list)
+    # Eval cases for the Specialist Worker: natural-language inputs and expected
+    # behavior/state diff. Tester/Harness can use these to catch bad intent mapping.
+    worker_eval_cases: list[dict] = Field(default_factory=list)
+    clarification_policy: str = ""
+    dangerous_action_policy: str = ""
     # How the Specialist Worker operates this app:
     # - commands: map NL to window.applyAgentCommand tools.
     # - state: edit the persisted AF.load/AF.save state directly.

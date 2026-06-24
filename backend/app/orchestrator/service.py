@@ -372,7 +372,7 @@ def build_app(req: PlanRequest, design_plan: dict | None = None, feedback: str |
     return ui_designer.design(goal, plan=design_plan)
 
 
-def register_app(req: PlanRequest, manifest) -> PlanResponse:
+def register_app(req: PlanRequest, manifest, safety_result: dict | None = None, run_id: str | None = None) -> PlanResponse:
     """Register an already-built manifest (pending) in the Control Plane.
 
     The WorkPlan skeleton is built DETERMINISTICALLY (no LLM): the approved design
@@ -394,6 +394,16 @@ def register_app(req: PlanRequest, manifest) -> PlanResponse:
 
     approval_id = registry.register_plan(plan)
     registry.register_generated_view(req.project_id, manifest)
+    if safety_result:
+        from app.safety_harness import service as safety_harness
+
+        payload = {**safety_result, "approval_id": approval_id, "task_id": run_id or plan.task_id}
+        safety_harness.save_result(payload)
+        safety_harness.merge_into_generated_view(req.project_id, manifest.feature, payload)
+        get_db().collection("approval_requests").document(approval_id).set(
+            {"safety_verdict": payload.get("verdict"), "safety_harness": payload},
+            merge=True,
+        )
 
     return PlanResponse(
         task_id=plan.task_id, approval_id=approval_id, plan=plan, summary=_summarize(plan, manifest)
@@ -401,8 +411,20 @@ def register_app(req: PlanRequest, manifest) -> PlanResponse:
 
 
 def plan_and_register(req: PlanRequest, design_plan: dict | None = None) -> PlanResponse:
-    """Build + register in one shot (no deploy-time gate). Used by the low-level
-    /api/orchestrator/plan endpoint. The chat pipeline (_run_codegen) instead calls
-    build_app → Tester/Reviewer gate → register_app so generation is verified."""
+    """Build + register in one shot for the low-level /api/orchestrator/plan endpoint.
+
+    The chat pipeline runs the full Tester/Reviewer/Safety Harness gate before
+    registration. This endpoint has no conversation run context, so it records the
+    deterministic Safety Harness result at minimum; publish still requires a
+    passing safety verdict.
+    """
     manifest = build_app(req, design_plan)
-    return register_app(req, manifest)
+    from app.safety_harness import service as safety_harness
+
+    safety = safety_harness.evaluate(
+        manifest.model_dump(mode="json"),
+        project_id=req.project_id,
+        goal=req.goal,
+        persist=False,
+    )
+    return register_app(req, manifest, safety_result=safety)

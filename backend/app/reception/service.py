@@ -37,7 +37,12 @@ _FEATURE_KEYWORDS = {
 _APPROVE_KEYWORDS = ("反映", "承認", "approve", "apply")
 _ROLLBACK_KEYWORDS = ("戻し", "戻す", "ロールバック", "rollback", "取り消", "無効化")
 
-_FEATURE_LABELS = {"task": "タスク管理", "pdf_memo": "PDFメモ", "unknown": "ご要望の機能"}
+_FEATURE_LABELS = {
+    "task": "タスク管理",
+    "task_manager": "タスク管理",
+    "pdf_memo": "PDFメモ",
+    "unknown": "ご要望の機能",
+}
 _QUESTION_MARKERS = (
     "？", "?", "どんな", "何が", "なにが", "教えて", "ありますか", "ある？",
     "できますか", "できる？", "使い方", "とは", "一覧",
@@ -324,6 +329,7 @@ def _flow_record(fields: dict) -> dict:
         "plan": fields.get("plan"),
         "feature": fields.get("feature"),
         "approval_id": fields.get("approval_id"),
+        "run_id": fields.get("run_id"),
         "candidate": fields.get("candidate"),  # generated ViewManifest dict (preview source)
         "template": fields.get("template"),
         "pending_images": fields.get("pending_images"),
@@ -358,6 +364,10 @@ def is_edit_request(text: str) -> bool:
 _WORKER_WORDS = ("ワーカーチャット", "ワーカー", "aiワーカー", "ワーカーパネル", "チャットパネル", "チャット欄")
 _WORKER_OFF = ("不要", "いらない", "要らない", "消して", "削除", "非表示", "外して", "オフ", "off", "なくして", "省いて", "隠して")
 _WORKER_ON = ("付けて", "つけて", "表示して", "表示に", "オンに", " on", "出して", "有効", "ほしい", "欲しい")
+_APP_DELETE_WORDS = ("削除", "消して", "消す", "消去", "なくして", "外して", "消したい")
+_APP_DELETE_SCOPE_WORDS = ("アプリ", "ミニアプリ", "機能")
+_DELETE_HARD_EXACT = {"2", "２", "完全削除", "完全に削除", "データも削除", "全部削除", "完全", "hard"}
+_DELETE_SOFT_EXACT = {"1", "１", "巻き戻し可能", "復元可能", "データを残す", "残して削除", "非表示", "soft"}
 
 
 def worker_toggle_intent(text: str) -> bool | None:
@@ -369,6 +379,65 @@ def worker_toggle_intent(text: str) -> bool | None:
         return False
     if any(w in t for w in _WORKER_ON):
         return True
+    return None
+
+
+def resolve_feature_delete(project_id: str, text: str) -> str | None:
+    """Detect explicit app deletion, not content deletion inside an app.
+
+    Requires a delete word and an active feature title/slug/known template alias.
+    When the target is only an alias (e.g. 「タスク管理」 rather than task_manager),
+    app-level wording such as 「アプリ」 or 「機能」 is required unless the alias is
+    the stored title. This avoids treating 「予定を削除」 as app deletion.
+    """
+    t = (text or "").strip()
+    if not t or not any(w in t for w in _APP_DELETE_WORDS):
+        return None
+    states = _active_features(project_id)
+    actives = [
+        k for k, v in states.items()
+        if v == "active" and not any(k.endswith(s) for s in ("_worker", "_theme", "_title")) and k != "updated_at"
+    ]
+    has_scope = any(w in t for w in _APP_DELETE_SCOPE_WORDS)
+
+    for feature in actives:
+        title = str(states.get(f"{feature}_title") or "").strip()
+        if feature in t or (title and title in t):
+            return feature
+
+    if has_scope:
+        try:
+            from app import templates
+
+            for feature in actives:
+                manifest = templates.get_template(feature) or {}
+                candidates = [manifest.get("title"), feature_label(feature)]
+                if any(c and str(c) in t for c in candidates):
+                    return feature
+                if templates.match_template(t) == feature:
+                    return feature
+        except Exception:  # noqa: BLE001 - deletion detection should degrade safely
+            pass
+    return None
+
+
+def start_delete_confirm(project_id: str, feature: str, instruction: str) -> None:
+    _set_flow(
+        conversation_id_for(project_id),
+        stage=_STAGE_CONFIRM,
+        mode="delete",
+        feature=feature,
+        goal=instruction,
+    )
+
+
+def delete_choice(text: str) -> str | None:
+    """Return hard/soft for a pending app deletion choice."""
+    t = _normalize_short(text)
+    if t in _DELETE_HARD_EXACT or any(k in t for k in ("完全", "データも", "全部", "復元不可", "完全削除")):
+        return "hard"
+    if t in _DELETE_SOFT_EXACT or any(k in t for k in ("巻き戻し", "復元", "戻せる", "データを残", "残して", "非表示")):
+        return "soft"
     return None
 
 
@@ -421,6 +490,7 @@ def _run_edit(
     """Receptor → Orchestrator 'edit' over the MCP-like bus (see _run_codegen)."""
     conversation_id = conversation_id_for(project_id)
     from app.control_plane import worker_bus
+    from app.harness import service as harness
     from app.workers import ui_designer
 
     corr = f"edit_{uuid.uuid4().hex[:12]}"  # correlation id for the bus message thread
@@ -473,14 +543,22 @@ def _run_edit(
             passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
 
         cand = manifest.model_dump(mode="json")
+        cand["safety_harness"] = gates.get("safety")
         if passed:
+            harness.attach_artifact(corr, "view_manifest_meta", {
+                "project_id": project_id,
+                "feature": cand.get("feature"),
+                "title": cand.get("title"),
+                "description": cand.get("description"),
+                "commands": cand.get("commands") or [],
+                "worker_state_mode": cand.get("worker_state_mode"),
+                "state_schema": cand.get("state_schema") or {},
+                "worker_eval_cases": cand.get("worker_eval_cases") or [],
+            })
             _set_flow(conversation_id, stage=_STAGE_BUILT, mode="edit",
-                      goal=instruction, feature=feature, candidate=cand)
+                      goal=instruction, feature=feature, candidate=cand, run_id=corr)
             _progress(conversation_id, _check_report(cand))
-            append_message(conversation_id, ChatMessage(role="assistant", text=(
-                f"✏️「{plan['title']}」の修正版を作成しました（検証・レビュー通過）。下のプレビューで確認できます。\n"
-                "問題なければ「反映して」で更新します。"
-            )))
+            append_message(conversation_id, ChatMessage(role="assistant", text=_approval_summary(cand, gates, "edit")))
             return {"status": "ok", "result": {"passed": True, "feature": feature}}
 
         # Not verified → NOT publishable. Don't enable 「反映して」; keep the live
@@ -538,6 +616,7 @@ def start_candidate_revision(project_id: str, instruction: str, images: list[dic
 def _run_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.control_plane import worker_bus
+    from app.harness import service as harness
     from app.workers import ui_designer
 
     flow = get_flow(project_id)
@@ -593,21 +672,35 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
                     "findings": [_gate_feedback(gates)]}
 
         new_cand = manifest.model_dump(mode="json")
+        new_cand["safety_harness"] = gates.get("safety")
+        harness.attach_artifact(corr, "view_manifest_meta", {
+            "project_id": project_id,
+            "feature": new_cand.get("feature"),
+            "title": new_cand.get("title"),
+            "description": new_cand.get("description"),
+            "commands": new_cand.get("commands") or [],
+            "worker_state_mode": new_cand.get("worker_state_mode"),
+            "state_schema": new_cand.get("state_schema") or {},
+            "worker_eval_cases": new_cand.get("worker_eval_cases") or [],
+        })
         if mode == "create" and feature:
             # 「反映して」(approve) activates the generated_views doc — keep it in
             # sync with the revised candidate so what's published is what's previewed.
             get_db().collection("generated_views").document(f"{project_id}_{feature}").set(
-                {**new_cand, "project_id": project_id, "status": "pending", "updated_at": _now_iso()},
+                {
+                    **new_cand,
+                    "project_id": project_id,
+                    "status": "pending",
+                    "safety_verdict": (gates.get("safety") or {}).get("verdict"),
+                    "updated_at": _now_iso(),
+                },
                 merge=True,
             )
         _set_flow(conversation_id, stage=_STAGE_BUILT, mode=mode, goal=flow.get("goal"),
                   plan=flow.get("plan"), feature=feature, approval_id=flow.get("approval_id"),
-                  candidate=new_cand)
+                  candidate=new_cand, run_id=corr)
         _progress(conversation_id, _check_report(new_cand))
-        append_message(conversation_id, ChatMessage(role="assistant", text=(
-            "✏️ プレビューを修正しました（検証・レビュー通過）。更新版を確認のうえ、"
-            "よければ「反映して」、さらに直す点があれば続けて指示してください。"
-        )))
+        append_message(conversation_id, ChatMessage(role="assistant", text=_approval_summary(new_cand, gates, mode)))
         return {"status": "ok", "result": {"passed": True, "feature": feature}}
 
     rep = worker_bus.dispatch(
@@ -867,12 +960,28 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
         return {"reply": "テンプレートが見つからなかったため、設計から作ります。", "building": True}
 
     req = PlanRequest(project_id=project_id, goal=goal)
-    result = orchestrator.register_app(req, manifest)
+    corr = f"template_{uuid.uuid4().hex[:12]}"
+    passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+    if not passed:
+        append_message(conversation_id, ChatMessage(role="assistant", text=(
+            f"❌ デフォルトの「{manifest.title}」は Safety Harness を通過できなかったため、プレビュー登録しませんでした。\n"
+            + _gate_feedback(gates)
+        )))
+        return {"reply": "デフォルトテンプレートが安全検査を通過できませんでした。", "building": False}
+    result = orchestrator.register_app(req, manifest, safety_result=gates.get("safety"), run_id=corr)
     feat = result.plan.feature
     vsnap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
     candidate = vsnap.to_dict() if vsnap.exists else manifest.model_dump(mode="json")
-    _set_flow(conversation_id, stage=_STAGE_BUILT, mode="create", goal=goal,
-              feature=feat, approval_id=result.approval_id, candidate=candidate)
+    _set_flow(
+        conversation_id,
+        stage=_STAGE_BUILT,
+        mode="create",
+        goal=goal,
+        feature=feat,
+        approval_id=result.approval_id,
+        candidate=candidate,
+        run_id=corr,
+    )
     _set_build(conversation_id, status=_BUILD_DONE)
     worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED,
                                 detail="プレビュー公開待ち（「反映して」）")
@@ -1388,8 +1497,63 @@ def _check_report(candidate: dict | None) -> str:
         parts.append(f"操作ツール {len(cmds)}個 " + ("✅" if cmds else "⚠️"))
     else:
         parts.append(f"項目{len(candidate.get('fields') or [])}・一覧列{len(candidate.get('list_columns') or [])}")
+    safety = candidate.get("safety_harness") or {}
+    if safety:
+        parts.append("Safety Harness " + ("✅" if safety.get("verdict") == "pass" else "⚠️"))
     parts.append(f"生成元 {gen}")
     return "🔍 チェック: " + " / ".join(parts)
+
+
+def _approval_summary(candidate: dict | None, gates: dict | None, mode: str = "create") -> str:
+    """User-facing publish/update summary generated from harnessable artifacts."""
+    if not candidate:
+        return "プレビューを準備しました。内容を確認してください。"
+    title = candidate.get("title") or candidate.get("feature") or "アプリ"
+    desc = candidate.get("description") or ""
+    commands = candidate.get("commands") or []
+    state_mode = candidate.get("worker_state_mode") or "commands"
+    state_schema = candidate.get("state_schema") or {}
+    tester = (gates or {}).get("tester") or {}
+    reviewer = (gates or {}).get("reviewer") or {}
+    safety = (gates or {}).get("safety") or candidate.get("safety_harness") or {}
+    checked: list[str] = []
+    checked.extend(str(x) for x in tester.get("checks", [])[:4])
+    for c in tester.get("criteria", [])[:4]:
+        if c.get("ok"):
+            checked.append(str(c.get("text") or "")[:80])
+    if not checked:
+        checked.append("起動・基本構造・規約を確認")
+    action = "更新" if mode == "edit" else "公開"
+    worker_line = (
+        f"専門ワーカーは {len(commands)} 個の操作ツールを使えます。"
+        if commands
+        else "専門ワーカーは保存 state を中心に内容を編集します。"
+    )
+    if state_mode in {"state", "hybrid"} and state_schema:
+        worker_line += f" 操作方式は {state_mode} です。"
+    review_line = "Reviewer の規約確認も通過しました。" if reviewer.get("verdict") == "ok" else "Reviewer の指摘はありません。"
+    safety_line = "Safety Harness の公開前安全検査を通過しました。" if safety.get("verdict") == "pass" else "Safety Harness の結果を確認中です。"
+    lines = [
+        f"✅ 「{title}」のプレビューを準備しました。",
+    ]
+    if desc:
+        lines.append(desc)
+    lines.extend(
+        [
+            "",
+            "変更内容:",
+            f"・{action}できる実際のミニアプリを生成しました。",
+            f"・{worker_line}",
+            "",
+            "検証済み:",
+            *[f"・{x}" for x in checked],
+            f"・{review_line}",
+            f"・{safety_line}",
+            "",
+            f"下のプレビューで確認できます。問題なければ「反映して」で{action}します。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def start_plan(
@@ -1414,6 +1578,7 @@ def _run_plan(
     """Receptor → Orchestrator 'plan' over the MCP-like bus (see _run_codegen)."""
     conversation_id = conversation_id_for(project_id)
     from app.control_plane import worker_bus
+    from app.harness import service as harness
     from app.workers import ui_designer
 
     corr = f"plan_{uuid.uuid4().hex[:12]}"
@@ -1424,6 +1589,7 @@ def _run_plan(
         with _llm_heartbeat(conversation_id, "📝 設計案作成"):
             plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
         plan_dict = plan.model_dump(mode="json")
+        harness.attach_artifact(corr, "design_plan", {"project_id": project_id, **plan_dict})
         # Screen mock (SVG) at the PLAN stage: the user reviews/corrects the look
         # BEFORE any expensive PRO code is written; a revision just redraws this
         # in seconds. Best-effort — "" means the plan proceeds without a mock.
@@ -1495,6 +1661,8 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
     from concurrent.futures import ThreadPoolExecutor
 
     from app.control_plane import worker_bus
+    from app.harness import service as harness
+    from app.safety_harness import service as safety_harness
     from app.workers import reviewer, tester
 
     project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
@@ -1522,15 +1690,35 @@ def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
 
     tv = t_rep.get("result") or {}
     rv = r_rep.get("result") or {}
-    passed = t_rep.get("status") == "ok" and r_rep.get("status") == "ok"
-    _progress(conversation_id, _gate_report(tv, rv))
-    return passed, {"tester": tv, "reviewer": rv}
+    safety = safety_harness.evaluate(
+        manifest,
+        project_id=project_id,
+        task_id=task_id,
+        goal=goal,
+        tester_result=tv,
+        reviewer_result=rv,
+    )
+    passed = t_rep.get("status") == "ok" and r_rep.get("status") == "ok" and safety.get("verdict") == "pass"
+    harness.attach_artifact(task_id, "gate_result", {
+        "project_id": project_id,
+        "passed": passed,
+        "tester": tv,
+        "reviewer": rv,
+        "safety_harness": safety,
+    })
+    harness.attach_artifact(task_id, "safety_harness_result", {
+        "project_id": project_id,
+        **safety,
+    })
+    _progress(conversation_id, _gate_report(tv, rv, safety))
+    return passed, {"tester": tv, "reviewer": rv, "safety": safety}
 
 
-def _gate_report(tv: dict, rv: dict) -> str:
+def _gate_report(tv: dict, rv: dict, safety: dict | None = None) -> str:
     t = "✅" if tv.get("verdict") == "pass" else "⚠️"
     r = "✅" if rv.get("verdict") == "ok" else "⚠️"
-    lines = [f"🔎 動作検証 {t} ／ 規約レビュー {r}"]
+    s = "✅" if (safety or {}).get("verdict") == "pass" else "⚠️"
+    lines = [f"🔎 動作検証 {t} ／ 規約レビュー {r} ／ Safety Harness {s}"]
     # Per-criterion results (the user-approved acceptance list) — itemized ✅/❌.
     for c in tv.get("criteria", []):
         mark = "✅" if c.get("ok") else "❌"
@@ -1542,12 +1730,15 @@ def _gate_report(tv: dict, rv: dict) -> str:
         lines.append(f"・[動作] {e}")
     for f in rv.get("findings", []):
         lines.append(f"・[規約] {f}")
+    for f in (safety or {}).get("findings", []):
+        lines.append(f"・[安全] {f}")
     return "\n".join(lines)
 
 
 def _gate_feedback(gates: dict) -> str:
     items = [f"[動作] {e}" for e in gates["tester"].get("errors", [])]
     items += [f"[規約] {f}" for f in gates["reviewer"].get("findings", [])]
+    items += [f"[安全] {f}" for f in (gates.get("safety") or {}).get("findings", [])]
     return "\n".join(items) or "（指摘なし）"
 
 
@@ -1559,6 +1750,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     `failed` report, which the Receptor turns into the user-facing error."""
     conversation_id = conversation_id_for(project_id)
     from app.control_plane import worker_bus
+    from app.harness import service as harness
     from app.models.orchestrator import PlanRequest
     from app.orchestrator import service as orchestrator
 
@@ -1608,19 +1800,27 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
 
         if passed:
             # Only a verified result is publishable: register it and offer 「反映して」.
-            result = orchestrator.register_app(req, manifest)
+            result = orchestrator.register_app(req, manifest, safety_result=gates.get("safety"), run_id=corr)
             feat = result.plan.feature
             snap = get_db().collection("generated_views").document(f"{project_id}_{feat}").get()
             candidate = snap.to_dict() if snap.exists else None
+            if candidate:
+                harness.attach_artifact(corr, "view_manifest_meta", {
+                    "project_id": project_id,
+                    "feature": candidate.get("feature"),
+                    "title": candidate.get("title"),
+                    "description": candidate.get("description"),
+                    "commands": candidate.get("commands") or [],
+                    "worker_state_mode": candidate.get("worker_state_mode"),
+                    "state_schema": candidate.get("state_schema") or {},
+                    "worker_eval_cases": candidate.get("worker_eval_cases") or [],
+                })
             _set_flow(
                 conversation_id, stage=_STAGE_BUILT, mode="create", goal=goal, plan=plan,
-                feature=feat, approval_id=result.approval_id, candidate=candidate,
+                feature=feat, approval_id=result.approval_id, candidate=candidate, run_id=corr,
             )
             _progress(conversation_id, _check_report(candidate))
-            append_message(conversation_id, ChatMessage(role="assistant", text=(
-                "✅ 検証・レビューを通過しました。下のプレビューで動作を確認できます。\n"
-                "問題なければ「反映して」で公開します（左メニューに追加されます）。"
-            )))
+            append_message(conversation_id, ChatMessage(role="assistant", text=_approval_summary(candidate, gates, "create")))
             return {"status": "ok", "result": {"passed": True, "feature": feat}}
 
         # Not verified → NOT publishable. Do not register or offer 「反映して」.

@@ -61,7 +61,10 @@ _SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した�
   "worker_state_mode": "commands|state|hybrid",
   "state_schema": {"type": "object", "properties": {"<AF.saveするstateのキー>": {"type": "array|object|string|number|boolean", "description": "<意味>"}}},
   "worker_instructions": "<専門ワーカー向け。ユーザーが言いそうな操作意図、各APIの使い分け、足りない情報の聞き返し方を具体的に書く>",
-  "worker_examples": [{"user": "<想定ユーザー指示>", "command": {"name": "<commandsのname または空>", "arguments": {}}, "reply": "<短い返答または聞き返し>"}]
+  "worker_examples": [{"user": "<想定ユーザー指示>", "command": {"name": "<commandsのname または空>", "arguments": {}}, "reply": "<短い返答または聞き返し>"}],
+  "worker_eval_cases": [{"input": "<自然言語のテスト指示>", "expected_behavior": "<add/update/delete/ask_clarification/forward_to_main等>", "expected_state_diff": "<期待されるstate差分または空>", "expected_message_contains": "<聞き返しや返答に含むべき短文または空>"}],
+  "clarification_policy": "<情報不足・異常値・対象不明のとき、実行せず何を聞き返すか>",
+  "dangerous_action_policy": "<一括削除・初期化・復元不能操作などをどう確認するか>"
 }
 
 worker_state_mode / state_schema の要件（重要・未知アプリ対応）:
@@ -98,8 +101,13 @@ commands の要件（重要・標準仕様 / MCP形式のツール契約）:
   3. 削除語・更新語・追加語など、誤分類しやすい表現の扱い。
   4. 情報不足・対象不明・異常値のときに実行せず聞き返す文例。
   5. 直近の確認にユーザーが「はい」「それで」と返した時に、履歴から補って実行する方針。
+  6. ユーザー送信直後の「作業に入っています」表示はシェルのアプリチャット標準で出るため、生成HTML内に受付中表示を作らず、最終返答では完了内容・聞き返し・取次内容を短く具体的に返す方針。
 - worker_examples には、そのアプリで実際に来そうな指示を8〜12件入れる。
   正常系だけでなく、削除、一括操作、曖昧な対象、異常値、確認質問への返答も含める。
+- worker_eval_cases には、その専門ワーカーが誤りやすい自然言語テストを5〜8件入れる。
+  追加/更新/削除/一括削除/曖昧な対象/異常値/確認質問/担当外の構造変更を含める。
+  例（スケジュール）: 「22日の予定を全部消して」→ delete、「15:65にテスト」→ ask_clarification。
+- clarification_policy と dangerous_action_policy には、聞き返しと危険操作確認の方針を具体的に書く。
 - 操作が無いミニアプリ（純粋表示のみ等）は空配列でよい。
 
 html の要件（重要）:
@@ -332,6 +340,8 @@ def design(
                 commands = [c for c in commands if isinstance(c, dict) and c.get("name")] if isinstance(commands, list) else []
                 examples = data.get("worker_examples")
                 examples = [e for e in examples if isinstance(e, dict)] if isinstance(examples, list) else []
+                eval_cases = data.get("worker_eval_cases")
+                eval_cases = [e for e in eval_cases if isinstance(e, dict)] if isinstance(eval_cases, list) else []
                 state_mode = str(data.get("worker_state_mode") or "commands")
                 state_mode = state_mode if state_mode in {"commands", "state", "hybrid"} else "commands"
                 state_schema = data.get("state_schema") if isinstance(data.get("state_schema"), dict) else {}
@@ -347,6 +357,9 @@ def design(
                     state_schema=state_schema,
                     worker_instructions=str(data.get("worker_instructions") or "")[:4000],
                     worker_examples=examples[:16],
+                    worker_eval_cases=eval_cases[:12],
+                    clarification_policy=str(data.get("clarification_policy") or "")[:2000],
+                    dangerous_action_policy=str(data.get("dangerous_action_policy") or "")[:2000],
                     generated_by=llm.name,
                 )
         except Exception:  # noqa: BLE001 — any LLM/parse failure -> placeholder page
@@ -429,7 +442,10 @@ _PATCH_SCHEMA = '''既存アプリへの修正を「差分パッチ」で出力�
   "worker_state_mode": "commands|state|hybrid（操作方式やstate構造が変わる場合のみ）",
   "state_schema": {<AF.save state の構造が変わる場合のみ、全量を再宣言>},
   "worker_instructions": "<操作ツールや想定指示が変わる場合のみ、全量を再宣言>",
-  "worker_examples": [<操作ツールや想定指示が変わる場合のみ、全量を再宣言>]
+  "worker_examples": [<操作ツールや想定指示が変わる場合のみ、全量を再宣言>],
+  "worker_eval_cases": [<操作ツールや想定指示が変わる場合のみ、全量を再宣言>],
+  "clarification_policy": "<聞き返し方針が変わる場合のみ>",
+  "dangerous_action_policy": "<危険操作確認方針が変わる場合のみ>"
 }
 
 パッチの規則（厳守）:
@@ -514,6 +530,13 @@ def design_patch(
                 if isinstance(data.get("worker_examples"), list)
                 else current.get("worker_examples", [])
             ),
+            worker_eval_cases=(
+                [e for e in data.get("worker_eval_cases", []) if isinstance(e, dict)][:12]
+                if isinstance(data.get("worker_eval_cases"), list)
+                else current.get("worker_eval_cases", [])
+            ),
+            clarification_policy=str(data.get("clarification_policy") or current.get("clarification_policy", ""))[:2000],
+            dangerous_action_policy=str(data.get("dangerous_action_policy") or current.get("dangerous_action_policy", ""))[:2000],
             generated_by=llm.name,
         )
     except Exception:  # noqa: BLE001 — any failure → fall back to a full rewrite

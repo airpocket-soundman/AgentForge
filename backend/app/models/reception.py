@@ -61,5 +61,6 @@ class ReceptionReply(BaseModel):
     # Set when a conversational command changed feature state, so the UI can react.
     activated_feature: str | None = None
     disabled_feature: str | None = None
+    deleted_feature: str | None = None
     # True when a background design was kicked off; the browser then polls /state.
     building: bool = False

@@ -59,6 +59,35 @@ def get_template(key: str) -> dict | None:
     return TEMPLATES.get(key)
 
 
+def _default_eval_cases(m: dict) -> list[dict]:
+    examples = [e for e in (m.get("worker_examples") or []) if isinstance(e, dict)]
+    cases: list[dict] = []
+    for ex in examples[:6]:
+        user = str(ex.get("user") or ex.get("input") or "").strip()
+        if not user:
+            continue
+        command = ex.get("command")
+        cases.append(
+            {
+                "input": user,
+                "expected_behavior": "execute_command" if command else "reply_or_clarify",
+                "expected_state_diff": "",
+                "expected_message_contains": str(ex.get("reply") or ex.get("expected") or ""),
+            }
+        )
+    if not cases and m.get("commands"):
+        first = m["commands"][0]
+        cases.append(
+            {
+                "input": str(first.get("description") or first.get("name") or "操作して"),
+                "expected_behavior": "execute_command",
+                "expected_state_diff": "",
+                "expected_message_contains": "",
+            }
+        )
+    return cases
+
+
 def to_manifest(key: str) -> ViewManifest | None:
     """Build a ViewManifest from a template (generated_by='template')."""
     m = TEMPLATES.get(key)
@@ -69,6 +98,9 @@ def to_manifest(key: str) -> ViewManifest | None:
         kind="app", theme=m["theme"], html=m["html"], commands=m["commands"],
         worker_instructions=m.get("worker_instructions", ""),
         worker_examples=m.get("worker_examples", []),
+        worker_eval_cases=m.get("worker_eval_cases") or _default_eval_cases(m),
+        clarification_policy=m.get("clarification_policy", "対象・数量・日時・金額などが曖昧な場合は、実行前に短く聞き返す。"),
+        dangerous_action_policy=m.get("dangerous_action_policy", "一括削除、初期化、復元困難な変更は、実行前に確認する。"),
         worker_state_mode=m.get("worker_state_mode", "commands"),
         state_schema=m.get("state_schema", {}),
         generated_by="template",

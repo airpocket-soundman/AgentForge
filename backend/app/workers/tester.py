@@ -60,6 +60,12 @@ def _static_checks(manifest: dict) -> tuple[list[str], list[str]]:
             checks.append(f"操作ツール {len(commands)} 個・applyAgentCommand 実装あり")
         else:
             errors.append("commands を宣言しているが applyAgentCommand 未実装（操作が効かない）")
+    if commands or manifest.get("worker_state_mode") in {"state", "hybrid"}:
+        eval_cases = manifest.get("worker_eval_cases") or []
+        if eval_cases:
+            checks.append(f"専門ワーカー評価ケース {len(eval_cases)} 件")
+        else:
+            errors.append("専門ワーカーの自然言語判断を検証する worker_eval_cases が無い")
     return checks, errors
 
 

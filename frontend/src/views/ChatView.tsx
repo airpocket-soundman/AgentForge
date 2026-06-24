@@ -8,7 +8,7 @@ import {
   type ConversationState,
   type ViewManifest,
 } from "../api";
-import { AppFrame } from "./AppFrame";
+import { AppFrame, deleteFeatureBlobs } from "./AppFrame";
 import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
 import { MdText } from "./Markdown";
 
@@ -118,7 +118,13 @@ export function ChatView({
       const res = await sendMessage(text, attachments);
       if (res.building) setBuilding(true);
       if (res.activated_feature) onFeatureActivated(res.activated_feature);
-      if (res.disabled_feature) onFeatureDisabled(res.disabled_feature);
+      if (res.deleted_feature) {
+        await deleteFeatureBlobs(res.deleted_feature).catch(() => 0);
+        onFeatureDisabled(res.deleted_feature);
+      }
+      if (res.disabled_feature) {
+        onFeatureDisabled(res.disabled_feature);
+      }
       await loadState();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

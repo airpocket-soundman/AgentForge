@@ -17,6 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from app.audit_context import get_audit_context
 from app.firestore import get_db
 from app.models.orchestrator import WorkPlan
 
@@ -27,6 +28,9 @@ def _now_iso() -> str:
 
 def _audit(action: str, target: str, detail: dict | None = None, project_id: str | None = None) -> None:
     log_id = f"log_{uuid.uuid4().hex[:12]}"
+    ctx = get_audit_context()
+    actor = ctx.get("actor")
+    request = ctx.get("request")
     get_db().collection("audit_logs").document(log_id).set(
         {
             "log_id": log_id,
@@ -34,7 +38,13 @@ def _audit(action: str, target: str, detail: dict | None = None, project_id: str
             "target": target,
             "project_id": project_id,  # for the user-facing change history (filterable)
             "detail": detail or {},
-            "actor": "orchestrator",  # SA-scoped actor; refined in Phase 5
+            "actor": actor or {"kind": "system", "email": None, "uid": None},
+            "actor_email": (actor or {}).get("email"),
+            "actor_uid": (actor or {}).get("uid"),
+            "source": request or {},
+            "request_id": (request or {}).get("request_id"),
+            "source_method": (request or {}).get("method"),
+            "source_path": (request or {}).get("path"),
             "created_at": _now_iso(),
         }
     )
@@ -231,6 +241,8 @@ _RESET_COLLECTIONS = [
     "feature_requirements",
     "workers",
     "worker_messages",
+    "pipeline_runs",
+    "safety_checks",
     "app_entities",
     "app_state",
     "feature_chats",

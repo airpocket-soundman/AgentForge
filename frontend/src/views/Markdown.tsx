@@ -49,9 +49,19 @@ export function MdText({ text }: { text: string }) {
       out.push(<div key={`h${idx}`} className={cls}>{inline(h[2], `h${idx}`)}</div>);
       return;
     }
-    const li = /^\s*(?:[-*・]|\d+[.)])\s+(.*)$/.exec(line);
+    const li = /^\s*([-*・]|\d+[.)])\s+(.*)$/.exec(line);
     if (li) {
-      out.push(<div key={`l${idx}`} className="md-li">{inline(li[1], `l${idx}`)}</div>);
+      const marker = li[1];
+      const ordered = /^\d+[.)]$/.test(marker);
+      out.push(
+        <div
+          key={`l${idx}`}
+          className={`md-li ${ordered ? "md-ol" : "md-ul"}`}
+          data-marker={ordered ? marker.replace(")", ".") : "・"}
+        >
+          {inline(li[2], `l${idx}`)}
+        </div>
+      );
       return;
     }
     if (line.trim() === "") {

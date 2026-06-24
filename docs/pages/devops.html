@@ -37,7 +37,9 @@
   </table>
 
   <h2>状態の段階（生成機能）</h2>
-  <p><code>confirm（受付確認）</code> → <code>plan（設計案）</code> → <code>built（プレビュー）</code> → <code>active（公開）</code> → 版スタックで <code>rollback</code> ／ <code>disabled</code>（無効化）。<strong>削除はしない</strong>（データ保持・可逆）。</p>
+  <p><code>confirm（受付確認）</code> → <code>plan（設計案）</code> → <code>built（プレビュー）</code> → <code>active（公開）</code> → 版スタックで <code>rollback</code> ／ <code>disabled</code>（無効化）。
+  <strong>rollback はデータ保持・可逆</strong>。一方で、ユーザーが<strong>アプリ削除</strong>を明示した場合は、
+  巻き戻し可能な削除（データ保持）か完全削除（アプリに紐づくデータも削除）かを選ばせる。</p>
 
   <h2>テスト（まわす）</h2>
   <ul>

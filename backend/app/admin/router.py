@@ -21,6 +21,7 @@ from app.auth import (
     stored_allowlist,
 )
 from app.config import get_settings
+from app.control_plane.registry import _audit
 from app.firestore import get_db
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -88,6 +89,7 @@ def set_allowlist(body: AllowlistIn, _: CurrentUser = Depends(require_admin)) ->
     get_db().collection("admin_config").document("allowlist").set(
         {"emails": emails, "updated_at": _now_iso()}
     )
+    _audit("admin.allowlist_updated", "admin_config:allowlist", {"emails": emails, "count": len(emails)})
     return {"emails": emails}
 
 
@@ -97,4 +99,5 @@ def set_feature_flags(body: FeatureFlagsIn, _: CurrentUser = Depends(require_adm
     if update:
         update["updated_at"] = _now_iso()
         get_db().collection("admin_config").document("feature_flags").set(update, merge=True)
+        _audit("admin.feature_flags_updated", "admin_config:feature_flags", {"flags": update})
     return get_feature_flags()

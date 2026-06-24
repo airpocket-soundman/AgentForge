@@ -63,6 +63,9 @@
     <li>生成 manifest には <code>worker_instructions</code> と <code>worker_examples</code> を含め、
       Specialist Worker が役割・利用可能 API・state_schema の編集方針・自然言語から操作への対応・曖昧な場合の聞き返し方を
       アプリごとに理解できるようにする。</li>
+    <li>生成 manifest には <code>worker_eval_cases</code>、<code>clarification_policy</code>、<code>dangerous_action_policy</code> も含める。
+      追加/更新/削除/一括操作/曖昧な対象/異常値/担当外の構造変更など、Specialist Worker が誤りやすい自然言語指示を
+      アプリごとに具体的に想定し、Tester が検証できる材料にする。</li>
     <li>純粋表示のみのアプリは <code>commands</code> を空配列にしてよい。</li>
   </ul>
 
@@ -104,6 +107,9 @@
   <ul>
     <li>機能には<strong>機能 AI ワーカー（Specialist Worker）を既定で付ける</strong>（<code>has_worker=true</code>＝アプリに 1 つが標準）。
       ユーザーが「ワーカー不要」等を明示した場合のみ <code>false</code>。チャット UI は下部パネルが担い、生成 HTML には含めない。</li>
+    <li><strong>アプリチャットは受付即時応答を標準にする</strong>：ユーザーが Specialist Worker に送信した直後、シェルは
+      「ワーカーが内容を確認して作業に入っている」旨の短い仮メッセージを表示し、完了時に実際の返答・操作報告を追記する。
+      生成 HTML 自身にこの受付表示やチャット UI を作ってはいけない。</li>
     <li><strong>アプリチャットのコンテキスト分割</strong>：複数画面・タブ・詳細画面など、1つのアプリ内に複数の作業文脈がある場合は、
       画面遷移時に <code>AF.setChatContext("screen-or-object-id", "表示名")</code> を呼ぶ。会話履歴はアプリごと、さらに context ごとに分割保存される。
       単一画面アプリは既定の <code>default</code> コンテキストでよい。</li>
@@ -118,6 +124,8 @@
   <ul>
     <li>AI は生成物を <strong>pending 登録するのみ</strong>。active 化・本番反映・rollback は<strong>人間の承認</strong>を要する
       （Control Plane 経由・全操作を監査）。</li>
+    <li>パイプラインの判断・進捗・成果物・Tester/Reviewer 結果は <strong>Agent Harness</strong> の
+      <code>pipeline_runs</code> に記録する。ユーザーには raw trace ではなく、短い進捗・判断理由・承認前サマリーとして表示する。</li>
     <li>副作用操作はすべて <strong>Tool Gateway 経由</strong>、出力は<strong>スキーマ検証</strong>。</li>
     <li>安定・決定的な操作は <strong>API 化（CRUD 等・LLM 不使用）</strong>。自然言語での運用・整理・設定変更は Specialist Worker に委ねる
       （境界 LLM ＋ 決定的 API ＋ 動的 UI）。</li>
@@ -142,6 +150,13 @@
   <ul>
     <li>データは<strong>ミニアプリ単位でスコープ</strong>（<code>feature</code> で名前空間化）。<strong>他ミニアプリのデータに触れない</strong>。</li>
     <li>サーバ側保存はミニアプリ単位（HTML アプリは <code>AF.load/save</code>、API 型は <code>feature</code> 付きのコレクション）。</li>
+    <li><strong>アプリ削除時は削除方法を確認する</strong>。ユーザーがアプリ自体の削除を明示した場合、
+      「巻き戻し可能な状態で削除」か「完全に削除」かを選ばせる。
+      巻き戻し可能な削除では左メニューから外すだけで、データ・版履歴・要求台帳などは残す。
+      完全削除では生成ビュー、<code>AF.save</code> の state、エンティティ、アプリチャット履歴、版スナップショット、
+      要求台帳、<code>feature_states</code> の該当メタ情報などを削除する。
+      <code>AF.saveBlob</code> で現在の端末に保存した Blob も、完全削除を行ったブラウザでは同時に削除する。
+      監査ログは削除操作の証跡として残す。巻き戻し（rollback）は削除ではなく、復元可能性を保つためデータを消さない。</li>
   </ul>
 
   <h3>入出力フォーマット</h3>
@@ -173,6 +188,7 @@
     <tr><td>2</td><td>外部通信なしで自己完結・サンドボックス禁止 API 不使用</td><td><code>fetch</code>/外部CDN/<code>localStorage</code> 使用</td></tr>
     <tr><td>3</td><td>状態を持つアプリは <code>AF.load/save</code> でサーバ保存・復元</td><td><code>localStorage</code> に保存している／ゲームの盤面・スコアが画面遷移で消える</td></tr>
     <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合、または <code>worker_state_mode</code>＋<code>state_schema</code> による state 直接編集設計。専門ワーカー向け指示も必須</td><td>ツール未実装／<code>commands</code> と名前不一致／データ中心アプリなのに <code>state_schema</code> が無い／<code>worker_instructions</code> が無く自然言語運用の想定が薄い</td></tr>
+    <tr><td>4b</td><td>専門ワーカー評価ケースと安全方針</td><td><code>worker_eval_cases</code> が無い／異常値や一括削除の聞き返し方針が無い</td></tr>
     <tr><td>5</td><td>要求機能を実際に動く形で実装（代替・省略なし）</td><td>「お絵描き」がフォーム＋一覧になっている</td></tr>
     <tr><td>6</td><td>テーマは4種のみ・<code>feature</code> は英小文字</td><td>独自テーマ／スラッグに日本語</td></tr>
     <tr><td>7</td><td>マウス／タッチ両対応・<code>body margin:0</code>・<strong>PC/スマホ両対応（viewport メタ＋可変レイアウト）</strong></td><td>タッチで操作不能／固定幅でスマホで崩れる・viewport メタなし</td></tr>

@@ -8,6 +8,12 @@ from app.workers import reviewer, tester
 _GOOD_HTML = (
     "<!DOCTYPE html><html lang='ja'><head><meta charset='utf-8'></head>"
     "<body><canvas id='c'></canvas><button id='b'>clear</button>"
+    "<script>AF.load().then(function(){});AF.save({items:[]});"
+    "window.applyAgentCommand=function(n,a){};</script></body></html>"
+)
+_NO_PERSIST_HTML = (
+    "<!DOCTYPE html><html lang='ja'><head><meta charset='utf-8'></head>"
+    "<body><canvas id='c'></canvas><button id='b'>clear</button>"
     "<script>window.applyAgentCommand=function(n,a){};</script></body></html>"
 )
 
@@ -20,6 +26,13 @@ def _manifest(**over) -> dict:
         "theme": "default",
         "html": _GOOD_HTML,
         "commands": [{"name": "clear", "description": "全消去", "inputSchema": {"type": "object"}}],
+        "worker_instructions": "このアプリの操作ワーカーとして、利用可能な commands を使ってユーザーの意図を反映する。",
+        "worker_examples": [{"user": "全部消して", "command": "clear", "arguments": {}}],
+        "worker_eval_cases": [{"user": "全部消して", "expected_command": "clear"}],
+        "clarification_policy": "対象や条件が曖昧な場合は実行前に確認する。",
+        "dangerous_action_policy": "削除や上書きはユーザー確認を優先する。",
+        "worker_state_mode": "hybrid",
+        "state_schema": {"type": "object", "properties": {"items": {"type": "array"}}},
         "generated_by": "stub",
     }
     m.update(over)
@@ -56,7 +69,10 @@ def test_reviewer_flags_commands_without_handler():
 
 
 def test_reviewer_requires_persistence_for_games():
-    r = reviewer.review(_manifest(feature="tetris", title="テトリス", commands=[]), "テトリスを作って")
+    r = reviewer.review(
+        _manifest(feature="tetris", title="テトリス", commands=[], html=_NO_PERSIST_HTML),
+        "テトリスを作って",
+    )
     assert r["verdict"] == "needs_revision"
     assert any("AF.load" in f and "AF.save" in f for f in r["findings"])
 
@@ -93,6 +109,9 @@ def test_tester_fails_commands_without_handler():
 
 
 def test_tester_requires_persistence_for_games():
-    t = tester.verify(_manifest(feature="tetris", title="テトリス", commands=[]), "テトリスを作って")
+    t = tester.verify(
+        _manifest(feature="tetris", title="テトリス", commands=[], html=_NO_PERSIST_HTML),
+        "テトリスを作って",
+    )
     assert t["verdict"] == "fail"
     assert any("AF.load" in e and "AF.save" in e for e in t["errors"])

@@ -4,12 +4,14 @@ Modular monolith: reception / orchestrator / control-plane / tool-gateway are
 separate packages mounted onto one FastAPI app (one Cloud Run service), per
 IMPLEMENTATION_GUIDE.md §2. Later phases add more routers here.
 """
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin.router import router as admin_router
+from app import audit_context
 from app.auth import require_allowed_user
 from app.config import get_settings
 from app.control_plane.router import router as control_plane_router
@@ -43,6 +45,27 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def audit_request_context(request: Request, call_next):
+        request_id = request.headers.get("x-request-id") or f"req_{uuid.uuid4().hex[:12]}"
+        request_token = audit_context.set_request_context(
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            client=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            origin=request.headers.get("origin"),
+            referer=request.headers.get("referer"),
+        )
+        actor_token = audit_context.clear_actor_context()
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            audit_context.reset_actor_context(actor_token)
+            audit_context.reset_request_context(request_token)
 
     # NOTE: Cloud Run's Google Front End intercepts "/healthz", so health lives at
     # "/health" (see memory cloud-run-reserved-healthz / HANDOFF.md §4).

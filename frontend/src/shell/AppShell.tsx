@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { disableFeature, getFeatureStates, getMe, resetAll, setProjectId, stopAllWorkers, type Me } from "../api";
+import { getFeatureStates, getMe, resetAll, rollbackFeature, setProjectId, stopAllWorkers, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
@@ -192,12 +192,16 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
     setView({ kind: "chat" });
   }
 
-  // Rollback (human-only): soft-disable every active feature. Data is kept.
+  // Rollback (human-only): undo the latest changed feature only. Data is kept.
   async function handleRollback() {
     if (activeFeatures.length === 0) return;
-    if (!confirm("AIが追加した機能を巻き戻しますか？（無効化のみ／データは保持されます）")) return;
+    const target = states.last_changed_feature && activeFeatures.includes(states.last_changed_feature)
+      ? states.last_changed_feature
+      : activeFeatures[activeFeatures.length - 1];
+    const title = titleOf(target);
+    if (!confirm(`直近の変更「${title}」を巻き戻しますか？\n作成直後の機能なら左メニューから外れますが、保存データは保持されます。`)) return;
     try {
-      for (const f of activeFeatures) await disableFeature(f);
+      await rollbackFeature(target);
       await loadStates();
       setView({ kind: "chat" });
     } catch (e) {
@@ -234,13 +238,21 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
         <span className="topbar__tag">DevOps AI Agent Workbench</span>
         <span className="spacer" />
         {onShowHome && (
-          <button className="byok-top" title="説明トップページを開く" onClick={onShowHome}>
+          <button
+            className="byok-top"
+            title="説明トップページを開く"
+            data-tooltip="説明トップページを開きます。サインイン済みでもアプリ画面に戻れます。"
+            aria-label="説明トップページを開く"
+            onClick={onShowHome}
+          >
             トップ
           </button>
         )}
         <button
           className="stopall-top"
           title="実行中のワーカーをすべて停止（全セッション）"
+          data-tooltip="実行中のワーカーを全セッションで停止します。長時間止まらない作業の回収に使います。"
+          aria-label="実行中のワーカーをすべて停止"
           onClick={() => void handleStopAll()}
           disabled={stoppingAll}
         >
@@ -249,12 +261,20 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
         <button
           className={view.kind === "status" ? "byok-top byok-top--active" : "byok-top"}
           title="ステータスモニタ（起動中ワーカー一覧）"
+          data-tooltip="ワーカー状態、実行中の作業、パイプラインログ、変更履歴を確認します。"
+          aria-label="ステータスモニタを開く"
           onClick={() => openOverlay("status")}
         >
           📊 ステータス
         </button>
         {me?.feature_flags.byok_visible && (
-          <button className="byok-top" title="自分のAPIキー設定（試作）" onClick={() => openOverlay("byok")}>
+          <button
+            className="byok-top"
+            title="自分のAPIキー設定（試作）"
+            data-tooltip="LLM APIキー設定画面を開きます。デモ期間中は機能停止中です。"
+            aria-label="API設定を開く"
+            onClick={() => openOverlay("byok")}
+          >
             🔑 API設定
           </button>
         )}
@@ -262,6 +282,8 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
           <button
             className="rollback-top"
             title="AIが追加した機能を取り消す（人間専用のControl Plane操作）"
+            data-tooltip="直近で変更された機能を前の公開版へ戻します。公開済みスナップショットから復元します。"
+            aria-label="直近の機能変更を巻き戻す"
             onClick={() => void handleRollback()}
           >
             ⟲ 機能を巻き戻す
@@ -270,13 +292,21 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
         <button
           className="fullscreen-top"
           title={canFullscreenApp ? "現在のアプリ画面を全画面化" : "ミニアプリを開いているときに使えます"}
+          data-tooltip={canFullscreenApp ? "現在開いているミニアプリを画面いっぱいに表示します。" : "ミニアプリを開いているときだけ全画面化できます。"}
+          aria-label="アプリ全画面化"
           onClick={() => setAppFullscreen(true)}
           disabled={!canFullscreenApp}
         >
           ⛶ アプリ全画面化
         </button>
         {canReset && (
-          <button className="reset-top" title="【開発用】全データを削除して初期状態に戻す" onClick={() => void handleReset()}>
+          <button
+            className="reset-top"
+            title="【開発用】全データを削除して初期状態に戻す"
+            data-tooltip="開発用の完全初期化です。会話、生成機能、状態、監査ログを削除します。"
+            aria-label="開発用に全データを初期化する"
+            onClick={() => void handleReset()}
+          >
             🗑 初期化
           </button>
         )}
@@ -284,6 +314,8 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
           <button
             className={userSettingsOpen ? "topbar-user-button topbar-user-button--active" : "topbar-user-button"}
             title="ユーザー設定を開く"
+            data-tooltip="ユーザーアイコン、呼び名、デモ中のAPIキー表示設定を開きます。"
+            aria-label="ユーザー設定を開く"
             onClick={openUserSettings}
           >
             <span className={userSettings.iconImageDataUrl ? "topbar-user-avatar topbar-user-avatar--image" : "topbar-user-avatar"} style={userSettings.iconImageDataUrl ? undefined : { background: userSettings.iconColor }}>
@@ -291,7 +323,17 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
             </span>
             <span className="topbar-user-label">{userLabel}</span>
           </button>
-          {user && <button className="logout" onClick={() => void signOutUser()}>ログアウト</button>}
+          {user && (
+            <button
+              className="logout"
+              title="現在のアカウントからログアウト"
+              data-tooltip="現在の Google アカウントからログアウトします。"
+              aria-label="ログアウト"
+              onClick={() => void signOutUser()}
+            >
+              ログアウト
+            </button>
+          )}
           {isLocalDev && <span className="topbar-local-label">認証なし</span>}
         </span>
       </header>

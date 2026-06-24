@@ -6,6 +6,7 @@ Responsibilities:
     build_feature:* -> Orchestrator (generate plan + register pending)
     approve         -> Control Plane: approve the latest pending plan ("反映して")
     rollback        -> Control Plane: soft-disable active features ("戻して")
+    delete_feature  -> Control Plane: delete app-scoped data for an explicit app deletion
     chat            -> templated reply
 - Reply immediately; the browser also subscribes to Firestore for live state.
 """
@@ -134,14 +135,63 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
     approval_id: str | None = None
     activated_feature: str | None = None
     disabled_feature: str | None = None
+    deleted_feature: str | None = None
     building = False
     dispatched_bg = False  # set when the substantive request is handed to the bg worker
+
+    delete_feature = service.resolve_feature_delete(body.project_id, body.text)
+    worker_toggle = service.worker_toggle_intent(body.text)
+
+    # === Pending app deletion choice ==========================================
+    if stage == "confirm" and flow.get("mode") == "delete":
+        feature = flow.get("feature")
+        title = service.feature_title(body.project_id, feature) if feature else "対象アプリ"
+        choice = service.delete_choice(body.text)
+        if service.is_cancel(body.text) or service.is_rejection(body.text):
+            service.clear_flow(body.project_id)
+            reply_text = "削除をキャンセルしました。"
+        elif not feature:
+            service.clear_flow(body.project_id)
+            reply_text = "削除対象が見つかりませんでした。もう一度、対象アプリ名を添えて依頼してください。"
+        elif choice == "soft":
+            approvals.archive_feature(body.project_id, feature)
+            disabled_feature = feature
+            service.clear_flow(body.project_id)
+            reply_text = f"「{title}」を左メニューから外しました。データと版履歴は残しているため、後で巻き戻し・復元できる状態です。"
+        elif choice == "hard":
+            res = approvals.disable_feature(body.project_id, feature)
+            deleted_feature = feature
+            deleted = res.get("deleted") or {}
+            service.clear_flow(body.project_id)
+            reply_text = (
+                f"「{title}」を完全削除し、このアプリに紐づくデータも削除しました。"
+                f"（削除対象: {sum(int(v) for v in deleted.values() if isinstance(v, int))}件）"
+            )
+        else:
+            reply_text = (
+                f"「{title}」の削除方法を選んでください。\n"
+                "1. 巻き戻し可能な状態で削除（左メニューから外すが、データと版履歴は残す）\n"
+                "2. 完全に削除（アプリ本体・保存データ・チャット履歴・版履歴を削除）\n"
+                "「1」または「2」で返信できます。"
+            )
+
+    # === Explicit app deletion: ask how to delete before doing it =============
+    elif delete_feature and stage in ("idle", "confirm"):
+        if stage == "confirm":
+            service.clear_flow(body.project_id)
+        title = service.feature_title(body.project_id, delete_feature)
+        service.start_delete_confirm(body.project_id, delete_feature, body.text)
+        reply_text = (
+            f"「{title}」を削除します。削除方法を選んでください。\n"
+            "1. 巻き戻し可能な状態で削除（左メニューから外すが、データと版履歴は残す）\n"
+            "2. 完全に削除（アプリ本体・保存データ・チャット履歴・版履歴を削除）\n"
+            "「1」または「2」で返信できます。"
+        )
 
     # === Worker chat (app chat) on/off — a deterministic feature-level toggle ===
     # Handle it directly (Receptor, light): no Orchestrator / no codegen. Works
     # from idle or while a restatement is pending (a new command supersedes it).
-    worker_toggle = service.worker_toggle_intent(body.text)
-    if worker_toggle is not None and stage in ("idle", "confirm"):
+    elif worker_toggle is not None and stage in ("idle", "confirm"):
         if stage == "confirm":
             service.clear_flow(body.project_id)
         feat = service.resolve_feature(body.project_id, body.text) or registry.get_last_changed(body.project_id)
@@ -226,12 +276,19 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
     # === Stage: code is BUILT, awaiting publish ===========================
     elif stage == "built":
         if intent == "approve" or service.is_plan_ok(body.text):
+            run_id = flow.get("run_id")
             if flow.get("mode") == "edit":
                 title = (flow.get("candidate") or {}).get("title") or service.feature_label(flow["feature"])
                 res = approvals.publish_edit(body.project_id, flow["feature"], flow["candidate"])
                 activated_feature = res["feature"]
                 # Ledger: the published edit instruction becomes a pinned requirement.
                 registry.append_requirements(body.project_id, activated_feature, [flow.get("goal") or ""])
+                if run_id:
+                    from app.harness import service as harness
+
+                    harness.record_event(run_id, project_id=body.project_id, stage="publish_approved",
+                                         worker="Receptor", status="approved",
+                                         message=f"ユーザー承認により「{title}」を更新しました。")
                 service.clear_flow(body.project_id)
                 reply_text = f"「{title}」を更新しました。"
             else:
@@ -250,6 +307,12 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
                         body.project_id, activated_feature,
                         [flow.get("goal") or ""] + list((flow.get("plan") or {}).get("acceptance") or []),
                     )
+                    if run_id:
+                        from app.harness import service as harness
+
+                        harness.record_event(run_id, project_id=body.project_id, stage="publish_approved",
+                                             worker="Receptor", status="approved",
+                                             message=f"ユーザー承認により「{service.feature_title(body.project_id, activated_feature)}」を公開しました。")
                     service.clear_flow(body.project_id)
                     reply_text = f"公開しました。「{service.feature_title(body.project_id, activated_feature)}」を左メニューに追加しました。"
         elif service.is_cancel(body.text) or intent == "rollback":
@@ -334,5 +397,6 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
         approval_id=approval_id,
         activated_feature=activated_feature,
         disabled_feature=disabled_feature,
+        deleted_feature=deleted_feature,
         building=building,
     )

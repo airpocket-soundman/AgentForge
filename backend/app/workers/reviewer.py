@@ -76,6 +76,8 @@ def _static_findings(manifest: dict) -> list[str]:
             findings.append("worker_state_mode が state/hybrid なのに worker_instructions が無い")
         if not manifest.get("worker_examples"):
             findings.append("worker_state_mode が state/hybrid なのに worker_examples が無い")
+        if not manifest.get("worker_eval_cases"):
+            findings.append("worker_state_mode が state/hybrid なのに worker_eval_cases が無い（専門ワーカーの自然言語判断を検証できない）")
     if commands and "applyAgentCommand" not in html:
         findings.append("commands を宣言しているが window.applyAgentCommand が未実装（操作が効かない）")
     if commands and not str(manifest.get("worker_instructions") or "").strip():
@@ -88,6 +90,15 @@ def _static_findings(manifest: dict) -> list[str]:
             "commands があるのに worker_examples が無い"
             "（ユーザーが言いそうな操作指示とAPI対応例を生成過程に含める必要がある）"
         )
+    if (commands or state_mode in {"state", "hybrid"}) and not manifest.get("worker_eval_cases"):
+        findings.append(
+            "worker_eval_cases が無い"
+            "（削除・更新・異常値・曖昧指示など専門ワーカーの判断を検証するケースが必要）"
+        )
+    if (commands or state_mode in {"state", "hybrid"}) and not str(manifest.get("clarification_policy") or "").strip():
+        findings.append("clarification_policy が無い（対象不明・異常値・情報不足時の聞き返し方針が必要）")
+    if (commands or state_mode in {"state", "hybrid"}) and not str(manifest.get("dangerous_action_policy") or "").strip():
+        findings.append("dangerous_action_policy が無い（一括削除・初期化など危険操作の確認方針が必要）")
     return findings
 
 

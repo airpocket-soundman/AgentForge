@@ -195,6 +195,7 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
             reply_text, changed, command = _respond_content(
                 body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
                 images=images, user_call_name=body.user_call_name,
+                context_id=ctx, context_label=body.context_label,
             )
     finally:
         worker_status.record_status("Specialist Worker", body.project_id, worker_status.STOPPED, detail=None)
@@ -448,6 +449,8 @@ def _respond_state_content(
     manifest: dict,
     images: list | None = None,
     user_call_name: str | None = None,
+    context_id: str | None = None,
+    context_label: str | None = None,
 ) -> tuple[str, list[dict], dict | None] | None:
     """Let the Specialist Worker edit AF.load/AF.save state directly.
 
@@ -471,6 +474,7 @@ def _respond_state_content(
         "このアプリは AF.load()/AF.save() の永続化 state を持つ。ユーザーの自然文を読み、"
         "アプリの中身の変更は persisted state を直接編集してよい。\n"
         f"今日の日付（Asia/Tokyo）: {_today_context()}\n"
+        f"現在のアプリ画面/作業文脈: id={context_id or 'default'}, label={context_label or context_id or 'default'}\n"
         f"state_schema(JSON Schema風): {_compact_json(state_schema, 12000)}\n"
         f"現在のstate: {_compact_json(current_state, 32000)}\n"
         f"補助的に使えるcommands（必要な場合のみ参考）: {json.dumps(tools, ensure_ascii=False)}\n"
@@ -1109,6 +1113,8 @@ def _respond_content(
     project_id: str, feature: str, text: str, history: list[dict], manifest: dict,
     images: list | None = None,
     user_call_name: str | None = None,
+    context_id: str | None = None,
+    context_label: str | None = None,
 ) -> tuple[str, list[dict], dict | None]:
     """Operate on the feature's CONTENT only. Returns (reply, changed_entities, command).
 
@@ -1134,7 +1140,8 @@ def _respond_content(
         if deterministic_state is not None:
             return deterministic_state
         state_result = _respond_state_content(
-            project_id, feature, text, history, manifest, images=images, user_call_name=user_call_name
+            project_id, feature, text, history, manifest, images=images, user_call_name=user_call_name,
+            context_id=context_id, context_label=context_label,
         )
         if state_result is not None:
             return state_result
@@ -1153,6 +1160,7 @@ def _respond_content(
                 f"{_user_context_instruction(user_call_name)}\n\n"
                 f"対象ミニアプリ: {title}（slug: {feature}）。あなたは専門ワーカーとして、宣言されたツールだけでこのアプリの中身を操作します。\n"
                 f"今日の日付（Asia/Tokyo）: {_today_context()}\n"
+                f"現在のアプリ画面/作業文脈: id={context_id or 'default'}, label={context_label or context_id or 'default'}\n"
                 f"利用可能ツール(MCP形式 name/description/inputSchema): {json.dumps(tools, ensure_ascii=False)}\n"
                 f"{_app_worker_operation_manual(feature, title, tools, manifest)}\n"
                 f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"

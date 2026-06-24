@@ -56,9 +56,16 @@ def feature_states(project_id: str, user: CurrentUser = Depends(current_user)) -
 
 @router.post("/features/{project_id}/{feature}/disable")
 def disable_feature(project_id: str, feature: str, user: CurrentUser = Depends(current_user)) -> dict:
-    """Rollback: soft-disable (never delete) a feature."""
+    """Explicit app deletion: remove a feature and all app-scoped data."""
     require_project_access(user, project_id)
     return approvals.disable_feature(project_id, feature)
+
+
+@router.post("/features/{project_id}/{feature}/rollback")
+def rollback_feature(project_id: str, feature: str, user: CurrentUser = Depends(current_user)) -> dict:
+    """Rollback one feature to its previous published version, or disable if it was newly created."""
+    require_project_access(user, project_id)
+    return approvals.rollback_feature(project_id, feature)
 
 
 @router.post("/features/{project_id}/{feature}/worker")
@@ -98,6 +105,29 @@ def worker_stop(worker_type: str, project_id: str = "default", user: CurrentUser
 def runs(project_id: str = "default", limit: int = 20, user: CurrentUser = Depends(current_user)) -> dict:
     """Developer view: recent pipeline runs (goal / span / last status)."""
     require_project_access(user, project_id)
+    from app.harness import service as harness
+
+    structured = harness.list_runs(project_id, limit)
+    if structured:
+        runs_out = []
+        for r in structured:
+            runs_out.append(
+                {
+                    "task_id": r.get("run_id"),
+                    "run_id": r.get("run_id"),
+                    "project_id": r.get("project_id"),
+                    "goal": r.get("request_text"),
+                    "intent": r.get("request_type"),
+                    "first_ts": r.get("started_at"),
+                    "last_ts": r.get("updated_at"),
+                    "events": r.get("event_count") or 0,
+                    "last_status": r.get("status"),
+                    "running": r.get("status") == "running",
+                    "current_stage": r.get("current_stage"),
+                    "last_event": r.get("last_event"),
+                }
+            )
+        return {"runs": runs_out}
     return {"runs": worker_bus.list_runs(project_id, limit)}
 
 
@@ -122,7 +152,23 @@ def pipeline_status(project_id: str, user: CurrentUser = Depends(current_user)) 
 @router.get("/messages/{task_id}")
 def messages(task_id: str) -> dict:
     """MCP-like request/report thread for a work item (correlation/traceability)."""
-    return {"task_id": task_id, "messages": worker_bus.thread(task_id)}
+    msgs = worker_bus.thread(task_id)
+    if msgs:
+        return {"task_id": task_id, "messages": msgs}
+    from app.harness import service as harness
+
+    events = [
+        {
+            "kind": "event",
+            "ts": e.get("created_at"),
+            "event": e.get("stage"),
+            "text": e.get("message"),
+            "status": e.get("status"),
+            "worker": e.get("worker"),
+        }
+        for e in harness.get_events(task_id)
+    ]
+    return {"task_id": task_id, "messages": events}
 
 
 @router.post("/stop-all")

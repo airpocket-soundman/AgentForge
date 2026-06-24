@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from app.control_plane import worker_status
 from app.firestore import get_db
+from app.harness import service as harness
 from app.models.worker_protocol import WorkerReport, WorkerRequest
 
 _COLLECTION = "worker_messages"
@@ -63,6 +64,15 @@ def log_event(task_id: str, text: str, project_id: str | None = None, event: str
     try:
         log_message("event", {"task_id": task_id, "project_id": project_id,
                               "event": event, "text": text[:300]})
+        harness.record_event(
+            task_id,
+            project_id=project_id,
+            stage=event,
+            worker=None,
+            status="info",
+            message=text,
+            user_visible=True,
+        )
     except Exception:  # noqa: BLE001 — logging must never break the pipeline
         pass
 
@@ -136,6 +146,17 @@ def list_runs(project_id: str | None = None, limit: int = 20) -> list[dict]:
     return out[:limit]
 
 
+def list_structured_runs(project_id: str, limit: int = 20) -> list[dict]:
+    """Harness-first run list with worker_bus fallback for older records."""
+    try:
+        structured = harness.list_runs(project_id, limit)
+        if structured:
+            return structured
+    except Exception:  # noqa: BLE001
+        pass
+    return list_runs(project_id, limit)
+
+
 def gate_report_fields(result: dict) -> dict:
     """Pure: map a Tester/Reviewer verdict dict to MCP-like report body fields."""
     verdict = result.get("verdict")
@@ -173,6 +194,30 @@ def dispatch(
         return report
 
     log_message("request", req)
+    try:
+        goal = payload.get("goal") or payload.get("instruction")
+        feature = payload.get("feature") or (payload.get("design_plan") or {}).get("feature")
+        harness.ensure_run(
+            task_id,
+            project_id=project_id,
+            request_text=goal,
+            request_type=intent,
+            feature=feature,
+            current_stage=f"{intent}_requested",
+            worker=sender,
+            model=model,
+        )
+        harness.record_event(
+            task_id,
+            project_id=project_id,
+            stage=f"{intent}_requested",
+            worker=sender,
+            status="requested",
+            message=f"{sender} → {to}: {intent}",
+            metadata={"payload": payload},
+        )
+    except Exception:  # noqa: BLE001
+        pass
     if project_id:
         worker_status.start_worker(to, project_id, model=model, task_id=task_id)  # wake the recipient
     try:
@@ -186,4 +231,27 @@ def dispatch(
         if project_id:
             worker_status.record_status(to, project_id, worker_status.STOPPED)
     log_message("report", report)
+    try:
+        status = str(report.get("status") or "")
+        harness.record_event(
+            task_id,
+            project_id=project_id,
+            stage=f"{intent}_reported",
+            worker=to,
+            status=status or "reported",
+            message=(report.get("error") or status or "reported")[:1000],
+            metadata={
+                "result": report.get("result"),
+                "findings": report.get("findings"),
+            },
+        )
+        if to == "Orchestrator" and sender == "Receptor" and status in {"ok", "needs_revision", "failed", "rejected"}:
+            if status == "ok":
+                harness.complete_run(task_id, "Orchestrator の処理が完了しました。", status="ok")
+            elif status == "failed":
+                harness.fail_run(task_id, str(report.get("error") or "failed"), retryable=True)
+            else:
+                harness.complete_run(task_id, str(status), status=status)
+    except Exception:  # noqa: BLE001
+        pass
     return report

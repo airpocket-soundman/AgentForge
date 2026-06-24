@@ -6,6 +6,7 @@ import {
   getView,
   sendFeatureWorkerMessage,
   sendMessage,
+  type ChatMessage,
   type ConversationState,
   type FeatureWorkerState,
   type ViewManifest,
@@ -20,6 +21,9 @@ import { MdText } from "./Markdown";
 // instruction channel. The worker answers, or forwards a change into the SAME
 // app-design pipeline the main chat uses (the Orchestrator decides create-vs-edit).
 // The change's preview + 反映 come from the shared conversation state, shown here.
+const WORKER_ACCEPTED_TEXT =
+  "承知しました。ワーカーが内容を確認して、必要な編集に入っています…";
+
 function msg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
@@ -174,8 +178,14 @@ export function GeneratedView({
     setError(null);
     const files = att.items;
     const note = files.length ? `${text}　📎${files.length}件` : text;
+    const now = new Date().toISOString();
+    const pending: ChatMessage = {
+      role: "assistant",
+      text: WORKER_ACCEPTED_TEXT,
+      created_at: now,
+    };
     setWorker((w) =>
-      w ? { ...w, messages: [...w.messages, { role: "user", text: note, created_at: new Date().toISOString() }] } : w,
+      w ? { ...w, messages: [...w.messages, { role: "user", text: note, created_at: now }, pending] } : w,
     );
     setInput("");
     att.clear();

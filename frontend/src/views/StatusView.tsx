@@ -41,8 +41,34 @@ const ACTION_LABEL: Record<string, string> = {
   "feature.rolled_back": "巻き戻し",
   "feature.disabled": "無効化",
   "feature.worker_toggled": "ワーカー切替",
+  "admin.allowlist_updated": "許可リスト更新",
+  "admin.feature_flags_updated": "機能フラグ更新",
   "system.reset": "初期化",
 };
+
+function actorLabel(h: HistoryEntry): string {
+  if (h.actor_email) return h.actor_email;
+  if (typeof h.actor === "string") return h.actor;
+  if (h.actor?.email) return h.actor.email;
+  if (h.actor_uid) return h.actor_uid;
+  return "system";
+}
+
+function sourceLabel(h: HistoryEntry): string {
+  const method = h.source_method || h.source?.method || "";
+  const path = h.source_path || h.source?.path || "";
+  if (!method && !path) return "background";
+  return `${method} ${path}`.trim();
+}
+
+function runStatusLabel(r: PipelineRun): string {
+  if (r.running || r.last_status === "running") return "⏳ 実行中";
+  if (r.last_status === "ok") return "✅ 完了";
+  if (r.last_status === "failed") return "❌ 失敗";
+  if (r.last_status === "needs_revision") return "⚠️ 差し戻し";
+  if (r.last_status === "rejected") return "🚫 却下";
+  return r.last_status || "—";
+}
 
 export function StatusView({ onBack }: { onBack: () => void }) {
   const [registry, setRegistry] = useState<WorkerRegistryEntry[]>([]);
@@ -192,9 +218,9 @@ export function StatusView({ onBack }: { onBack: () => void }) {
                   }}
                 >
                   <td>{(r.first_ts ?? "").slice(11, 19) || "—"}</td>
-                  <td>{r.intent ?? r.task_id.split("_")[0]}</td>
-                  <td className="status-goal">{(r.goal ?? "").slice(0, 60) || r.task_id}</td>
-                  <td>{r.running ? "⏳ 実行中" : r.last_status === "ok" ? "✅ 完了" : r.last_status === "failed" ? "❌ 失敗" : r.last_status === "needs_revision" ? "⚠️ 差し戻し" : r.last_status === "rejected" ? "🚫 却下" : "—"}</td>
+                  <td>{r.intent ?? r.task_id.split("_")[0]}{r.current_stage ? ` / ${r.current_stage}` : ""}</td>
+                  <td className="status-goal">{(r.goal ?? "").slice(0, 60) || r.last_event?.message || r.task_id}</td>
+                  <td>{runStatusLabel(r)}</td>
                   <td>{r.events}</td>
                 </tr>
                 {selRun === r.task_id && (
@@ -214,7 +240,7 @@ export function StatusView({ onBack }: { onBack: () => void }) {
                                 {m.findings?.length ? `／指摘 ${m.findings.length} 件` : ""}
                               </span>
                             )}
-                            {m.kind === "event" && <span>・{m.text}</span>}
+                            {m.kind === "event" && <span>・{m.worker ? `${m.worker}: ` : ""}{m.text}</span>}
                           </div>
                         ))}
                       </div>
@@ -237,6 +263,8 @@ export function StatusView({ onBack }: { onBack: () => void }) {
               <th>日時</th>
               <th>操作</th>
               <th>対象</th>
+              <th>実行者</th>
+              <th>経路</th>
             </tr>
           </thead>
           <tbody>
@@ -245,6 +273,8 @@ export function StatusView({ onBack }: { onBack: () => void }) {
                 <td>{h.created_at?.slice(0, 19).replace("T", " ") || "—"}</td>
                 <td>{ACTION_LABEL[h.action] ?? h.action}</td>
                 <td className="status-goal">{h.target || "—"}</td>
+                <td>{actorLabel(h)}</td>
+                <td className="status-goal">{sourceLabel(h)}</td>
               </tr>
             ))}
           </tbody>

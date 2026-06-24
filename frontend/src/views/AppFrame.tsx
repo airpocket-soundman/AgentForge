@@ -50,6 +50,21 @@ async function blobList(feature: string): Promise<string[]> {
   return keys.filter((k) => typeof k === "string" && k.startsWith(pre)).map((k) => (k as string).slice(pre.length));
 }
 
+export async function deleteFeatureBlobs(feature: string): Promise<number> {
+  const db = await _idb();
+  const st = db.transaction(_IDB_STORE, "readwrite").objectStore(_IDB_STORE);
+  const keys = (await _idbReq(st.getAllKeys())) as IDBValidKey[];
+  const pre = `${feature}::`;
+  let count = 0;
+  for (const key of keys) {
+    if (typeof key === "string" && key.startsWith(pre)) {
+      await _idbReq(st.delete(key));
+      count += 1;
+    }
+  }
+  return count;
+}
+
 // A generated app runs in a SANDBOXED iframe (allow-scripts only: opaque origin,
 // no access to our app/auth/Firestore, no localStorage, no network). We inject a
 // tiny `AF` bridge so apps can persist their whole-state blob over postMessage:

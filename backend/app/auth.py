@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException
 
+from app.audit_context import set_actor_context
 from app.config import get_settings
 
 
@@ -85,6 +86,16 @@ def _is_local_mode() -> bool:
     return get_settings().is_local
 
 
+def _with_audit_actor(user: CurrentUser) -> CurrentUser:
+    set_actor_context(
+        uid=user.uid,
+        email=user.email,
+        is_admin=user.is_admin,
+        is_guest=user.is_guest,
+    )
+    return user
+
+
 def _verify(authorization: str | None) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="ログインが必要です")
@@ -108,7 +119,7 @@ def current_user(
 ) -> CurrentUser:
     """Resolve the caller. Raises 401 (no/invalid token) / 403 (not allowlisted)."""
     if _is_local_mode():
-        return CurrentUser(uid="local", email="local@dev", is_admin=True)
+        return _with_audit_actor(CurrentUser(uid="local", email="local@dev", is_admin=True))
 
     s = get_settings()
     if not authorization:
@@ -122,9 +133,9 @@ def current_user(
         allowed = set(_split(s.allowed_emails)) | set(stored_allowlist())
         if email not in allowed:
             if guest_access_enabled():
-                return CurrentUser(uid=uid, email=email, is_admin=False, is_guest=True)
+                return _with_audit_actor(CurrentUser(uid=uid, email=email, is_admin=False, is_guest=True))
             raise HTTPException(status_code=403, detail="このアカウントはアクセスを許可されていません")
-    return CurrentUser(uid=uid, email=email, is_admin=is_admin)
+    return _with_audit_actor(CurrentUser(uid=uid, email=email, is_admin=is_admin))
 
 
 def require_admin(user: CurrentUser = Depends(current_user)) -> CurrentUser:

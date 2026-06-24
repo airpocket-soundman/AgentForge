@@ -53,6 +53,7 @@ export interface ReceptionReply {
   approval_id: string | null;
   activated_feature: string | null;
   disabled_feature: string | null;
+  deleted_feature: string | null;
   building: boolean;
 }
 
@@ -167,8 +168,21 @@ export function getFeatureStates(projectId = PROJECT_ID): Promise<Record<string,
   return request<Record<string, string>>(`/api/control-plane/features/${encodeURIComponent(projectId)}`);
 }
 
-export function disableFeature(feature: string, projectId = PROJECT_ID): Promise<{ status: string }> {
+export function disableFeature(
+  feature: string,
+  projectId = PROJECT_ID,
+): Promise<{ status: string; deleted?: Record<string, number> }> {
   return request(`/api/control-plane/features/${encodeURIComponent(projectId)}/${feature}/disable`, {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+export function rollbackFeature(
+  feature: string,
+  projectId = PROJECT_ID,
+): Promise<{ status: string; feature: string; rolled_back_to?: number | null }> {
+  return request(`/api/control-plane/features/${encodeURIComponent(projectId)}/${feature}/rollback`, {
     method: "POST",
     body: "{}",
   });
@@ -223,6 +237,13 @@ export interface HistoryEntry {
   target: string;
   project_id: string | null;
   detail: Record<string, unknown>;
+  actor?: string | { email?: string | null; uid?: string | null; is_admin?: boolean; is_guest?: boolean };
+  actor_email?: string | null;
+  actor_uid?: string | null;
+  source?: { request_id?: string | null; method?: string | null; path?: string | null; client?: string | null };
+  request_id?: string | null;
+  source_method?: string | null;
+  source_path?: string | null;
   created_at: string;
 }
 
@@ -246,6 +267,7 @@ export function getVersions(feature: string, projectId = PROJECT_ID): Promise<{ 
 
 export interface PipelineRun {
   task_id: string;
+  run_id?: string | null;
   project_id: string | null;
   goal: string | null;
   intent: string | null;
@@ -254,6 +276,8 @@ export interface PipelineRun {
   events: number;
   last_status: string | null;
   running?: boolean;
+  current_stage?: string | null;
+  last_event?: { message?: string; stage?: string; status?: string } | null;
 }
 
 export function getRuns(projectId = PROJECT_ID, limit = 20): Promise<{ runs: PipelineRun[] }> {
@@ -271,6 +295,7 @@ export interface RunMessage {
   text?: string;
   error?: string | null;
   findings?: string[];
+  worker?: string | null;
 }
 
 export function getRunThread(taskId: string): Promise<{ messages: RunMessage[] }> {

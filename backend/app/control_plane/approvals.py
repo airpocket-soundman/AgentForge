@@ -1,5 +1,5 @@
 """Approval & lifecycle control — the human gate that promotes pending → active,
-and the safe rollback that disables (never deletes) a feature.
+safe rollback, and explicit feature deletion with data purge.
 
 This is where the "AIに強権限を渡さない" design becomes concrete: agents only
 register pending intent; this module performs the privileged state change, and
@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from google.cloud import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.control_plane import registry
 from app.control_plane.registry import _audit
@@ -61,7 +63,7 @@ def disable_active_features(project_id: str) -> list[str]:
     disabled: list[str] = []
     for key, value in snap.to_dict().items():
         if value == "active":
-            disable_feature(project_id, key)
+            _soft_disable_feature(project_id, key, reason="rollback")
             disabled.append(key)
     return disabled
 
@@ -92,6 +94,14 @@ def approve(approval_id: str) -> dict:
     _gv = db.collection("generated_views").document(f"{project_id}_{_feat}").get()
     if _gv.exists and (_gv.to_dict() or {}).get("generated_by") == "stub":
         raise HTTPException(status_code=409, detail="生成が未完成（仮ページ）のため公開できません。作り直してください。")
+    from app.safety_harness import service as safety_harness
+
+    safety_harness.assert_publishable(
+        project_id=project_id,
+        feature=_feat,
+        task_id=task_id,
+        approval_id=approval_id,
+    )
 
     # Promote the registered artifacts: pending -> active.
     _set_registry_status("api_registry", data.get("target_apis", []), "active")
@@ -156,6 +166,14 @@ def publish_edit(project_id: str, feature: str, manifest: dict) -> dict:
     preview + 「反映して」 — no new pending approval is needed for an in-place edit."""
     if (manifest or {}).get("generated_by") == "stub":
         raise HTTPException(status_code=409, detail="修正版が未完成（仮ページ）のため公開できません。作り直してください。")
+    from app.safety_harness import service as safety_harness
+
+    safety_harness.assert_publishable(
+        project_id=project_id,
+        feature=feature,
+        task_id=(manifest or {}).get("safety_harness", {}).get("task_id"),
+        candidate=manifest,
+    )
     db = get_db()
     db.collection("generated_views").document(f"{project_id}_{feature}").set(
         {
@@ -202,7 +220,7 @@ def rollback_feature(project_id: str, feature: str) -> dict:
     soft-disables the feature. Falls back to soft-disable when no version history."""
     versions = registry.list_versions(project_id, feature)
     if not versions:
-        return {**disable_feature(project_id, feature), "rolled_back_to": None}
+        return {**_soft_disable_feature(project_id, feature, reason="rollback_no_versions"), "rolled_back_to": None}
 
     registry.pop_version(project_id, feature)  # drop the current (top) version
     remaining = versions[:-1]
@@ -242,11 +260,101 @@ def reject(approval_id: str) -> dict:
     return {"approval_id": approval_id, "status": "rejected"}
 
 
-def disable_feature(project_id: str, feature: str) -> dict:
-    """Rollback: soft-disable a feature (never delete). Mirrors the '戻して' demo."""
+def _delete_stream(query) -> int:
+    """Delete query results in small batches and return the deleted document count."""
+    db = get_db()
+    count = 0
+    batch = db.batch()
+    pending = 0
+    for doc in query.stream():
+        batch.delete(doc.reference)
+        count += 1
+        pending += 1
+        if pending >= 400:
+            batch.commit()
+            batch = db.batch()
+            pending = 0
+    if pending:
+        batch.commit()
+    return count
+
+
+def _purge_feature_data(project_id: str, feature: str) -> dict[str, int]:
+    """Delete all app-scoped data for an explicit feature deletion.
+
+    Audit logs are intentionally retained as the tamper-resistant record of who
+    deleted what and when. Rollback uses _soft_disable_feature instead.
+    """
+    db = get_db()
+    deleted: dict[str, int] = {}
+    doc_id = f"{project_id}_{feature}"
+    for collection in ("generated_views", "app_state", "feature_versions", "feature_requirements"):
+        ref = db.collection(collection).document(doc_id)
+        existed = ref.get().exists
+        if existed:
+            ref.delete()
+        deleted[collection] = 1 if existed else 0
+
+    deleted["feature_chats"] = _delete_stream(
+        db.collection("feature_chats")
+        .where(filter=FieldFilter("project_id", "==", project_id))
+        .where(filter=FieldFilter("feature", "==", feature))
+    )
+    deleted["app_entities"] = _delete_stream(
+        db.collection("app_entities")
+        .where(filter=FieldFilter("project_id", "==", project_id))
+        .where(filter=FieldFilter("feature", "==", feature))
+    )
+
+    # Legacy fixed task API data. Generated default task_manager uses app_state,
+    # but keep this here so deleting the legacy "task" feature is also complete.
+    deleted["app_tasks"] = 0
+    if feature == "task":
+        deleted["app_tasks"] = _delete_stream(
+            db.collection("app_tasks").where(filter=FieldFilter("project_id", "==", project_id))
+        )
+
+    state_ref = _feature_state_ref(project_id)
+    state = state_ref.get()
+    if state.exists:
+        data = state.to_dict() or {}
+        fields = {
+            feature: firestore.DELETE_FIELD,
+            f"{feature}_title": firestore.DELETE_FIELD,
+            f"{feature}_theme": firestore.DELETE_FIELD,
+            f"{feature}_worker": firestore.DELETE_FIELD,
+            "updated_at": _now_iso(),
+        }
+        if data.get("last_changed_feature") == feature:
+            fields["last_changed_feature"] = firestore.DELETE_FIELD
+        state_ref.update(fields)
+        deleted["feature_state_fields"] = sum(1 for k in fields if k != "updated_at")
+    else:
+        deleted["feature_state_fields"] = 0
+    return deleted
+
+
+def _soft_disable_feature(project_id: str, feature: str, reason: str) -> dict:
+    """Rollback-only: hide a feature without deleting data or version history."""
     _feature_state_ref(project_id).set({feature: "disabled", "updated_at": _now_iso()}, merge=True)
-    _audit("feature.disabled", f"{project_id}:{feature}", {"reason": "user_rollback"}, project_id=project_id)
+    _audit("feature.disabled", f"{project_id}:{feature}", {"reason": reason}, project_id=project_id)
     return {"project_id": project_id, "feature": feature, "status": "disabled"}
+
+
+def archive_feature(project_id: str, feature: str) -> dict:
+    """User-chosen reversible deletion: hide the app but keep app-scoped data."""
+    return _soft_disable_feature(project_id, feature, reason="user_reversible_delete")
+
+
+def disable_feature(project_id: str, feature: str) -> dict:
+    """Explicit app deletion: remove the app and all app-scoped data.
+
+    This is intentionally different from rollback, which is reversible and keeps
+    version/data snapshots.
+    """
+    deleted = _purge_feature_data(project_id, feature)
+    _audit("feature.deleted", f"{project_id}:{feature}", {"deleted": deleted}, project_id=project_id)
+    return {"project_id": project_id, "feature": feature, "status": "deleted", "deleted": deleted}
 
 
 def set_worker(project_id: str, feature: str, enabled: bool) -> dict:
