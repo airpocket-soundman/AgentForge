@@ -36,6 +36,7 @@ router = APIRouter(prefix="/api/app/features", tags=["generated-app:feature-work
 
 _VIEWS = "generated_views"
 _STATE = "app_state"
+_APP_CONNECTORS = "app_connectors"
 _DEFAULT_CONTEXT = "default"
 
 
@@ -172,6 +173,20 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
     images = [{"mime": a.mime or "image/png", "data": a.content}
               for a in body.attachments if getattr(a, "kind", "") == "image" and a.content][:4]
 
+    pipeline_control = _handle_shared_pipeline_control(body.project_id, feature, body.text)
+    if pipeline_control is not None:
+        reply_text, building, data_changed = pipeline_control
+        reply = ChatMessage(role="assistant", text=reply_text)
+        _append(body.project_id, feature, ctx, body.context_label, user_msg, reply)
+        return {
+            "reply": reply.model_dump(mode="json"),
+            "building": building,
+            "context_id": ctx,
+            "created": [],
+            "data_changed": data_changed,
+            "command": None,
+        }
+
     # Show the Specialist Worker as ACTIVE in the status monitor while it works,
     # and always release it afterwards — its work continues server-side regardless
     # of the user navigating away (the HTTP call completes independently of the UI).
@@ -195,7 +210,7 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
             reply_text, changed, command = _respond_content(
                 body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
                 images=images, user_call_name=body.user_call_name,
-                context_id=ctx, context_label=body.context_label,
+                context_id=ctx, context_label=body.context_label, user_uid=user.uid,
             )
     finally:
         worker_status.record_status("Specialist Worker", body.project_id, worker_status.STOPPED, detail=None)
@@ -338,7 +353,10 @@ def _apply_entity_ops(project_id: str, feature: str, ops: list[dict]) -> list[di
     return changed
 
 
-_STRUCTURE_REDIRECT = "「{title}」自体の変更（見た目・項目・機能の追加/削除など）はメインチャットからご依頼ください。ここでは、この機能の中身の操作を担当します。"
+_STRUCTURE_REDIRECT = (
+    "「{title}」自体の変更（見た目・項目・機能の追加/削除など）を制作チームに取り次げませんでした。"
+    "少し待ってから、このアプリチャットでもう一度依頼してください。"
+)
 
 
 def _route_to_main(
@@ -355,14 +373,73 @@ def _route_to_main(
         if action in ("edit", "create"):
             kind_ja = "改修" if action == "edit" else "新規作成"
             return (
-                f"「{title}」自体の変更はメインチャットの担当なので、メインチャットへ取り次ぎました"
-                f"（{kind_ja}として処理を開始）。メインチャットで設計案・進捗をご確認ください。"
+                f"「{title}」自体の変更として制作チームに取り次ぎました"
+                f"（{kind_ja}として処理を開始）。このアプリ画面で進捗とプレビューを確認できます。"
             )
         if action == "rate_limited":
-            return "ただいま処理が混み合っています。少し待ってから、メインチャットでご依頼ください。"
+            return "ただいま処理が混み合っています。少し待ってから、このアプリチャットでもう一度依頼してください。"
     except Exception:  # noqa: BLE001 — fall back to pointing the user to the main chat
         pass
     return _STRUCTURE_REDIRECT.format(title=title)
+
+
+def _handle_shared_pipeline_control(project_id: str, feature: str, text: str) -> tuple[str, bool, bool] | None:
+    """Let the app chat continue a Receptor/Orchestrator flow for this feature.
+
+    Returns (reply, building, data_changed). This keeps confirmation, publish, and
+    cancel actions inside the feature screen instead of sending the user to the
+    main chat.
+    """
+    from app.reception import service as reception
+
+    flow = reception.get_flow(project_id)
+    stage = flow.get("stage")
+    flow_feature = flow.get("feature")
+    if flow_feature and flow_feature != feature:
+        return None
+    if stage == "confirm" and flow_feature == feature:
+        if reception.is_cancel(text) or reception.is_rejection(text):
+            reception.clear_flow(project_id)
+            return "依頼を取りやめました。このアプリチャットから別の依頼を続けられます。", False, False
+        if reception.is_plan_ok(text):
+            res = reception.dispatch_confirmed(project_id)
+            return (
+                res.get("reply") or "制作チームに依頼しました。進捗はこのアプリ画面に表示されます。",
+                bool(res.get("building")),
+                False,
+            )
+        reception.start_confirm_bg(
+            project_id,
+            flow.get("mode", "edit"),
+            feature,
+            reception.strip_user_context(flow.get("goal") or "") + "\n\n[ユーザーの修正・追記] " + text,
+        )
+        return "承知しました。依頼内容を更新して、このアプリ画面で確認できるようにします。", True, False
+
+    if stage == "built" and flow_feature == feature:
+        if reception.is_cancel(text) or reception.is_rejection(text):
+            reception.clear_flow(project_id)
+            return "変更候補を破棄しました。現在公開中のアプリはそのままです。", False, False
+        if reception.is_plan_ok(text):
+            from app.control_plane import approvals, registry
+
+            candidate = flow.get("candidate") or {}
+            if flow.get("mode") == "edit":
+                title = candidate.get("title") or reception.feature_title(project_id, feature)
+                approvals.publish_edit(project_id, feature, candidate)
+                registry.append_requirements(project_id, feature, [flow.get("goal") or ""])
+                reception.clear_flow(project_id)
+                return f"「{title}」を更新しました。", False, True
+            approval_id = flow.get("approval_id")
+            if approval_id:
+                res = approvals.approve(approval_id)
+                activated_feature = res.get("feature") or feature
+                registry.append_requirements(project_id, activated_feature, [flow.get("goal") or ""])
+                reception.clear_flow(project_id)
+                return f"公開しました。「{reception.feature_title(project_id, activated_feature)}」を左メニューに追加しました。", False, True
+            reception.clear_flow(project_id)
+            return "公開対象が見つかりませんでした。もう一度このアプリチャットから依頼してください。", False, False
+    return None
 
 
 def _tool_names(manifest: dict) -> set[str]:
@@ -389,7 +466,63 @@ def _normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKC", text or "")
 
 
-def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], manifest: dict) -> str:
+def _feature_connectors_context(project_id: str, feature: str, user_uid: str | None) -> str:
+    """Summarize app-scoped connectors for the Specialist Worker without secrets."""
+    if not user_uid:
+        return ""
+    try:
+        docs = get_db().collection(_APP_CONNECTORS).where("uid", "==", user_uid).stream()
+    except Exception:  # noqa: BLE001
+        return ""
+    lines: list[str] = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        if data.get("project_id") != project_id or data.get("feature") != feature:
+            continue
+        actions = data.get("actions") if isinstance(data.get("actions"), dict) else {}
+        auth = data.get("auth") if isinstance(data.get("auth"), dict) else {}
+        lines.append(
+            f"- connector_id={data.get('connector_id')}, label={data.get('label') or data.get('connector_id')}, "
+            f"base_url={data.get('base_url')}, auth_type={auth.get('type') or 'none'}, "
+            f"auth_configured={bool(auth and auth.get('type') != 'none')}"
+        )
+        for action_id, action in list(actions.items())[:10]:
+            if not isinstance(action, dict):
+                continue
+            lines.append(
+                f"  - action {data.get('connector_id')}.{action_id}: "
+                f"{action.get('method')} {action.get('path')} side_effect={action.get('side_effect')} "
+                f"description={action.get('description') or ''}"
+            )
+        if len(lines) >= 80:
+            lines.append("  ...(truncated)")
+            break
+    if not lines:
+        return ""
+    return (
+        "[このアプリに登録済みの外部API connector]\n"
+        "以下はユーザー/アプリ単位で登録された connector の公開情報です。auth token/password/header_value は渡されていません。\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+
+
+def _app_runtime_context(project_id: str, feature: str, user_uid: str | None) -> str:
+    connectors = _feature_connectors_context(project_id, feature, user_uid)
+    return (
+        "[AgentForge ミニアプリ runtime API]\n"
+        "- AF.load()/AF.save(state): このアプリの永続 state を読み書きする。接続情報やtoken/passwordはstateに保存しない。\n"
+        "- AF.defineConnector(def): このアプリ専用の外部API connectorをユーザー操作で登録する。\n"
+        "- AF.listConnectors()/AF.deleteConnector(id): 登録済み connector の確認/削除。\n"
+        "- AF.api('connector.action', params): 登録済み connector action だけを呼び出す。任意URLへ直接fetchする設計ではない。\n"
+        "- AF.askWorker(text): アプリ内UIからこの Specialist Worker に相談/操作依頼する。\n"
+        "- AF.setChatContext(id,label): 画面や対象ごとにこのワーカーの会話文脈を分ける。\n"
+        "- AF.setChatVisible(bool): 画面ごとにチャット欄の表示だけを切り替える。\n"
+        + connectors
+    )
+
+
+def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], manifest: dict, runtime_context: str = "") -> str:
     available = ", ".join(t.get("name", "") for t in tools if isinstance(t, dict) and t.get("name"))
     command_lines: list[str] = []
     for tool in tools:
@@ -438,6 +571,15 @@ def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], ma
         common += "\n[このアプリ固有の専門ワーカー指示]\n" + generated_manual[:4000] + "\n"
     if example_lines:
         common += "\n[このアプリで想定される自然言語指示とAPI対応例]\n" + "\n".join(example_lines) + "\n"
+    if runtime_context:
+        common += "\n" + runtime_context
+    common += (
+        "\n[アプリ内チャットの受付方針]\n"
+        "- ユーザーがこのアプリの使い方、ログイン/接続設定、どのボタンを押すか、API連携の流れを聞いた場合は、"
+        "この文脈を使ってアプリ内で完結する回答をする。\n"
+        "- UI/項目/API機能追加などアプリ自体の改修が必要な場合は category=structure としてメインチャット相当の"
+        "Receptor/Orchestrator に取り次ぐ。ユーザーに『メインチャットへ移動して』とだけ返さない。\n"
+    )
     return common
 
 
@@ -451,6 +593,7 @@ def _respond_state_content(
     user_call_name: str | None = None,
     context_id: str | None = None,
     context_label: str | None = None,
+    user_uid: str | None = None,
 ) -> tuple[str, list[dict], dict | None] | None:
     """Let the Specialist Worker edit AF.load/AF.save state directly.
 
@@ -467,6 +610,7 @@ def _respond_state_content(
     state_schema = manifest.get("state_schema") or {}
     current_state = _load_app_state(project_id, feature)
     tools = manifest.get("commands") or []
+    runtime_context = _app_runtime_context(project_id, feature, user_uid)
     prompt = (
         f"{agents.load('feature_worker')}\n\n"
         f"{_user_context_instruction(user_call_name)}\n\n"
@@ -478,7 +622,7 @@ def _respond_state_content(
         f"state_schema(JSON Schema風): {_compact_json(state_schema, 12000)}\n"
         f"現在のstate: {_compact_json(current_state, 32000)}\n"
         f"補助的に使えるcommands（必要な場合のみ参考）: {json.dumps(tools, ensure_ascii=False)}\n"
-        f"{_app_worker_operation_manual(feature, title, tools, manifest)}\n"
+        f"{_app_worker_operation_manual(feature, title, tools, manifest, runtime_context)}\n"
         f"直近の会話: {json.dumps(history[-8:], ensure_ascii=False)}\n"
         + ("【添付画像あり】画像内のテキストも読み取り、state更新に必要なら反映すること。\n" if images else "")
         + f"ユーザーの指示: {text}\n\n"
@@ -1115,6 +1259,7 @@ def _respond_content(
     user_call_name: str | None = None,
     context_id: str | None = None,
     context_label: str | None = None,
+    user_uid: str | None = None,
 ) -> tuple[str, list[dict], dict | None]:
     """Operate on the feature's CONTENT only. Returns (reply, changed_entities, command).
 
@@ -1141,7 +1286,7 @@ def _respond_content(
             return deterministic_state
         state_result = _respond_state_content(
             project_id, feature, text, history, manifest, images=images, user_call_name=user_call_name,
-            context_id=context_id, context_label=context_label,
+            context_id=context_id, context_label=context_label, user_uid=user_uid,
         )
         if state_result is not None:
             return state_result
@@ -1154,6 +1299,7 @@ def _respond_content(
             ), [], None
         reply = ""
         category = "chat"
+        runtime_context = _app_runtime_context(project_id, feature, user_uid)
         if llm.enabled:
             prompt = (
                 f"{base}\n\n"
@@ -1162,7 +1308,7 @@ def _respond_content(
                 f"今日の日付（Asia/Tokyo）: {_today_context()}\n"
                 f"現在のアプリ画面/作業文脈: id={context_id or 'default'}, label={context_label or context_id or 'default'}\n"
                 f"利用可能ツール(MCP形式 name/description/inputSchema): {json.dumps(tools, ensure_ascii=False)}\n"
-                f"{_app_worker_operation_manual(feature, title, tools, manifest)}\n"
+                f"{_app_worker_operation_manual(feature, title, tools, manifest, runtime_context)}\n"
                 f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
                 + ("【添付画像あり】画像内のテキストも読み取って指示の対象にすること。\n" if images else "")
                 + f"ユーザーの指示: {text}\n\n"
