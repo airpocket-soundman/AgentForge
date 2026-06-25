@@ -16,9 +16,14 @@
   ただし**テーマ（`default` / `warm` / `forest` / `ocean`）を配色・トーンの指針**として一貫させる。
   ユーザーの見た目指示が曖昧なら内容に最も近いプリセットを、指定が無ければ `default`。
   これにより機能を増やしても全体の見た目が崩れない（緩い制約）。
-- 外部サービスを使うアプリでも、生成HTMLに `fetch` / `XMLHttpRequest` / 任意URL / token を書かない。
-  ユーザーがプロフィールで許可したサービスだけ、`await AF.api("connector.action", params)` で呼ぶ。
-  例: `AF.api("bluesky.get_timeline", { limit: 30 })`。返り値が `{ok:false,error}` の場合は画面に接続案内を出す。
+- 外部サービスを使うアプリでも、生成HTMLに `fetch` / `XMLHttpRequest` / 任意URL proxy を書かない。
+  必要ならアプリ内に接続設定画面を作り、ユーザー入力を `AF.defineConnector({...})` で backend に登録する。
+  その後は `await AF.api("connector_id.action_id", params)` で登録済み action だけ呼ぶ。
+  token/API key/password は `AF.save()` state に保存せず、保存後は入力欄を空にし、再表示しない。
+  GitHub/Notion/Bluesky などのテンプレートを置く場合も、固定サービス専用実装ではなく編集可能な初期値として扱う。
+  例:
+  `await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read"}}})`
+  `const res = await AF.api("my_api.list_items", { limit: 20 })`
 
 ## ミニアプリの「内容編集ツール契約」（標準仕様・必須 / MCP形式）
 生成する機能＝「ミニアプリ」、その中身を担当するのが「専門ワーカー」。アプリ型（kind=app）を

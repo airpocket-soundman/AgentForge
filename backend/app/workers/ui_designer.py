@@ -140,9 +140,13 @@ html の要件（重要）:
     const state = await AF.load();   // 保存済みの状態(任意のJSON)。無ければ null。
     await AF.save(state);            // 状態(JSONにできる値)を保存する。
   ※ localStorage / cookie / fetch / 外部通信 / 別ウィンドウ は使えない（サンドボックス）。保存は必ず AF を使う。
-  ※ 外部サービスを使う必要がある場合も fetch は使わず、許可済みコネクタだけを
-    `await AF.api("connector.action", params)` で呼ぶ。例: `AF.api("bluesky.get_timeline", {limit: 30})`。
-    使える connector/action はユーザーがプロフィールで許可し、AgentForge backend が検証する。
+  ※ 外部サービスを使う必要がある場合も fetch は使わない。アプリ内に接続設定UIを作り、
+    ユーザー入力を `AF.defineConnector({...})` で feature-scoped connector として登録する。
+    呼び出しは登録済み action に限り `await AF.api("connector_id.action_id", params)` で行う。
+    token/API key/password は `AF.save()` state に保存せず、登録後は入力欄を空にして再表示しない。
+    例:
+      await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read"}}});
+      const res = await AF.api("my_api.list_items", {limit: 20});
   ※ 保存する状態は JSON 化できる小さなデータにする（例: 盤面配列、現在ピース、次ピース、スコア、設定、入力値）。
   ※ 電卓・時計など、本当に途中状態を保持しなくてもよい一時操作だけは AF を使わなくてよい。
 - **大きいファイル（PDF・画像・音声など）は AF.save の状態に入れない**（状態は約1MB上限。巨大 base64 を

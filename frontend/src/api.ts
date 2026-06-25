@@ -553,43 +553,65 @@ export interface ConnectorActionResult {
   [key: string]: unknown;
 }
 
-export interface ConnectorInfo {
-  id: string;
+export interface AppConnectorAction {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  side_effect?: "read" | "low" | "medium" | "high";
+  description?: string;
+}
+
+export interface AppConnectorDefinition {
+  connector_id: string;
   label: string;
-  description: string;
-  enabled: boolean;
-  auth_modes: string[];
-  credential_fields?: { key: string; label: string; type: "text" | "password"; required?: boolean }[];
-  scopes: string[];
-  actions: Record<string, unknown>;
-  user_status: "connected" | "disconnected" | string;
-  account_label: string;
-  granted_scopes: string[];
-  credential_status: string;
+  base_url: string;
+  auth?: {
+    type: "none" | "bearer" | "api_key_header" | "basic" | "custom_header";
+    token?: string;
+    username?: string;
+    password?: string;
+    header_name?: string;
+    header_value?: string;
+  };
+  actions: Record<string, AppConnectorAction>;
+}
+
+export interface AppConnectorInfo extends Omit<AppConnectorDefinition, "auth"> {
+  auth: { type: string; configured: boolean };
   updated_at?: string | null;
   last_used_at?: string | null;
 }
 
-export function listConnectors(): Promise<{ items: ConnectorInfo[] }> {
-  return request<{ items: ConnectorInfo[] }>("/api/connectors");
+export function listFeatureConnectors(
+  feature: string,
+  projectId = PROJECT_ID,
+): Promise<{ items: AppConnectorInfo[] }> {
+  return request<{ items: AppConnectorInfo[] }>(
+    `/api/connectors?project_id=${encodeURIComponent(projectId)}&feature=${encodeURIComponent(feature)}`,
+  );
 }
 
-export function connectConnector(
-  connectorId: string,
-  accountLabel = "",
-  scopes: string[] = ["read"],
-  credentials: Record<string, string> = {},
-): Promise<ConnectorInfo> {
-  return request<ConnectorInfo>(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
+export function defineFeatureConnector(
+  feature: string,
+  definition: AppConnectorDefinition,
+  projectId = PROJECT_ID,
+): Promise<{ ok: boolean; connector: AppConnectorInfo }> {
+  return request<{ ok: boolean; connector: AppConnectorInfo }>("/api/connectors/define", {
     method: "POST",
-    body: JSON.stringify({ account_label: accountLabel, scopes, credentials }),
+    body: JSON.stringify({ ...definition, project_id: projectId, feature }),
   });
 }
 
-export function disconnectConnector(connectorId: string): Promise<ConnectorInfo> {
-  return request<ConnectorInfo>(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
+export function deleteFeatureConnector(
+  feature: string,
+  connectorId: string,
+  projectId = PROJECT_ID,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(
+    `/api/connectors/${encodeURIComponent(connectorId)}?project_id=${encodeURIComponent(projectId)}&feature=${encodeURIComponent(feature)}`,
+    {
     method: "DELETE",
-  });
+    },
+  );
 }
 
 export async function invokeConnectorAction(

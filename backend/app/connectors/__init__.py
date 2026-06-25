@@ -1,2 +1,1 @@
-"""External API connector registry and user permission endpoints."""
-
+"""Feature-scoped user-defined external API connector endpoints."""

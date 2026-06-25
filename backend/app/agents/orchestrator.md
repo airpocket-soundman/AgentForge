@@ -13,3 +13,8 @@
   Reviewer の重点確認観点をそろえて計画する。
 - 重要な判断・進捗・検証/レビュー結果は Agent Harness に記録され、ユーザーには短い進捗と承認前サマリーとして伝わる前提で、
   判断理由を短く具体的に残せる成果物を作る。
+- 外部サービス連携が必要なアプリでは、管理者定義済みサービスに依存しない。Orchestrator はミニアプリごとに
+  接続UI、`AF.defineConnector` で登録する connector 定義、呼び出す action、必要な認証入力、エラー表示、切断/更新導線を設計する。
+  ただし安全境界として、生成HTMLに `fetch`、任意URL proxy、token の state 保存、token の再表示を入れない。
+  有名サービスのテンプレートは任意の下書きに過ぎず、ユーザーの自作API/社内APIも同じ仕組みで扱えるようにする。
+  connector 定義は `connector_id`、`base_url`、`auth`、`actions`（method/path/side_effect）を持つ形で計画する。

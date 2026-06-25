@@ -1,9 +1,13 @@
 import { useEffect, useRef } from "react";
 import {
+  defineFeatureConnector,
+  deleteFeatureConnector,
   getAppState,
   invokeConnectorAction,
+  listFeatureConnectors,
   sendFeatureWorkerMessage,
   setAppState,
+  type AppConnectorDefinition,
   type Attachment,
 } from "../api";
 
@@ -97,9 +101,12 @@ const AF_PRELUDE = `<meta http-equiv="Content-Security-Policy" content="default-
     loadBlob:function(name){return req('blob_load',{name:name});},
     listBlobs:function(){return req('blob_list');},
     deleteBlob:function(name){return req('blob_delete',{name:name});},
-    // api("connector.action", params): safe external API access through the
-    // AgentForge shell/backend connector registry. The sandbox still has
-    // connect-src 'none'; generated HTML never sees URLs, headers, or secrets.
+    // defineConnector/listConnectors/deleteConnector/api: app-scoped user-defined
+    // external API access. The sandbox still has connect-src 'none'; generated
+    // HTML registers fixed actions and then calls those names only.
+    defineConnector:function(def){return req('connector_define',def||{});},
+    listConnectors:function(){return req('connector_list');},
+    deleteConnector:function(id){return req('connector_delete',{id:String(id||'')});},
     api:function(name,params){return req('api',{name:String(name||''),params:params||{}});},
     // askWorker(text,{images}): let the APP itself invoke its Specialist Worker
     // (e.g. a 翻訳 button) — images are data: URLs. Returns {reply,command}; any
@@ -185,7 +192,7 @@ export function AppFrame({
       if (!live) {
         // Preview: feature isn't published yet. load/list → empty; askWorker n/a.
         if (d.op === "ask_worker") { reply({ reply: "（プレビューでは実行できません。公開後にお使いください）", command: null }); return; }
-        if (d.op === "api") { reply({ ok: false, error: "プレビューでは外部APIコネクタを実行できません。公開後にお使いください。" }); return; }
+        if (d.op === "api" || String(d.op || "").startsWith("connector_")) { reply({ ok: false, error: "プレビューでは外部APIコネクタを実行できません。公開後にお使いください。" }); return; }
         reply(d.op === "load" || d.op === "blob_load" ? null : d.op === "blob_list" ? [] : true);
         return;
       }
@@ -216,6 +223,19 @@ export function AppFrame({
       } else if (d.op === "api") {
         const p = (d.payload as { name?: string; params?: Record<string, unknown> }) || {};
         invokeConnectorAction(feature, String(p.name || ""), p.params || {})
+          .then(reply)
+          .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else if (d.op === "connector_define") {
+        defineFeatureConnector(feature, d.payload as AppConnectorDefinition)
+          .then(reply)
+          .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else if (d.op === "connector_list") {
+        listFeatureConnectors(feature)
+          .then(reply)
+          .catch((err) => reply({ items: [], error: err instanceof Error ? err.message : String(err) }));
+      } else if (d.op === "connector_delete") {
+        const p = (d.payload as { id?: string }) || {};
+        deleteFeatureConnector(feature, String(p.id || ""))
           .then(reply)
           .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
       } else if (d.op === "blob_save") {

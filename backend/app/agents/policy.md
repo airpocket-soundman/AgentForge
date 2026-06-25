@@ -32,8 +32,10 @@
    タスク/メモ/フォーム/設定だけでなく、ゲームの盤面・スコア・進行状態も `AF.load()` / `AF.save()` で
    サーバ側に保存する。`localStorage` / `sessionStorage` / cookie は使わない。
    外部サービスを使うミニアプリでも、生成 HTML から `fetch` / `XMLHttpRequest` / 任意 URL への通信をしてはいけない。
-   許可済み外部サービスは `AF.api("connector.action", params)` だけで呼ぶ。URL、ヘッダ、トークンは
-   AgentForge backend の connector registry とユーザー設定で管理し、生成 HTML には出さない。
+   外部接続はミニアプリ自身がユーザー入力から `AF.defineConnector({...})` で feature-scoped connector を定義し、
+   登録済み action を `AF.api("connector_id.action_id", params)` で呼ぶ。URL、ヘッダ、トークンは backend に保存し、
+   生成 HTML の state や画面には保存・再表示しない。GitHub/Notion 等の有名サービスも固定管理者コネクタではなく、
+   必要ならミニアプリ内の「接続テンプレート」として定義フォームの初期値にするだけに留める。
 7. ユーザーがアプリ自体を明示的に削除した場合は、削除前に「巻き戻し可能な状態で削除」か
    「完全に削除」かを質問して選ばせる。
    - 巻き戻し可能な削除: 左メニューから外すが、データ・版履歴・要求台帳などは残す。
