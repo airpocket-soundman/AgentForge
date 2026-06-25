@@ -369,8 +369,19 @@ def _route_to_main(
     from app.reception import service as reception
 
     try:
-        res = reception.handle_request(project_id, text, hint_feature=feature, user_call_name=user_call_name)
+        res = reception.handle_request(
+            project_id,
+            text,
+            hint_feature=feature,
+            user_call_name=user_call_name,
+            restrict_feature=feature,
+        )
         action = res.get("action")
+        if action == "out_of_scope":
+            return (
+                f"このアプリチャットから取り次げるのは「{title}」自身の改修だけです。"
+                "他のアプリの変更や新規アプリ作成は、対象アプリの画面またはメインチャットから依頼してください。"
+            )
         if action in ("edit", "create"):
             kind_ja = "改修" if action == "edit" else "新規作成"
             return (

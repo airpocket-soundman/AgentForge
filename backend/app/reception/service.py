@@ -725,6 +725,7 @@ def handle_request(
     images: list[dict] | None = None,
     hint_feature: str | None = None,
     user_call_name: str | None = None,
+    restrict_feature: str | None = None,
 ) -> dict:
     """Single pipeline entry for a substantive request, from the main chat OR a
     feature screen. The ORCHESTRATOR decides create-vs-edit-vs-chat; we then run the
@@ -744,6 +745,13 @@ def handle_request(
     # note — enrich without degrading. The pipeline then just executes this.
     note = (decision.get("context_note") or "").strip()
     pipeline_goal = f"{goal}\n\n[文脈（過去の会話から補足）] {note}" if note else goal
+    if restrict_feature and (action != "edit" or feature != restrict_feature):
+        return {
+            "action": "out_of_scope",
+            "feature": feature,
+            "building": False,
+            "restricted_to": restrict_feature,
+        }
     if action in ("edit", "create"):
         # Runaway/loop guard: a heavy worker run. Trip the breaker before spending
         # PRO tokens if this project is looping (rolling run-rate cap).

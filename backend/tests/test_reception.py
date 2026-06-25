@@ -83,3 +83,34 @@ def test_resolve_feature_delete_accepts_template_name_with_app_scope(monkeypatch
     assert service.resolve_feature_delete("default", "タスク管理アプリを削除してください") == "task_manager"
     assert service.resolve_feature_delete("default", "タスク管理を削除してください") is None
     assert service.resolve_feature_delete("default", "予定を削除してください") is None
+
+
+def test_handle_request_restrict_feature_blocks_other_app_edit(monkeypatch):
+    from app.orchestrator import service as orchestrator
+
+    monkeypatch.setattr(
+        orchestrator,
+        "classify_request",
+        lambda *_args, **_kwargs: {"action": "edit", "feature": "other_app", "context_note": ""},
+    )
+
+    res = service.handle_request("default", "別アプリを直して", hint_feature="my_app", restrict_feature="my_app")
+
+    assert res["action"] == "out_of_scope"
+    assert res["feature"] == "other_app"
+    assert res["restricted_to"] == "my_app"
+
+
+def test_handle_request_restrict_feature_blocks_new_app_create(monkeypatch):
+    from app.orchestrator import service as orchestrator
+
+    monkeypatch.setattr(
+        orchestrator,
+        "classify_request",
+        lambda *_args, **_kwargs: {"action": "create", "feature": "", "context_note": ""},
+    )
+
+    res = service.handle_request("default", "新しいアプリを作って", hint_feature="my_app", restrict_feature="my_app")
+
+    assert res["action"] == "out_of_scope"
+    assert res["restricted_to"] == "my_app"
