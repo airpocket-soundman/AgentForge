@@ -49,7 +49,7 @@
     <li>ワーカーは<strong>自分の権限を増やせない・別ワーカーを勝手に作れない</strong>。</li>
     <li>AI は生成物を <strong>pending 登録するのみ</strong>。公開・巻き戻しは人間の承認（Control Plane）。未完成（stub）は公開拒否。</li>
     <li>Reviewer / Tester は<strong>判定のみ</strong>。Specialist Worker は<strong>担当ミニアプリ内に限定</strong>。</li>
-    <li>ミニアプリは <strong>iframe サンドボックス</strong>（外部通信・localStorage 遮断、保存は <code>AF.load/save</code> のみ）。</li>
+    <li>ミニアプリは <strong>iframe サンドボックス</strong>（直接の外部通信・localStorage 遮断、保存は <code>AF.load/save</code>）。外部サービスはユーザー許可済みコネクタを <code>AF.api</code> 経由でのみ呼ぶ。</li>
   </ul>
 
   <h2>生成ミニアプリの実行モデル</h2>

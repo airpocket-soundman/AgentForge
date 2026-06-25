@@ -2,10 +2,10 @@
 from app import templates
 from app.models.generated import ViewManifest
 
-EXPECTED = {"calculator", "task_manager", "schedule", "memo", "translate", "paint"}
+EXPECTED = {"calculator", "task_manager", "schedule", "memo", "household_budget", "translate", "paint", "retouch"}
 
 
-def test_all_six_templates_present():
+def test_all_templates_present():
     assert set(templates.TEMPLATES.keys()) == EXPECTED
 
 
@@ -30,8 +30,10 @@ def test_matcher_maps_keywords():
     assert templates.match_template("タスク管理がほしい") == "task_manager"
     assert templates.match_template("スケジュール帳を作りたい") == "schedule"
     assert templates.match_template("メモ帳を追加して") == "memo"
+    assert templates.match_template("家計簿を作って") == "household_budget"
     assert templates.match_template("翻訳ツールを作って") == "translate"
     assert templates.match_template("お絵描きアプリを作って") == "paint"
+    assert templates.match_template("背景削除できるレタッチソフトを作って") == "retouch"
 
 
 def test_matcher_returns_none_for_unrelated():
@@ -41,7 +43,7 @@ def test_matcher_returns_none_for_unrelated():
 
 def test_catalogue_has_no_html():
     cat = templates.list_templates()
-    assert len(cat) == 6 and all("html" not in c for c in cat)
+    assert len(cat) == len(EXPECTED) and all("html" not in c for c in cat)
 
 
 def test_judge_template_keyword_fallback():

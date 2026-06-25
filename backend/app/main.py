@@ -14,6 +14,7 @@ from app.admin.router import router as admin_router
 from app import audit_context
 from app.auth import require_allowed_user
 from app.config import get_settings
+from app.connectors.router import router as connectors_router
 from app.control_plane.router import router as control_plane_router
 from app.generated_app.features import router as feature_worker_router
 from app.generated_app.generic import router as generic_router
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     app.include_router(task_router, dependencies=guard)
     app.include_router(generic_router, dependencies=guard)
     app.include_router(feature_worker_router, dependencies=guard)
+    app.include_router(connectors_router, dependencies=guard)
     return app
 
 

@@ -1837,6 +1837,64 @@ button { font: inherit; }
   font-size: 13px;
   font-weight: 700;
 }
+.connector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.connector-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--gv-border);
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+}
+.connector-card--disabled {
+  background: #f0f2f7;
+  color: #767d91;
+}
+.connector-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.connector-card__title,
+.connector-card__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connector-card__title strong {
+  color: var(--gv-text);
+}
+.connector-card__title span,
+.connector-card__meta span {
+  border: 1px solid var(--gv-border);
+  border-radius: 999px;
+  color: var(--gv-muted);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.connector-card__title .connector-card__ok {
+  border-color: #bfdec9;
+  background: #e8f6ed;
+  color: #2f8f5b;
+  font-weight: 800;
+}
+.connector-card p {
+  margin: 0;
+  color: var(--gv-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.connector-card__actions {
+  flex: 0 0 auto;
+}
 
 /* ---- BYOK stub (disabled form + apology modal) ---- */
 .byok { position: relative; }

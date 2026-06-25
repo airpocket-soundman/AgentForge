@@ -36,6 +36,8 @@
   <ul>
     <li><code>&lt;style&gt;</code> と <code>&lt;script&gt;</code> を内包し、<strong>外部 CDN・外部通信なしで単体動作</strong>する。</li>
     <li><strong>使用禁止</strong>：<code>localStorage</code> / <code>cookie</code> / <code>fetch</code> / 外部通信 / 別ウィンドウ。</li>
+    <li>外部サービス連携は、生成 HTML から直接通信せず、ユーザーがプロフィールで許可したコネクタを
+      <code>AF.api("connector.action", params)</code> で呼ぶ。URL・ヘッダ・トークンは AgentForge backend が管理し、生成 HTML には出さない。</li>
     <li>状態保存は<strong><code>AF.load()</code> / <code>AF.save()</code> のみ</strong>（サーバ側にミニアプリ単位で永続化）。
       画面遷移・リロード・別メニューへ移動して戻った後も途中状態を復元するのがミニアプリの基本仕様。
       タスク／メモ／フォーム／設定だけでなく、ゲームの盤面・スコア・進行状態も保存対象。
@@ -185,7 +187,7 @@
   <table class="tbl">
     <tr><th>#</th><th>判定項目</th><th>不適合の例</th></tr>
     <tr><td>1</td><td>出力が規定 JSON・<code>html</code> が実体の完結 HTML</td><td>コードフェンス付き／説明文が <code>html</code> に混入</td></tr>
-    <tr><td>2</td><td>外部通信なしで自己完結・サンドボックス禁止 API 不使用</td><td><code>fetch</code>/外部CDN/<code>localStorage</code> 使用</td></tr>
+    <tr><td>2</td><td>外部通信なしで自己完結・サンドボックス禁止 API 不使用</td><td><code>fetch</code>/外部CDN/<code>localStorage</code> 使用（許可済みコネクタは <code>AF.api</code> のみ可）</td></tr>
     <tr><td>3</td><td>状態を持つアプリは <code>AF.load/save</code> でサーバ保存・復元</td><td><code>localStorage</code> に保存している／ゲームの盤面・スコアが画面遷移で消える</td></tr>
     <tr><td>4</td><td><code>applyAgentCommand</code> 実装＋<code>commands</code> 整合、または <code>worker_state_mode</code>＋<code>state_schema</code> による state 直接編集設計。専門ワーカー向け指示も必須</td><td>ツール未実装／<code>commands</code> と名前不一致／データ中心アプリなのに <code>state_schema</code> が無い／<code>worker_instructions</code> が無く自然言語運用の想定が薄い</td></tr>
     <tr><td>4b</td><td>専門ワーカー評価ケースと安全方針</td><td><code>worker_eval_cases</code> が無い／異常値や一括削除の聞き返し方針が無い</td></tr>

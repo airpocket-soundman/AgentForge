@@ -16,6 +16,9 @@
   ただし**テーマ（`default` / `warm` / `forest` / `ocean`）を配色・トーンの指針**として一貫させる。
   ユーザーの見た目指示が曖昧なら内容に最も近いプリセットを、指定が無ければ `default`。
   これにより機能を増やしても全体の見た目が崩れない（緩い制約）。
+- 外部サービスを使うアプリでも、生成HTMLに `fetch` / `XMLHttpRequest` / 任意URL / token を書かない。
+  ユーザーがプロフィールで許可したサービスだけ、`await AF.api("connector.action", params)` で呼ぶ。
+  例: `AF.api("bluesky.get_timeline", { limit: 30 })`。返り値が `{ok:false,error}` の場合は画面に接続案内を出す。
 
 ## ミニアプリの「内容編集ツール契約」（標準仕様・必須 / MCP形式）
 生成する機能＝「ミニアプリ」、その中身を担当するのが「専門ワーカー」。アプリ型（kind=app）を

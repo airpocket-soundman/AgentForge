@@ -546,3 +546,63 @@ export function setAppState(
     body: JSON.stringify({ project_id: projectId, state }),
   });
 }
+
+export interface ConnectorActionResult {
+  ok?: boolean;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface ConnectorInfo {
+  id: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  auth_modes: string[];
+  scopes: string[];
+  actions: Record<string, unknown>;
+  user_status: "connected" | "disconnected" | string;
+  account_label: string;
+  granted_scopes: string[];
+  credential_status: string;
+  updated_at?: string | null;
+  last_used_at?: string | null;
+}
+
+export function listConnectors(): Promise<{ items: ConnectorInfo[] }> {
+  return request<{ items: ConnectorInfo[] }>("/api/connectors");
+}
+
+export function connectConnector(
+  connectorId: string,
+  accountLabel = "",
+  scopes: string[] = ["read"],
+): Promise<ConnectorInfo> {
+  return request<ConnectorInfo>(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
+    method: "POST",
+    body: JSON.stringify({ account_label: accountLabel, scopes }),
+  });
+}
+
+export function disconnectConnector(connectorId: string): Promise<ConnectorInfo> {
+  return request<ConnectorInfo>(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
+    method: "DELETE",
+  });
+}
+
+export async function invokeConnectorAction(
+  feature: string,
+  name: string,
+  params: Record<string, unknown> = {},
+  projectId = PROJECT_ID,
+): Promise<ConnectorActionResult> {
+  try {
+    return await request<ConnectorActionResult>("/api/connectors/invoke", {
+      method: "POST",
+      body: JSON.stringify({ name, params, project_id: projectId, feature }),
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: message };
+  }
+}

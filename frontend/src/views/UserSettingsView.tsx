@@ -1,4 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  connectConnector,
+  disconnectConnector,
+  listConnectors,
+  type ConnectorInfo,
+} from "../api";
 
 export type LlmProvider = "gemini" | "openai" | "anthropic" | "codex";
 
@@ -52,6 +58,26 @@ export function UserSettingsView({
   const [settings, setSettings] = useState<UserSettings>(() => loadUserSettings());
   const [saved, setSaved] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+  const [connectorsLoading, setConnectorsLoading] = useState(true);
+  const [connectorError, setConnectorError] = useState<string | null>(null);
+  const [connectorBusy, setConnectorBusy] = useState<string | null>(null);
+
+  async function refreshConnectors() {
+    setConnectorError(null);
+    try {
+      const data = await listConnectors();
+      setConnectors(data.items || []);
+    } catch (e) {
+      setConnectorError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnectorsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshConnectors();
+  }, []);
 
   function patch(next: Partial<UserSettings>) {
     setSaved(false);
@@ -96,6 +122,33 @@ export function UserSettingsView({
     };
     reader.onerror = () => setImageError("画像を読み込めませんでした。");
     reader.readAsDataURL(file);
+  }
+
+  async function handleConnectorConnect(connector: ConnectorInfo) {
+    setConnectorBusy(connector.id);
+    setConnectorError(null);
+    try {
+      const scopes = connector.scopes.includes("read") ? ["read"] : connector.scopes.slice(0, 1);
+      await connectConnector(connector.id, connector.account_label || userEmail, scopes);
+      await refreshConnectors();
+    } catch (e) {
+      setConnectorError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnectorBusy(null);
+    }
+  }
+
+  async function handleConnectorDisconnect(connector: ConnectorInfo) {
+    setConnectorBusy(connector.id);
+    setConnectorError(null);
+    try {
+      await disconnectConnector(connector.id);
+      await refreshConnectors();
+    } catch (e) {
+      setConnectorError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setConnectorBusy(null);
+    }
   }
 
   return (
@@ -172,6 +225,65 @@ export function UserSettingsView({
             placeholder="例: 山下さん"
           />
         </label>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-title-row">
+          <h3>外部サービス接続</h3>
+          <span className="settings-disabled-badge">ユーザー許可</span>
+        </div>
+        <p className="settings-note">
+          ミニアプリが外部サービスを使うには、ここでユーザーが許可する必要があります。
+          認証情報やトークンは画面に表示しません。
+        </p>
+        {connectorsLoading && <div className="settings-note">接続可能なサービスを読み込み中...</div>}
+        {connectorError && <div className="error">{connectorError}</div>}
+        <div className="connector-list">
+          {connectors.map((connector) => {
+            const connected = connector.user_status === "connected";
+            const busy = connectorBusy === connector.id;
+            const actionCount = Object.keys(connector.actions || {}).length;
+            return (
+              <div
+                className={connector.enabled ? "connector-card" : "connector-card connector-card--disabled"}
+                key={connector.id}
+              >
+                <div className="connector-card__main">
+                  <div className="connector-card__title">
+                    <strong>{connector.label}</strong>
+                    <span>{connector.enabled ? "管理者有効" : "管理者無効"}</span>
+                    {connected && <span className="connector-card__ok">許可済み</span>}
+                  </div>
+                  <p>{connector.description}</p>
+                  <div className="connector-card__meta">
+                    <span>操作 {actionCount}件</span>
+                    <span>権限: {(connector.scopes || []).join(", ") || "-"}</span>
+                    <span>認証: {connector.credential_status}</span>
+                  </div>
+                </div>
+                <div className="connector-card__actions">
+                  {connected ? (
+                    <button
+                      className="settings-secondary"
+                      onClick={() => void handleConnectorDisconnect(connector)}
+                      disabled={busy}
+                    >
+                      切断
+                    </button>
+                  ) : (
+                    <button
+                      className="admin-save"
+                      onClick={() => void handleConnectorConnect(connector)}
+                      disabled={!connector.enabled || busy}
+                    >
+                      許可する
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="settings-section settings-section--disabled" aria-disabled="true">

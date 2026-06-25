@@ -100,8 +100,9 @@ function LandingPage({
             <h1>会話だけで、自分専用アプリを作って育てる。</h1>
             <p>
               AgentForge は、非エンジニアでもメインチャットからミニアプリを作成・改変・公開・巻き戻しできる、
-              自己拡張型の AI ワークベンチです。裏側では複数のワーカー、Safety Harness、Agent Harness が、
-              設計から検証、承認、監査までを分担します。
+              自己拡張型の AI ワークベンチです。メモ、スケジュール、タスク管理などのデフォルトアプリから始めて、
+              UI や機能を自分好みに育てることも、まったく新しいアプリを作ることもできます。
+              裏側では複数のワーカー、Safety Harness、Agent Harness が、設計から検証、承認、監査までを分担します。
             </p>
             <div className="landing-actions">
               {user ? (
@@ -129,21 +130,22 @@ function LandingPage({
         <section className="landing-band" id="beginner">
           <div className="landing-section-head">
             <span>Beginner View</span>
-            <h2>使う人から見ると、流れは3つだけ</h2>
+            <h2>ゼロから作らなくても、まず使いながら育てられる</h2>
             <p>
-              AgentForge は、開発用語を知らなくても「作りたいことを話す」だけで始められます。
+              いきなり白紙からアプリを設計する必要はありません。用意されたデフォルトアプリを選び、
+              「色を変えて」「項目を増やして」「この操作を追加して」のように話すだけで、
               AI が下書き、実装、検証を進め、最後に人間が確認して反映します。
             </p>
           </div>
           <div className="landing-simple-flow" aria-label="AgentForge の基本利用フロー">
             <div className="landing-simple-step landing-simple-step--talk">
-              <strong>1. 話す</strong>
-              <span>メインチャットに、作りたいアプリや直したい点をそのまま伝えます。</span>
+              <strong>1. 選ぶ / 話す</strong>
+              <span>デフォルトアプリを選ぶか、作りたいものや直したい点をそのまま伝えます。</span>
             </div>
             <div className="landing-flow-arrow" aria-hidden="true">→</div>
             <div className="landing-simple-step landing-simple-step--build">
-              <strong>2. AI が作る</strong>
-              <span>複数のワーカーが設計、コード生成、動作確認、レビューを分担します。</span>
+              <strong>2. AI が直す / 作る</strong>
+              <span>UI の変更、機能追加、新規作成をワーカーが設計、コード生成、動作確認、レビューします。</span>
             </div>
             <div className="landing-flow-arrow" aria-hidden="true">→</div>
             <div className="landing-simple-step landing-simple-step--approve">
@@ -156,9 +158,9 @@ function LandingPage({
         <section className="landing-band" id="features">
           <h2>話すだけで DevOps を回す</h2>
           <div className="landing-grid">
-            <div><b>つくる</b><span>Receptor と Orchestrator が要求を整理し、設計案から実装へ進めます。</span></div>
+            <div><b>選んで育てる</b><span>メモ、スケジュール、タスク管理などを起点に、見た目や操作を自分用へ変えられます。</span></div>
+            <div><b>機能を足す</b><span>「この項目を追加」「こう表示して」など、欲しい機能を会話で実装できます。</span></div>
             <div><b>ためす</b><span>Tester と Reviewer が動作と規約を確認し、未完成の公開を防ぎます。</span></div>
-            <div><b>見える化</b><span>Agent Harness が判断、成果物、検証結果を記録し、ユーザーには短い進捗として伝えます。</span></div>
             <div><b>とどける</b><span>プレビュー確認後、「反映して」で公開。履歴から巻き戻しもできます。</span></div>
           </div>
         </section>

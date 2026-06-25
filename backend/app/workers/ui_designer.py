@@ -140,6 +140,9 @@ html の要件（重要）:
     const state = await AF.load();   // 保存済みの状態(任意のJSON)。無ければ null。
     await AF.save(state);            // 状態(JSONにできる値)を保存する。
   ※ localStorage / cookie / fetch / 外部通信 / 別ウィンドウ は使えない（サンドボックス）。保存は必ず AF を使う。
+  ※ 外部サービスを使う必要がある場合も fetch は使わず、許可済みコネクタだけを
+    `await AF.api("connector.action", params)` で呼ぶ。例: `AF.api("bluesky.get_timeline", {limit: 30})`。
+    使える connector/action はユーザーがプロフィールで許可し、AgentForge backend が検証する。
   ※ 保存する状態は JSON 化できる小さなデータにする（例: 盤面配列、現在ピース、次ピース、スコア、設定、入力値）。
   ※ 電卓・時計など、本当に途中状態を保持しなくてもよい一時操作だけは AF を使わなくてよい。
 - **大きいファイル（PDF・画像・音声など）は AF.save の状態に入れない**（状態は約1MB上限。巨大 base64 を

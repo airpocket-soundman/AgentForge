@@ -1,5 +1,11 @@
 import { useEffect, useRef } from "react";
-import { getAppState, sendFeatureWorkerMessage, setAppState, type Attachment } from "../api";
+import {
+  getAppState,
+  invokeConnectorAction,
+  sendFeatureWorkerMessage,
+  setAppState,
+  type Attachment,
+} from "../api";
 
 // --- Browser-local binary store (IndexedDB) for AF.saveBlob/loadBlob ----------
 // Large files (PDFs, images) can't go in AF.save: that whole-state blob is a
@@ -91,6 +97,10 @@ const AF_PRELUDE = `<meta http-equiv="Content-Security-Policy" content="default-
     loadBlob:function(name){return req('blob_load',{name:name});},
     listBlobs:function(){return req('blob_list');},
     deleteBlob:function(name){return req('blob_delete',{name:name});},
+    // api("connector.action", params): safe external API access through the
+    // AgentForge shell/backend connector registry. The sandbox still has
+    // connect-src 'none'; generated HTML never sees URLs, headers, or secrets.
+    api:function(name,params){return req('api',{name:String(name||''),params:params||{}});},
     // askWorker(text,{images}): let the APP itself invoke its Specialist Worker
     // (e.g. a 翻訳 button) — images are data: URLs. Returns {reply,command}; any
     // returned content command is also dispatched to applyAgentCommand.
@@ -175,6 +185,7 @@ export function AppFrame({
       if (!live) {
         // Preview: feature isn't published yet. load/list → empty; askWorker n/a.
         if (d.op === "ask_worker") { reply({ reply: "（プレビューでは実行できません。公開後にお使いください）", command: null }); return; }
+        if (d.op === "api") { reply({ ok: false, error: "プレビューでは外部APIコネクタを実行できません。公開後にお使いください。" }); return; }
         reply(d.op === "load" || d.op === "blob_load" ? null : d.op === "blob_list" ? [] : true);
         return;
       }
@@ -202,6 +213,11 @@ export function AppFrame({
         getAppState(feature).then((s) => reply(s)).catch(() => reply(null));
       } else if (d.op === "save") {
         setAppState(feature, d.payload).then(() => reply(true)).catch(() => reply(false));
+      } else if (d.op === "api") {
+        const p = (d.payload as { name?: string; params?: Record<string, unknown> }) || {};
+        invokeConnectorAction(feature, String(p.name || ""), p.params || {})
+          .then(reply)
+          .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
       } else if (d.op === "blob_save") {
         blobSave(feature, bname, bp.data).then(reply).catch(() => reply(false));
       } else if (d.op === "blob_load") {

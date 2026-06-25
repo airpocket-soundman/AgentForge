@@ -6,6 +6,9 @@
 ## 見るべき主な規約（不適合は指摘する）
 - 単一の完結 HTML（`<!DOCTYPE html>` 始まり）。説明文や謝罪文を html に混ぜない。
 - 外部通信なしで自己完結：`fetch` / `XMLHttpRequest` / 外部 CDN・外部リソース読込は禁止。
+  外部サービス連携が必要な場合は、生成HTML内の直接通信ではなく
+  `AF.api("connector.action", params)` のみ許可する。これは親フレームとbackendの
+  connector registryを通る公式ブリッジで、URL・ヘッダ・tokenを生成HTMLへ出さない。
 - 保存は `AF.load()/AF.save()` のみ。`localStorage` / `sessionStorage` / `cookie` は禁止。
 - 状態を持つアプリ（タスク/メモ/フォーム/設定/ゲームの盤面・スコア・進行状態など）は、画面遷移・
   リロード後に復元できるよう `AF.load()` と `AF.save()` を使っていること。ゲームも保存対象。
