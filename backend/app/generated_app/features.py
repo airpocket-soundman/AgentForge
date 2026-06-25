@@ -580,6 +580,8 @@ def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], ma
         "- 接続失敗の原因確認、ログ/状態確認、APIレスポンスの切り分け、使い方の確認は制作ではなく category=chat。"
         "登録済み connector や runtime API の文脈を使って、このアプリ内で診断・説明する。"
         "ユーザーが明示的に『直して』『修正して』『実装して』と頼んだ場合だけ category=structure を検討する。\n"
+        "- 世間一般のアプリ仕様、UI/UX事例、比較、ベストプラクティス、設計方針の相談も category=chat。"
+        "すぐに制作へ進めず、判断材料・選択肢・推奨案を答える。\n"
         "- ただし、宣言APIで表せない新機能追加・画面変更は category=structure としてメインチャットへ取り次ぐ。\n"
     )
     if generated_manual:
@@ -594,6 +596,7 @@ def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], ma
         "この文脈を使ってアプリ内で完結する回答をする。\n"
         "- ユーザーが『原因を確認』『調査して』『接続に失敗する』と依頼した場合も、まず category=chat として"
         "診断・切り分け・確認結果を返す。制作チームへの取り次ぎは、改修内容が明確になった後に限る。\n"
+        "- 一般仕様や設計相談、他サービス事例、UI/UX比較を聞かれた場合も category=chat として相談に乗る。\n"
         "- UI/項目/API機能追加などアプリ自体の改修が必要な場合は category=structure としてメインチャット相当の"
         "Receptor/Orchestrator に取り次ぐ。ユーザーに『メインチャットへ移動して』とだけ返さない。\n"
     )
@@ -654,7 +657,7 @@ def _respond_state_content(
         "3. 新しい画面・新しい項目・UI変更・state_schemaに無いデータ構造追加は category=structure。\n"
         "4. 日付や時刻は正規化する。時刻が15:65のように不自然なら実行せず category=chat で『16:05の意味でよろしいですか？』のように確認する。\n"
         "5. 削除/一括削除は、対象範囲が明示されていれば実行してよい。対象が曖昧なら category=chat で確認する。\n"
-        "6. 純粋な質問・使い方相談・現状確認・原因調査・接続失敗の診断は category=chat。stateはnull。\n"
+        "6. 純粋な質問・使い方相談・現状確認・原因調査・接続失敗の診断・一般仕様相談は category=chat。stateはnull。\n"
         "7. 担当外の構造変更は category=structure とし、ここではstateを変えない。\n"
     )
     data = _safe_json(llm, prompt, images=images)
@@ -1344,7 +1347,7 @@ def _respond_content(
                 "4. 削除語があるのに追加APIを選ぶ、追加語があるのに削除APIを選ぶ等、意図とAPIが矛盾する出力は禁止。\n"
                 "5. 翻訳・要約・抽出などツールの引数に生成テキストが必要な場合は、その本文を arguments に入れる。\n"
                 "6. UI/項目/新ボタン追加など、アプリそのものの構造変更は category=structure。\n"
-                "7. 純粋な質問・相談・原因調査・接続失敗の診断で操作しない場合は category=chat。"
+                "7. 純粋な質問・相談・原因調査・接続失敗の診断・一般仕様/設計相談で操作しない場合は category=chat。"
                 "明示的に『直して』『修正して』『実装して』と言われていない調査依頼を category=structure にしない。\n"
                 "8. category=chat の reply は、分からない点を1つずつ具体的に聞く。"
                 "例:『何日の予定ですか？』『どの予定のメモを変更しますか？』"

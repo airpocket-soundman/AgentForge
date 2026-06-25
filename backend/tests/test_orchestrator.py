@@ -46,3 +46,12 @@ def test_classify_stub_treats_connection_investigation_as_chat():
         "bluesky_viewer",
     )
     assert result == {"action": "chat", "feature": None}
+
+
+def test_classify_stub_treats_general_spec_consultation_as_chat():
+    result = service._classify_stub(
+        "SNSアプリの世間一般の仕様やUI事例を比較して相談したい",
+        {"bluesky_viewer": "Bluesky縦書きビューア"},
+        "bluesky_viewer",
+    )
+    assert result == {"action": "chat", "feature": None}

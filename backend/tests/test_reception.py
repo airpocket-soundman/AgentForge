@@ -33,6 +33,12 @@ def test_connection_failure_investigation_stays_with_receptor():
     assert service.classify(text) == "chat"
 
 
+def test_general_app_spec_consultation_stays_with_receptor():
+    text = "SNSアプリの世間一般の仕様やUI事例について相談したい"
+    assert service.is_receptor_direct_question(text)
+    assert service.classify(text) == "chat"
+
+
 def test_compose_reply_mentions_feature_label():
     reply = service.compose_reply("タスク管理を追加して", "build_feature:task")
     assert "タスク管理" in reply
