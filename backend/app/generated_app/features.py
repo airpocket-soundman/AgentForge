@@ -238,10 +238,11 @@ def _user_context_instruction(user_call_name: str | None) -> str:
     name = " ".join((user_call_name or "").split())[:40]
     if not name:
         return ""
+    display_name = name if name.endswith(("さん", "様", "くん", "ちゃん")) else f"{name}さん"
     return (
         "\n\n[ユーザー設定]\n"
-        f"ユーザーの呼び名: {name}\n"
-        "以後、自然な範囲でこの呼び名でユーザーに呼びかけてください。"
+        f"ユーザーの呼び名: {display_name}\n"
+        "以後、自然な範囲でこの呼び名でユーザーに呼びかけてください。敬称は省略しないでください。"
         "ただし毎回・毎文のように過度には呼ばないでください。"
     )
 
