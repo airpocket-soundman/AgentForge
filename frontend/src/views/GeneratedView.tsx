@@ -5,7 +5,6 @@ import {
   getFeatureWorker,
   getView,
   sendFeatureWorkerMessage,
-  sendMessage,
   type ChatMessage,
   type ConversationState,
   type FeatureWorkerState,
@@ -222,7 +221,14 @@ export function GeneratedView({
     setActing(true);
     setError(null);
     try {
-      await sendMessage("反映して"); // shared pipeline: publishes the pending change
+      await sendFeatureWorkerMessage(
+        feature,
+        "反映して",
+        [],
+        undefined,
+        chatContext.id,
+        chatContext.label,
+      );
       setManifest(await getView(feature)); // the live app changed
       await loadAll();
       onEdited?.();
@@ -238,7 +244,14 @@ export function GeneratedView({
     setActing(true);
     setError(null);
     try {
-      await sendMessage("キャンセル");
+      await sendFeatureWorkerMessage(
+        feature,
+        "キャンセル",
+        [],
+        undefined,
+        chatContext.id,
+        chatContext.label,
+      );
       await loadAll();
     } catch (e) {
       setError(msg(e));
