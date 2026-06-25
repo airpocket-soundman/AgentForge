@@ -9,6 +9,7 @@ pydantic>=2.9,<3
 pydantic-settings>=2.5,<3
 python-dotenv>=1.0
 httpx>=0.27  # claude-cli provider -> host bridge (also pulled by google-genai)
+cryptography>=43.0  # encrypt user connector credentials before Firestore storage
 
 # Google Cloud
 google-cloud-firestore>=2.19

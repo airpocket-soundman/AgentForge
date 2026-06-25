@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     guest_access_enabled: bool = False
     guest_email: str = "guest@agentforge.local"
 
+    # Server-side encryption key for external connector credentials. Store this
+    # in Secret Manager on Cloud Run and inject it as CONNECTOR_CREDENTIALS_KEY.
+    # Existing plaintext connector docs are read for migration compatibility, but
+    # new/updated credentials require this value.
+    connector_credentials_key: str | None = None
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

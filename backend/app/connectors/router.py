@@ -10,10 +10,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from google.cloud.firestore_v1 import DELETE_FIELD
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, current_user
 from app.connectors.adapters import ConnectorError, invoke_connector
+from app.connectors.crypto import CredentialCryptoError, encrypt_credentials, extract_credentials
 from app.connectors.registry import get_connector, list_connectors, split_action_name
 from app.control_plane.registry import _audit
 from app.firestore import get_db
@@ -44,7 +46,10 @@ def _credential_state(user: CurrentUser, connector_id: str) -> dict[str, Any] | 
 def _credential_status(user: CurrentUser, connector_id: str, state: dict[str, Any]) -> str:
     if state.get("credential_status") == "configured":
         return "configured"
-    return "configured" if _credential_state(user, connector_id) else "not_configured"
+    credential_state = _credential_state(user, connector_id)
+    if not credential_state:
+        return "not_configured"
+    return "configured" if credential_state.get("encrypted_credential") or credential_state.get("credential") else "not_configured"
 
 
 def _public_connector(
@@ -120,10 +125,14 @@ def connect(connector_id: str, body: ConnectorConnectionIn, user: CurrentUser = 
     credential_fields = connector.get("credential_fields") or []
     credentials = {str(k): str(v).strip() for k, v in (body.credentials or {}).items() if str(v).strip()}
     existing_credential = _credential_state(user, connector_id)
+    try:
+        existing_values = extract_credentials(existing_credential)
+    except CredentialCryptoError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     missing = [
         field["key"]
         for field in credential_fields
-        if field.get("required") and not credentials.get(field["key"]) and not (existing_credential or {}).get("credential", {}).get(field["key"])
+        if field.get("required") and not credentials.get(field["key"]) and not existing_values.get(field["key"])
     ]
     if missing:
         raise HTTPException(status_code=400, detail=f"認証情報が不足しています: {', '.join(missing)}")
@@ -135,13 +144,17 @@ def connect(connector_id: str, body: ConnectorConnectionIn, user: CurrentUser = 
             if key in allowed_fields and value
         }
         if stored:
-            current_credential = (existing_credential or {}).get("credential") or {}
+            try:
+                encrypted = encrypt_credentials({**existing_values, **stored})
+            except CredentialCryptoError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
             _credential_doc(user, connector_id).set(
                 {
                     "uid": user.uid,
                     "email": user.email,
                     "connector_id": connector_id,
-                    "credential": {**current_credential, **stored},
+                    "encrypted_credential": encrypted,
+                    "credential": DELETE_FIELD,
                     "updated_at": _now_iso(),
                 },
                 merge=True,
@@ -208,7 +221,10 @@ def invoke(body: ConnectorInvokeIn, user: CurrentUser = Depends(current_user)) -
         raise HTTPException(status_code=403, detail="この操作に必要な権限がありません")
 
     credential_state = _credential_state(user, connector_id)
-    credential = (credential_state or {}).get("credential") or {}
+    try:
+        credential = extract_credentials(credential_state)
+    except CredentialCryptoError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     if not credential:
         raise HTTPException(status_code=403, detail="プロフィールでこの外部サービスの認証情報を設定してください")
 
