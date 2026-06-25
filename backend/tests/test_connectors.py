@@ -1,7 +1,5 @@
 from app.connectors.registry import get_connector, list_connectors, split_action_name
 from app.connectors.adapters import ConnectorError, invoke_connector
-from app.config import get_settings
-from app.connectors.crypto import encrypt_credentials, extract_credentials
 from app.workers.reviewer import _static_findings
 
 
@@ -84,20 +82,3 @@ def test_github_adapter_rejects_bad_repo():
         assert "owner/name" in exc.message
     else:
         raise AssertionError("ConnectorError was not raised")
-
-
-def test_connector_credentials_are_encrypted(monkeypatch):
-    monkeypatch.setenv("CONNECTOR_CREDENTIALS_KEY", "test-only-connector-key")
-    get_settings.cache_clear()
-    payload = {"token": "secret-token"}
-
-    encrypted = encrypt_credentials(payload)
-
-    assert encrypted["scheme"] == "fernet:v1"
-    assert "secret-token" not in encrypted["ciphertext"]
-    assert extract_credentials({"encrypted_credential": encrypted}) == payload
-    get_settings.cache_clear()
-
-
-def test_legacy_plaintext_credentials_remain_readable():
-    assert extract_credentials({"credential": {"token": "legacy"}}) == {"token": "legacy"}

@@ -31,14 +31,6 @@ gcloud secrets add-iam-policy-binding gemini-api-key \
   --member="serviceAccount:$SA" \
   --role="roles/secretmanager.secretAccessor"
 
-# 外部サービス連携のユーザー認証情報をFirestore保存前に暗号化する鍵。
-# 既に作成済みなら create は不要。値は長いランダム文字列にする。
-openssl rand -base64 32 | gcloud secrets create connector-credentials-key --data-file=-
-
-gcloud secrets add-iam-policy-binding connector-credentials-key \
-  --member="serviceAccount:$SA" \
-  --role="roles/secretmanager.secretAccessor"
-
 gcloud projects add-iam-policy-binding $PROJECT \
   --member="serviceAccount:$SA" \
   --role="roles/datastore.user"
@@ -52,7 +44,7 @@ gcloud run deploy agentforge-core-api \
   --allow-unauthenticated \
   --min-instances=0 \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT,GOOGLE_CLOUD_REGION=$REGION,ALLOWED_EMAILS=yamashita.3154@gmail.com,GUEST_ACCESS_ENABLED=false" \
-  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest,CONNECTOR_CREDENTIALS_KEY=connector-credentials-key:latest"
+  --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
 ```
 - `ALLOWED_EMAILS`：このメール**以外はログインしてもアプリを使えない**（API 403／UIはアクセス拒否画面）。
   複数許可する場合は **`;`（セミコロン）区切り**：`ALLOWED_EMAILS=a@x.com;b@y.com`（カンマは gcloud と衝突するので不可）。
