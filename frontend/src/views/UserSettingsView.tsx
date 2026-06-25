@@ -62,6 +62,7 @@ export function UserSettingsView({
   const [connectorsLoading, setConnectorsLoading] = useState(true);
   const [connectorError, setConnectorError] = useState<string | null>(null);
   const [connectorBusy, setConnectorBusy] = useState<string | null>(null);
+  const [connectorCredentials, setConnectorCredentials] = useState<Record<string, Record<string, string>>>({});
 
   async function refreshConnectors() {
     setConnectorError(null);
@@ -124,12 +125,41 @@ export function UserSettingsView({
     reader.readAsDataURL(file);
   }
 
+  function patchConnectorCredential(connectorId: string, key: string, value: string) {
+    setConnectorCredentials((current) => ({
+      ...current,
+      [connectorId]: {
+        ...(current[connectorId] || {}),
+        [key]: value,
+      },
+    }));
+  }
+
+  function missingCredentialFields(connector: ConnectorInfo): string[] {
+    const current = connectorCredentials[connector.id] || {};
+    return (connector.credential_fields || [])
+      .filter((field) => field.required)
+      .filter((field) => connector.credential_status !== "configured" && !current[field.key]?.trim())
+      .map((field) => field.label || field.key);
+  }
+
   async function handleConnectorConnect(connector: ConnectorInfo) {
+    const missing = missingCredentialFields(connector);
+    if (missing.length > 0) {
+      setConnectorError(`${connector.label} の認証情報が不足しています: ${missing.join(", ")}`);
+      return;
+    }
     setConnectorBusy(connector.id);
     setConnectorError(null);
     try {
       const scopes = connector.scopes.includes("read") ? ["read"] : connector.scopes.slice(0, 1);
-      await connectConnector(connector.id, connector.account_label || userEmail, scopes);
+      await connectConnector(
+        connector.id,
+        connector.account_label || userEmail,
+        scopes,
+        connectorCredentials[connector.id] || {},
+      );
+      setConnectorCredentials((current) => ({ ...current, [connector.id]: {} }));
       await refreshConnectors();
     } catch (e) {
       setConnectorError(e instanceof Error ? e.message : String(e));
@@ -241,8 +271,11 @@ export function UserSettingsView({
         <div className="connector-list">
           {connectors.map((connector) => {
             const connected = connector.user_status === "connected";
+            const configured = connector.credential_status === "configured";
             const busy = connectorBusy === connector.id;
             const actionCount = Object.keys(connector.actions || {}).length;
+            const missing = missingCredentialFields(connector);
+            const canSubmit = connector.enabled && !busy && missing.length === 0;
             return (
               <div
                 className={connector.enabled ? "connector-card" : "connector-card connector-card--disabled"}
@@ -252,7 +285,8 @@ export function UserSettingsView({
                   <div className="connector-card__title">
                     <strong>{connector.label}</strong>
                     <span>{connector.enabled ? "管理者有効" : "管理者無効"}</span>
-                    {connected && <span className="connector-card__ok">許可済み</span>}
+                    {connected && configured && <span className="connector-card__ok">接続済み</span>}
+                    {connected && !configured && <span>認証情報未設定</span>}
                   </div>
                   <p>{connector.description}</p>
                   <div className="connector-card__meta">
@@ -260,23 +294,49 @@ export function UserSettingsView({
                     <span>権限: {(connector.scopes || []).join(", ") || "-"}</span>
                     <span>認証: {connector.credential_status}</span>
                   </div>
+                  {(connector.credential_fields || []).length > 0 && (
+                    <div className="connector-card__credentials">
+                      {(connector.credential_fields || []).map((field) => (
+                        <label key={field.key}>
+                          {field.label}
+                          <input
+                            type={field.type === "password" ? "password" : "text"}
+                            value={connectorCredentials[connector.id]?.[field.key] || ""}
+                            onChange={(e) => patchConnectorCredential(connector.id, field.key, e.target.value)}
+                            placeholder={configured ? "保存済み。変更時のみ入力" : field.required ? "必須" : "任意"}
+                            autoComplete="off"
+                            disabled={!connector.enabled || busy}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="connector-card__actions">
                   {connected ? (
-                    <button
-                      className="settings-secondary"
-                      onClick={() => void handleConnectorDisconnect(connector)}
-                      disabled={busy}
-                    >
-                      切断
-                    </button>
+                    <>
+                      <button
+                        className="admin-save"
+                        onClick={() => void handleConnectorConnect(connector)}
+                        disabled={!canSubmit}
+                      >
+                        更新
+                      </button>
+                      <button
+                        className="settings-secondary"
+                        onClick={() => void handleConnectorDisconnect(connector)}
+                        disabled={busy}
+                      >
+                        切断
+                      </button>
+                    </>
                   ) : (
                     <button
                       className="admin-save"
                       onClick={() => void handleConnectorConnect(connector)}
-                      disabled={!connector.enabled || busy}
+                      disabled={!canSubmit}
                     >
-                      許可する
+                      接続
                     </button>
                   )}
                 </div>

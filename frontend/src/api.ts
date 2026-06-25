@@ -559,6 +559,7 @@ export interface ConnectorInfo {
   description: string;
   enabled: boolean;
   auth_modes: string[];
+  credential_fields?: { key: string; label: string; type: "text" | "password"; required?: boolean }[];
   scopes: string[];
   actions: Record<string, unknown>;
   user_status: "connected" | "disconnected" | string;
@@ -577,10 +578,11 @@ export function connectConnector(
   connectorId: string,
   accountLabel = "",
   scopes: string[] = ["read"],
+  credentials: Record<string, string> = {},
 ): Promise<ConnectorInfo> {
   return request<ConnectorInfo>(`/api/connectors/${encodeURIComponent(connectorId)}/connection`, {
     method: "POST",
-    body: JSON.stringify({ account_label: accountLabel, scopes }),
+    body: JSON.stringify({ account_label: accountLabel, scopes, credentials }),
   });
 }
 

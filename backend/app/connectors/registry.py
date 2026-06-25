@@ -20,6 +20,10 @@ CONNECTORS: dict[str, Connector] = {
         "description": "タイムライン、プロフィール、スレッドを扱うSNSコネクタ。",
         "enabled": True,
         "auth_modes": ["app_password", "oauth_future"],
+        "credential_fields": [
+            {"key": "identifier", "label": "Handle / email", "type": "text", "required": True},
+            {"key": "app_password", "label": "App Password", "type": "password", "required": True},
+        ],
         "scopes": ["read", "write"],
         "actions": {
             "get_profile": {"side_effect": "read", "enabled": True, "params_schema": {"handle": "string?"}},
@@ -33,7 +37,10 @@ CONNECTORS: dict[str, Connector] = {
         "label": "GitHub",
         "description": "Issue、Pull Request、コメントを扱う開発コネクタ。",
         "enabled": True,
-        "auth_modes": ["oauth_future", "token_future"],
+        "auth_modes": ["personal_access_token", "oauth_future"],
+        "credential_fields": [
+            {"key": "token", "label": "Personal Access Token", "type": "password", "required": True},
+        ],
         "scopes": ["read", "write"],
         "actions": {
             "list_issues": {"side_effect": "read", "enabled": True, "params_schema": {"repo": "string", "state": "string?"}},
@@ -46,7 +53,10 @@ CONNECTORS: dict[str, Connector] = {
         "label": "Notion",
         "description": "データベース、ページ、タスク表を扱うコネクタ。",
         "enabled": True,
-        "auth_modes": ["oauth_future", "integration_token_future"],
+        "auth_modes": ["integration_token", "oauth_future"],
+        "credential_fields": [
+            {"key": "token", "label": "Integration Token", "type": "password", "required": True},
+        ],
         "scopes": ["read", "write"],
         "actions": {
             "query_database": {"side_effect": "read", "enabled": True, "params_schema": {"database_id": "string", "filter": "object?"}},
@@ -143,4 +153,3 @@ def split_action_name(name: str) -> tuple[str, str]:
     if not dot or not left or not right:
         raise ValueError("action name must be '<connector>.<action>'")
     return left, right
-

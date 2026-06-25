@@ -1860,6 +1860,7 @@ button { font: inherit; }
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 .connector-card__title,
@@ -1894,6 +1895,48 @@ button { font: inherit; }
 }
 .connector-card__actions {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.connector-card__credentials {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+}
+.connector-card__credentials label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--gv-muted);
+  font-size: 12px;
+}
+.connector-card__credentials input {
+  min-height: 36px;
+  border: 1px solid var(--gv-border-strong);
+  border-radius: 8px;
+  background: var(--gv-surface);
+  color: var(--gv-text);
+  padding: 7px 9px;
+  font: inherit;
+}
+.connector-card__credentials input:disabled {
+  cursor: not-allowed;
+  background: #e4e7ef;
+  color: #8c93a8;
+}
+@media (max-width: 760px) {
+  .connector-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .connector-card__credentials {
+    grid-template-columns: 1fr;
+  }
+  .connector-card__actions {
+    justify-content: flex-end;
+  }
 }
 
 /* ---- BYOK stub (disabled form + apology modal) ---- */
