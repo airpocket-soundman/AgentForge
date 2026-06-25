@@ -150,6 +150,10 @@ html の要件（重要）:
     接続設定だけを扱う画面は、それ自体を worker_state_mode='hybrid' にしない。connector 定義は
     AF.defineConnector 側で永続化されるため、state_schema に base_url、token、認証ヘッダ、
     connector 定義を入れない。公開済み接続の表示は AF.listConnectors() から復元する。
+    Bluesky/AT Protocol の認証が必要な API は、App Password を Bearer token として使わない。
+    まず auth:{type:"none"} の connector/action で POST /xrpc/com.atproto.server.createSession を呼び、
+    返った accessJwt を auth:{type:"bearer", token: accessJwt} の connector に入れて
+    GET /xrpc/app.bsky.feed.getTimeline 等を呼ぶ。App Password と accessJwt は AF.save() state に保存しない。
   ※ 保存する状態は JSON 化できる小さなデータにする（例: 盤面配列、現在ピース、次ピース、スコア、設定、入力値）。
   ※ 電卓・時計など、本当に途中状態を保持しなくてもよい一時操作だけは AF を使わなくてよい。
 - **大きいファイル（PDF・画像・音声など）は AF.save の状態に入れない**（状態は約1MB上限。巨大 base64 を

@@ -20,3 +20,7 @@
   connector 定義は `connector_id`、`base_url`、`auth`、`actions`（method/path/side_effect）を持つ形で計画する。
   接続定義の永続化は `AF.defineConnector` が担うため、接続フォームだけを理由に `worker_state_mode=hybrid` や
   `state_schema.settings.baseUrl` を要求しない。アプリ固有の非接続データがある場合だけ AF.load/AF.save の state を設計する。
+  Bluesky/AT Protocol を扱う場合、App Password は Bearer token ではない。AgentForge 本体に専用認証を要求せず、
+  ミニアプリ内で `auth:{type:"none"}` の `createSession` connector を定義して
+  `/xrpc/com.atproto.server.createSession` を呼び、返った `accessJwt` を使って
+  `auth:{type:"bearer", token: accessJwt}` の API connector を再定義してから timeline 等を呼ぶ設計にする。

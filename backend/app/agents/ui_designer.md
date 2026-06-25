@@ -26,6 +26,10 @@
   `const res = await AF.api("my_api.list_items", { limit: 20 })`
   接続設定だけを扱う画面は、それ自体を `worker_state_mode: "hybrid"` にしない。connector 定義は `AF.defineConnector` 側で永続化されるため、
   `state_schema` に `base_url`、token、認証ヘッダ、connector 定義を入れない。公開済み接続の表示は `AF.listConnectors()` から復元する。
+  Bluesky/AT Protocol のユーザータイムラインなど認証が必要な API は、App Password を Bearer token として使わない。
+  まず `auth:{type:"none"}` の connector/action で `POST /xrpc/com.atproto.server.createSession` を呼び、
+  返った `accessJwt` を `auth:{type:"bearer", token: accessJwt}` の connector に入れて
+  `GET /xrpc/app.bsky.feed.getTimeline` 等を呼ぶ。App Password と accessJwt は `AF.save()` state に保存しない。
 
 ## ミニアプリの「内容編集ツール契約」（標準仕様・必須 / MCP形式）
 生成する機能＝「ミニアプリ」、その中身を担当するのが「専門ワーカー」。アプリ型（kind=app）を

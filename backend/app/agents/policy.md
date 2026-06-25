@@ -38,6 +38,9 @@
    必要ならミニアプリ内の「接続テンプレート」として定義フォームの初期値にするだけに留める。
    connector 定義は `AF.defineConnector` 側で永続化されるため、接続設定だけを理由に AF.save state や
    `worker_state_mode=hybrid` を作らない。保存済み接続の表示は `AF.listConnectors()` を使う。
+   Bluesky/AT Protocol の App Password は Bearer token ではない。ミニアプリ側で
+   `createSession` action（auth none）を呼び、返った `accessJwt` を `auth:{type:"bearer", token: accessJwt}` の
+   connector に入れて認証が必要な API を呼ぶ。
 7. ユーザーがアプリ自体を明示的に削除した場合は、削除前に「巻き戻し可能な状態で削除」か
    「完全に削除」かを質問して選ばせる。
    - 巻き戻し可能な削除: 左メニューから外すが、データ・版履歴・要求台帳などは残す。
