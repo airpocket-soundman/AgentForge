@@ -47,6 +47,10 @@ _QUESTION_MARKERS = (
     "？", "?", "どんな", "何が", "なにが", "教えて", "ありますか", "ある？",
     "できますか", "できる？", "使い方", "とは", "一覧",
 )
+_INVESTIGATION_MARKERS = (
+    "原因", "確認して", "確認してください", "調べて", "調査", "診断", "検証して",
+    "見て", "見直して", "接続に失敗", "失敗する", "動かない", "エラー", "ログ",
+)
 _DIRECT_BUILD_PHRASES = (
     "作って", "つくって", "追加して", "入れて", "実装して", "直して", "変更して", "修正して",
     "作成して", "生成して", "build", "create", "add",
@@ -79,7 +83,7 @@ def is_receptor_direct_question(text: str) -> bool:
         return False
     if any(p in t for p in _DIRECT_BUILD_PHRASES):
         return False
-    return any(q in t for q in _QUESTION_MARKERS)
+    return any(q in t for q in _QUESTION_MARKERS) or any(q in t for q in _INVESTIGATION_MARKERS)
 
 
 def is_template_catalogue_question(text: str) -> bool:

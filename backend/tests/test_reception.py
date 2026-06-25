@@ -27,6 +27,12 @@ def test_detect_intent_none_without_build_keyword():
     assert service.detect_intent("今日の天気は？") is None
 
 
+def test_connection_failure_investigation_stays_with_receptor():
+    text = "Blueskyアプリで接続に失敗するので原因を確認してください"
+    assert service.is_receptor_direct_question(text)
+    assert service.classify(text) == "chat"
+
+
 def test_compose_reply_mentions_feature_label():
     reply = service.compose_reply("タスク管理を追加して", "build_feature:task")
     assert "タスク管理" in reply

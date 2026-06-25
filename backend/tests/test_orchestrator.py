@@ -37,3 +37,12 @@ def test_summary_mentions_pending():
     summary = service._summarize(plan)
     assert "pending" in summary
     assert "task_list_api" in summary
+
+
+def test_classify_stub_treats_connection_investigation_as_chat():
+    result = service._classify_stub(
+        "Blueskyアプリで接続に失敗するので原因を確認してください",
+        {"bluesky_viewer": "Bluesky縦書きビューア"},
+        "bluesky_viewer",
+    )
+    assert result == {"action": "chat", "feature": None}
