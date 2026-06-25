@@ -1975,6 +1975,8 @@ button { font: inherit; }
 .feature-worker__off { flex: 0 0 auto; }
 .fw-scroll { flex: 1 1 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
 .fw-preview .fw-actions { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--gv-border); background: var(--gv-surface); }
+.fw-progress { border: 1px solid var(--gv-border); border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.fw-progress .bubble { margin-left: 8px; margin-right: 8px; }
 .fw-actions button { padding: 8px 14px; border: 0; border-radius: 9px; background: var(--gv-accent, #6366f1); color: #fff; cursor: pointer; }
 .fw-actions button.rollback { background: transparent; color: var(--gv-muted); border: 1px solid var(--gv-border-strong); }
 .fw-actions button:disabled { opacity: .5; cursor: not-allowed; }

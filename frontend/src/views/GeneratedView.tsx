@@ -94,6 +94,10 @@ export function GeneratedView({
   // The shared pipeline produced a change for THIS feature, awaiting 反映.
   const showPreview =
     conv?.stage === "built" && conv?.pending_feature === feature && !!candidate?.html;
+  const showSharedProgress = conv?.active_feature === feature && (building || showPreview);
+  const sharedProgressMessages = showSharedProgress
+    ? (conv?.messages ?? []).filter((m) => (m.text || "").trim()).slice(-10)
+    : [];
 
   function scrollDown() {
     queueMicrotask(() => threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }));
@@ -338,6 +342,19 @@ export function GeneratedView({
                     )}
                   </div>
                 ))}
+                {sharedProgressMessages.length > 0 && (
+                  <div className="fw-progress">
+                    <div className="chat-preview__label">制作進捗</div>
+                    {sharedProgressMessages.map((m, i) => (
+                      <div key={`${m.created_at || ""}-${i}`} className={`bubble bubble--${m.role}`}>
+                        <MdText text={m.text} />
+                        {m.svg && (
+                          <img className="bubble-svg" alt="画面イメージ" src={`data:image/svg+xml;utf8,${encodeURIComponent(m.svg)}`} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {building && (
                   <div className="bubble bubble--assistant bubble--pending">
                     🤖 指示を反映しています…

@@ -479,7 +479,7 @@ def start_edit(
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
-    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, feature=feature, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
     threading.Thread(
         target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
     ).start()
@@ -1881,16 +1881,18 @@ def conversation_state(project_id: str) -> dict:
     build = data.get("build") or {}
     flow = data.get("flow") or {"stage": _STAGE_IDLE}
     stage = flow.get("stage", _STAGE_IDLE)
+    building = build.get("status") == _BUILD_DESIGNING
     return {
         "conversation_id": conversation_id,
         "messages": data.get("messages", []),
-        "building": build.get("status") == _BUILD_DESIGNING,
+        "building": building,
         # The work happening NOW (planning/revising/codegen/editing). The flow stage
         # stays "plan" during code generation, so the spinner must key off phase.
-        "phase": build.get("phase") if build.get("status") == _BUILD_DESIGNING else None,
+        "phase": build.get("phase") if building else None,
         "stage": stage,
         "mode": flow.get("mode", "create"),
         "pending_feature": flow.get("feature") if stage == _STAGE_BUILT else None,
+        "active_feature": build.get("feature") if building else (flow.get("feature") if stage == _STAGE_BUILT else None),
         "pending_approval_id": flow.get("approval_id") if stage == _STAGE_BUILT else None,
     }
 

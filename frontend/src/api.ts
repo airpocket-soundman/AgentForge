@@ -69,6 +69,7 @@ export interface ConversationState {
   stage: "idle" | "confirm" | "plan" | "built";
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
   pending_feature: string | null; // at "built": the feature to preview
+  active_feature?: string | null; // while building/built: feature this shared pipeline belongs to
   pending_approval_id: string | null; // at "built": the approval to publish
 }
 
