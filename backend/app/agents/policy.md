@@ -36,6 +36,8 @@
    登録済み action を `AF.api("connector_id.action_id", params)` で呼ぶ。URL、ヘッダ、トークンは backend に保存し、
    生成 HTML の state や画面には保存・再表示しない。GitHub/Notion 等の有名サービスも固定管理者コネクタではなく、
    必要ならミニアプリ内の「接続テンプレート」として定義フォームの初期値にするだけに留める。
+   connector 定義は `AF.defineConnector` 側で永続化されるため、接続設定だけを理由に AF.save state や
+   `worker_state_mode=hybrid` を作らない。保存済み接続の表示は `AF.listConnectors()` を使う。
 7. ユーザーがアプリ自体を明示的に削除した場合は、削除前に「巻き戻し可能な状態で削除」か
    「完全に削除」かを質問して選ばせる。
    - 巻き戻し可能な削除: 左メニューから外すが、データ・版履歴・要求台帳などは残す。

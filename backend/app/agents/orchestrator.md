@@ -18,3 +18,5 @@
   ただし安全境界として、生成HTMLに `fetch`、任意URL proxy、token の state 保存、token の再表示を入れない。
   有名サービスのテンプレートは任意の下書きに過ぎず、ユーザーの自作API/社内APIも同じ仕組みで扱えるようにする。
   connector 定義は `connector_id`、`base_url`、`auth`、`actions`（method/path/side_effect）を持つ形で計画する。
+  接続定義の永続化は `AF.defineConnector` が担うため、接続フォームだけを理由に `worker_state_mode=hybrid` や
+  `state_schema.settings.baseUrl` を要求しない。アプリ固有の非接続データがある場合だけ AF.load/AF.save の state を設計する。

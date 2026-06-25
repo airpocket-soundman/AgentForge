@@ -24,6 +24,8 @@
   例:
   `await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read"}}})`
   `const res = await AF.api("my_api.list_items", { limit: 20 })`
+  接続設定だけを扱う画面は、それ自体を `worker_state_mode: "hybrid"` にしない。connector 定義は `AF.defineConnector` 側で永続化されるため、
+  `state_schema` に `base_url`、token、認証ヘッダ、connector 定義を入れない。公開済み接続の表示は `AF.listConnectors()` から復元する。
 
 ## ミニアプリの「内容編集ツール契約」（標準仕様・必須 / MCP形式）
 生成する機能＝「ミニアプリ」、その中身を担当するのが「専門ワーカー」。アプリ型（kind=app）を

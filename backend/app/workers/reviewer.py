@@ -18,8 +18,8 @@ from app.llm.gateway import ModelTier, get_llm
 _ALLOWED_THEMES = {"default", "warm", "forest", "ocean"}
 
 _PERSISTENCE_KEYWORDS = (
-    "保存", "復元", "途中", "履歴", "メモ", "タスク", "todo", "フォーム", "設定",
-    "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル", "ライン", "手番",
+    "保存", "復元", "途中", "履歴", "メモ", "タスク", "todo", "フォーム",
+    "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル", "手番",
     "クイズ", "進捗", "家計簿", "日記", "予定", "スケジュール",
 )
 

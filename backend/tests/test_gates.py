@@ -86,6 +86,27 @@ def test_reviewer_accepts_game_persistence_bridge():
     assert not any("途中状態" in f for f in r["findings"])
 
 
+def test_reviewer_does_not_require_af_save_for_connector_setup_only():
+    manifest = _manifest(
+        feature="bluesky_viewer",
+        title="Bluesky Viewer",
+        worker_state_mode="commands",
+        state_schema={},
+        commands=[],
+        html=(
+            "<!DOCTYPE html><html><head><meta name=\"viewport\"></head><body>"
+            "<form><input name=\"base_url\"><input name=\"token\" type=\"password\"></form>"
+            "<script>async function save(token){await AF.defineConnector({connector_id:'bluesky',"
+            "base_url:'https://bsky.social',auth:{type:'bearer',token},"
+            "actions:{timeline:{method:'GET',path:'/xrpc/app.bsky.feed.getTimeline',side_effect:'read'}}});}"
+            "async function load(){return AF.listConnectors();}"
+            "window.applyAgentCommand=function(){};</script></body></html>"
+        ),
+    )
+    r = reviewer.review(manifest, "Bluesky の接続設定とタイムライン表示UI")
+    assert not any("AF.load" in f and "AF.save" in f for f in r["findings"])
+
+
 # --- Tester -----------------------------------------------------------------
 
 def test_tester_passes_runnable_app():
@@ -115,3 +136,24 @@ def test_tester_requires_persistence_for_games():
     )
     assert t["verdict"] == "fail"
     assert any("AF.load" in e and "AF.save" in e for e in t["errors"])
+
+
+def test_tester_does_not_require_af_save_for_connector_setup_only():
+    manifest = _manifest(
+        feature="bluesky_viewer",
+        title="Bluesky Viewer",
+        worker_state_mode="commands",
+        state_schema={},
+        commands=[],
+        html=(
+            "<!DOCTYPE html><html><head><meta name=\"viewport\"></head><body>"
+            "<form><input name=\"base_url\"><input name=\"token\" type=\"password\"></form>"
+            "<script>async function save(token){await AF.defineConnector({connector_id:'bluesky',"
+            "base_url:'https://bsky.social',auth:{type:'bearer',token},"
+            "actions:{timeline:{method:'GET',path:'/xrpc/app.bsky.feed.getTimeline',side_effect:'read'}}});}"
+            "async function load(){return AF.listConnectors();}"
+            "window.applyAgentCommand=function(){};</script></body></html>"
+        ),
+    )
+    t = tester.verify(manifest, "Bluesky の接続設定とタイムライン表示UI")
+    assert not any("AF.load" in e and "AF.save" in e for e in t["errors"])
