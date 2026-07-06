@@ -166,6 +166,7 @@ def test_retouch_template_has_worker_layer_controls_and_blob_fallback():
     assert "expand_selection" in command_names
     assert "clear_selection" in command_names
     assert "delete_outside_selection" in command_names
+    assert "delete_inside_selection" in command_names
     assert "function saveProject()" in html
     assert "AF.save({activeId:activeId,width:w,height:h,tool:tool,zoom:zoom,layers:layers.map" in html
     assert "AF.saveBlob('retouch-project'" in html
@@ -197,6 +198,7 @@ def test_retouch_template_has_worker_layer_controls_and_blob_fallback():
     # expand + hole fill, then keep-selected transparency.
     assert "function selectObjectAt(pt,th,erase)" in html
     assert "function deleteOutsideSelection()" in html
+    assert "function deleteInsideSelection()" in html
     assert "function floodAdd(d,cw,ch,sx,sy,th,erase)" in html
     assert "function maskBoundary(mask,cw,ch)" in html
     assert "function fillPolygon(pts,cw,ch)" in html
@@ -206,6 +208,7 @@ def test_retouch_template_has_worker_layer_controls_and_blob_fallback():
     assert "else if(name==='select_object_at')" in html
     assert "else if(name==='expand_selection')expandSelection(+args.pixels||2);" in html
     assert "else if(name==='delete_outside_selection')deleteOutsideSelection();" in html
+    assert "else if(name==='delete_inside_selection')deleteInsideSelection();" in html
     # Usability: zoom/fit, drag&drop + paste loading, keyboard shortcuts, and
     # drawing that works on the in-memory layer canvas (no per-stroke re-decode).
     assert "function fitZoom()" in html

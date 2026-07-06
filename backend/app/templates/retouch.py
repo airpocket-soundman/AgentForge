@@ -85,6 +85,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
       </div>
       <div class="row">
         <button id="delOutside">選択以外を透過</button>
+        <button id="delInside">選択を透過</button>
         <button id="expandSel">選択を広げる</button>
         <button id="clearSel">選択解除</button>
       </div>
@@ -92,7 +93,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
         <button id="clearLayer">レイヤ消去</button>
         <button id="crop">切り抜き</button>
       </div>
-      <p class="hint">「選択」ツール: クリックでオブジェクトの境界を検出、<b>ドラッグでおおよそ囲むと近くの境界にスナップ</b>して選択します。クリック/ドラッグを重ねると選択が増え、つながった部分は1つのオブジェクトとして境界を保持。Alt+クリックで部分解除、「選択を広げる」で縁の取りこぼしと穴を吸収、「選択以外を透過」で背景を消せます。ショートカット: Ctrl+Z 取り消し / Ctrl+Y やり直し / V 移動 / B ブラシ / E 消しゴム / W 選択 / Esc 選択解除 / Ctrl+ホイール ズーム。破壊的な処理は Undo で戻せます。</p>
+      <p class="hint">「選択」ツール: クリックでオブジェクトの境界を検出、<b>ドラッグでおおよそ囲むと近くの境界にスナップ</b>して選択します。クリック/ドラッグを重ねると選択が増え、つながった部分は1つのオブジェクトとして境界を保持。Alt+クリックで部分解除、「選択を広げる」で縁の取りこぼしと穴を吸収。「選択以外を透過」で背景を、「選択を透過」で選択部分そのものを消せます。ショートカット: Ctrl+Z 取り消し / Ctrl+Y やり直し / V 移動 / B ブラシ / E 消しゴム / W 選択 / Esc 選択解除 / Ctrl+ホイール ズーム。破壊的な処理は Undo で戻せます。</p>
     </div>
   </section>
 </div>
@@ -328,7 +329,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
     selEdge=maskBoundary(sel,l.c.width,l.c.height);
     var count=selCount();
     if(!count){clearSelection();msg('選択が空になりました。',true);render();return;}
-    msg('選択範囲: 約'+count.toLocaleString()+'px。'+(note||'')+'「選択以外を透過」で背景を消せます。');
+    msg('選択範囲: 約'+count.toLocaleString()+'px。'+(note||'')+'「選択以外を透過」で背景を、「選択を透過」で選択部分を消せます。');
     render();
   }
   function selectObjectAt(pt,th,erase){
@@ -468,17 +469,19 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
     for(p=0;p<cw*ch;p++)if(!sel[p]&&!seen[p])sel[p]=1;
     afterSelChange('選択を'+steps+'px広げ、囲まれた穴を埋めました。');
   }
-  function deleteOutsideSelection(){
+  function applySelectionAlpha(inside){
     var l=byId(selLayerId);
-    if(!sel||!l)return msg('先に「選択」ツールで残したいオブジェクトをクリックしてください。',true);
+    if(!sel||!l)return msg('先に「選択」ツールで対象をクリックするか、おおよそ囲んでください。',true);
     pushHistory(snapPix(l));
     var x=l.c.getContext('2d'),im=x.getImageData(0,0,l.c.width,l.c.height),d=im.data;
-    for(var i=0,n=l.c.width*l.c.height;i<n;i++){if(!sel[i])d[i*4+3]=0;}
+    for(var i=0,n=l.c.width*l.c.height;i<n;i++){if(inside?sel[i]:!sel[i])d[i*4+3]=0;}
     x.putImageData(im,0,0);
     clearSelection();
-    msg('選択したオブジェクト以外を透明化しました。');
+    msg(inside?'選択した範囲を透明化しました。':'選択したオブジェクト以外を透明化しました。');
     render();renderLayers();saveSoon();
   }
+  function deleteOutsideSelection(){applySelectionAlpha(false);}
+  function deleteInsideSelection(){applySelectionAlpha(true);}
 
   // --- Direct canvas interaction (move / brush / eraser / select) --------------
   function point(e){var r=view.getBoundingClientRect();return {x:(e.clientX-r.left)*(w/r.width),y:(e.clientY-r.top)*(h/r.height)};}
@@ -586,6 +589,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
   ws.addEventListener('wheel',function(e){if(!e.ctrlKey)return;e.preventDefault();zoomBy(e.deltaY<0?1.15:1/1.15);},{passive:false});
   $('toolMove').onclick=function(){setTool('move');};$('toolBrush').onclick=function(){setTool('brush');};$('toolEraser').onclick=function(){setTool('eraser');};$('toolSelect').onclick=function(){setTool('select');};
   $('delOutside').onclick=deleteOutsideSelection;
+  $('delInside').onclick=deleteInsideSelection;
   $('expandSel').onclick=function(){expandSelection(2);};
   $('clearSel').onclick=function(){if(!sel)return msg('選択はありません。',true);clearSelection();render();msg('選択を解除しました。');};
   $('opacity').oninput=function(e){var l=active();if(l){l.opacity=(+e.target.value||0)/100;render();saveSoon();}};
@@ -622,6 +626,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
     else if(name==='expand_selection')expandSelection(+args.pixels||2);
     else if(name==='clear_selection'){clearSelection();render();msg('選択を解除しました。');}
     else if(name==='delete_outside_selection')deleteOutsideSelection();
+    else if(name==='delete_inside_selection')deleteInsideSelection();
     else if(name==='set_layer_opacity'){var l=active();if(l){l.opacity=Math.max(0,Math.min(1,+args.opacity));render();renderLayers();saveSoon();}}
     else if(name==='toggle_layer_visibility'){var l=active();if(l){l.visible=args.visible!==false;render();renderLayers();saveSoon();}}
     else if(name==='move_layer'){if(args.dx!==undefined||args.dy!==undefined)moveActiveLayer(args.dx,args.dy);else move(args.direction==='down'?-1:1);}
@@ -637,7 +642,7 @@ canvas{display:block;max-width:none;touch-action:none}.empty{padding:24px;max-wi
 MANIFEST = {
     "feature": "retouch",
     "title": "レタッチスタジオ",
-    "description": "画像を読み込み（ファイル選択・ドラッグ&ドロップ・貼り付け）、レイヤ管理（サムネイル付き）、移動、ブラシ、消しゴム、オブジェクト選択（クリックで境界検出・おおよそ囲むトレースで近くの境界にスナップ・クリック追加で選択拡大・連続部分は自動結合・Alt+クリックで部分解除・選択の膨張と穴埋め）と選択以外の背景透過、ズーム/フィット表示、Undo/Redo（Ctrl+Z/Y）、輪郭抽出、背景削除、色の透過処理、切り抜き、明るさ/コントラスト補正、PNG書き出しができる基本レタッチアプリ。",
+    "description": "画像を読み込み（ファイル選択・ドラッグ&ドロップ・貼り付け）、レイヤ管理（サムネイル付き）、移動、ブラシ、消しゴム、オブジェクト選択（クリックで境界検出・おおよそ囲むトレースで近くの境界にスナップ・クリック追加で選択拡大・連続部分は自動結合・Alt+クリックで部分解除・選択の膨張と穴埋め）と選択ベースの透過（選択以外＝背景透過／選択部分＝オブジェクト削除）、ズーム/フィット表示、Undo/Redo（Ctrl+Z/Y）、輪郭抽出、背景削除、色の透過処理、切り抜き、明るさ/コントラスト補正、PNG書き出しができる基本レタッチアプリ。",
     "kind": "app",
     "theme": "default",
     "html": _HTML,
@@ -671,6 +676,8 @@ MANIFEST = {
         {"name": "clear_selection", "description": "オブジェクト選択を解除する",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "delete_outside_selection", "description": "選択したオブジェクト以外を透明化する（選択ベースの背景透過）",
+         "inputSchema": {"type": "object", "properties": {}}},
+        {"name": "delete_inside_selection", "description": "選択した範囲そのものを透明化する（選択部分の削除）",
          "inputSchema": {"type": "object", "properties": {}}},
         {"name": "set_layer_opacity", "description": "現在のレイヤの不透明度を0〜1で設定",
          "inputSchema": {"type": "object", "properties": {"opacity": {"type": "number"}}, "required": ["opacity"]}},
@@ -721,7 +728,8 @@ MANIFEST = {
         "オブジェクト選択はクリック位置から境界検出して追加され、ドラッグでおおよそ囲むと近くの境界にスナップする。"
         "連続する部分は1つのオブジェクトに結合され、Alt+クリックで部分解除できる。"
         "選択が細かく取りこぼす場合は、しきい値を上げる・トレースで囲む・expand_selection で広げて穴を埋める、を案内する。"
-        "『選択した以外を消して』『選択ベースで背景を透過して』は delete_outside_selection を使う。"
+        "『選択した以外を消して』『選択ベースで背景を透過して』は delete_outside_selection、"
+        "『選択した部分を消して』『選択範囲を透過して』は delete_inside_selection を使う。どちらか曖昧なら短く確認する。"
         "クリックやトレースの位置指定はユーザー操作が必要なので、選択を頼まれたら set_tool tool='select' に切り替えて"
         "残したいオブジェクトをクリックまたはおおよそ囲むよう案内する。"
         "画像ファイルの読み込み（ファイル選択・ドラッグ&ドロップ・貼り付け）とブラシ/消しゴムのストローク描画はユーザー操作が必要。"
@@ -735,6 +743,7 @@ MANIFEST = {
         {"user": "残したいものを選択したい", "command": {"name": "set_tool", "arguments": {"tool": "select"}}, "reply": "選択ツールに切り替えました。オブジェクトをクリックするか、ドラッグでおおよそ囲むと近くの境界にスナップして選択できます。"},
         {"user": "選択が細かく切れてしまう", "command": {"name": "expand_selection", "arguments": {"pixels": 2}}, "reply": "選択を2px広げて穴を埋めます。しきい値を上げてからのクリックや、ドラッグで囲むトレース選択も有効です。"},
         {"user": "選択した以外を消して", "command": {"name": "delete_outside_selection", "arguments": {}}, "reply": "選択したオブジェクト以外を透明化します。"},
+        {"user": "選択した部分を消して", "command": {"name": "delete_inside_selection", "arguments": {}}, "reply": "選択した範囲を透明化します。"},
         {"user": "選択をやり直したい", "command": {"name": "clear_selection", "arguments": {}}, "reply": "選択を解除しました。もう一度クリックで選び直せます。"},
         {"user": "全体が見えるようにして", "command": {"name": "set_zoom", "arguments": {"fit": True}}, "reply": "画像全体が見えるようにフィット表示します。"},
         {"user": "200%に拡大して", "command": {"name": "set_zoom", "arguments": {"percent": 200}}, "reply": "表示を200%に拡大します。"},
@@ -756,6 +765,7 @@ MANIFEST = {
         {"input": "この人物だけ残して背景を消したい", "expected": "set_tool tool='select' に切り替え、残したいオブジェクトをクリックまたはドラッグでおおよそ囲むよう案内する。選択済みなら delete_outside_selection を実行する。"},
         {"input": "選択が細切れになる", "expected": "しきい値を上げる・ドラッグで囲むトレース選択・expand_selection のいずれかを提案する。"},
         {"input": "選択した以外を削除して", "expected": "選択が無ければ選択を促し、あれば delete_outside_selection を実行する（破壊的なので Undo 可能である旨を添えてよい）。"},
+        {"input": "選択したところを消して", "expected": "delete_inside_selection を実行する。『以外を消す』のか『選択部分を消す』のか曖昧なら短く確認する。"},
         {"input": "人物レイヤを10px下へ移動", "expected": "対象レイヤを選択してから move_layer を dy=10 で実行する。"},
         {"input": "背景レイヤを削除", "expected": "delete_layer を layer_name='背景' で実行する前に、曖昧さや削除確認が必要なら短く確認する。"},
         {"input": "白を透明にして", "expected": "make_color_transparent を color='#ffffff' で実行する。"},

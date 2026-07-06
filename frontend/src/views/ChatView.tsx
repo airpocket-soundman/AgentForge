@@ -51,14 +51,25 @@ export function ChatView({
   const [needsRegeneration, setNeedsRegeneration] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
+  // The CURRENT session id, readable from long-lived closures. The poll interval
+  // and the visibilitychange/focus resync listeners capture loadState from an
+  // old render; without this ref they'd fetch (and display) the session that was
+  // selected when they were registered — the dropdown and the shown messages
+  // would disagree after switching sessions and coming back to the tab.
+  const chatContextRef = useRef(chatContext);
+  chatContextRef.current = chatContext;
 
   function scrollDown() {
     queueMicrotask(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
   }
 
   async function loadState() {
+    const ctx = chatContextRef.current;
     try {
-      const s = await getConversationState(undefined, chatContext);
+      const s = await getConversationState(undefined, ctx);
+      // Drop stale responses: the user may have switched sessions while this
+      // request was in flight (or a late response arrives out of order).
+      if (chatContextRef.current !== ctx || (s.context_id && s.context_id !== ctx)) return null;
       setMessages(s.messages.length ? s.messages : [WELCOME]);
       setBuilding(s.building);
       setStage(s.stage);
