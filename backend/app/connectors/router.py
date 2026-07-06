@@ -7,10 +7,12 @@ definition time and scoped to the current user/project/feature.
 """
 from __future__ import annotations
 
+import base64
+import re
 from datetime import datetime, timezone
 from string import Formatter
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,6 +27,10 @@ router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 _APP_CONNECTORS = "app_connectors"
 _ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 _ALLOWED_AUTH_TYPES = {"none", "bearer", "api_key_header", "basic", "custom_header"}
+_ALLOWED_SIDE_EFFECTS = {"read", "low", "medium", "high"}
+_TEMPLATE_REF_RE = re.compile(r"^\$(params|auth|secret)\.([A-Za-z0-9_]+)$")
+_SECRET_FIELDS = {"token", "username", "password", "header_name", "header_value"}
+_MAX_IMAGE_BYTES = 1_500_000
 
 
 def _now_iso() -> str:
@@ -51,7 +57,17 @@ def _connector_doc(user: CurrentUser, project_id: str, feature: str, connector_i
 def _public_connector(doc: dict[str, Any]) -> dict[str, Any]:
     public = {k: v for k, v in doc.items() if k != "auth"}
     auth = doc.get("auth") if isinstance(doc.get("auth"), dict) else {}
-    public["auth"] = {"type": auth.get("type") or "none", "configured": bool(auth and auth.get("type") != "none")}
+    configured = bool(
+        auth
+        and (
+            auth.get("type") != "none"
+            or auth.get("token")
+            or auth.get("username")
+            or auth.get("password")
+            or auth.get("header_value")
+        )
+    )
+    public["auth"] = {"type": auth.get("type") or "none", "configured": configured}
     return public
 
 
@@ -69,6 +85,23 @@ def _validate_url(base_url: str) -> str:
     return value
 
 
+def _ensure_same_origin(base_url: str, url: str) -> None:
+    """Reject a resolved URL that left the connector's declared origin.
+
+    Defense in depth against SSRF: even if a path parameter smuggles an absolute
+    URL past rendering, the backend must never proxy to an arbitrary host."""
+    base_parts, url_parts = urlsplit(base_url), urlsplit(url)
+    if url_parts.scheme != base_parts.scheme or url_parts.netloc != base_parts.netloc:
+        raise HTTPException(status_code=400, detail="path が base_url の外を指しています")
+
+
+def _normalize_side_effect(value: str) -> str:
+    side_effect = (value or "read").strip().lower()
+    if side_effect == "write":
+        return "medium"
+    return side_effect if side_effect in _ALLOWED_SIDE_EFFECTS else "read"
+
+
 def _action_params(path: str) -> set[str]:
     return {field for _, field, _, _ in Formatter().parse(path or "") if field}
 
@@ -79,6 +112,12 @@ def _render_path(path: str, params: dict[str, Any]) -> str:
     if missing:
         raise HTTPException(status_code=400, detail=f"path parameter が不足しています: {', '.join(missing)}")
     safe = {key: str(params[key]).strip() for key in needed}
+    for key, value in safe.items():
+        # A path parameter must stay a path segment: an absolute URL ("https://…")
+        # or scheme-relative ("//host/…") value would make urljoin leave base_url
+        # (SSRF), and a backslash can smuggle separators past later checks.
+        if "://" in value or value.startswith("//") or "\\" in value:
+            raise HTTPException(status_code=400, detail=f"path parameter が不正です: {key}")
     rendered = path.format(**safe)
     if not rendered.startswith("/"):
         rendered = "/" + rendered
@@ -92,6 +131,8 @@ class ConnectorActionDef(BaseModel):
     path: str = Field(min_length=1, max_length=300)
     side_effect: str = Field(default="read", max_length=20)
     description: str = Field(default="", max_length=300)
+    query_template: dict[str, Any] = Field(default_factory=dict)
+    body_template: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConnectorAuthDef(BaseModel):
@@ -120,6 +161,60 @@ class ConnectorInvokeIn(BaseModel):
     feature: str = Field(min_length=1, max_length=80)
 
 
+def _resolve_template_value(value: Any, *, params: dict[str, Any], auth: dict[str, Any]) -> Any:
+    """Resolve a connector action template without exposing secrets to the app.
+
+    Supported placeholders are whole-string references:
+    - $params.name: value supplied by the app at invoke time
+    - $auth.password / $secret.password: secret stored in connector auth
+
+    Literal strings and nested dict/list structures are preserved.
+    """
+    if isinstance(value, str):
+        match = _TEMPLATE_REF_RE.fullmatch(value.strip())
+        if not match:
+            return value
+        scope, key = match.groups()
+        if scope == "params":
+            if key not in params:
+                raise HTTPException(status_code=400, detail=f"template parameter が不足しています: {key}")
+            return params[key]
+        if key not in _SECRET_FIELDS:
+            raise HTTPException(status_code=400, detail=f"template secret が不正です: {key}")
+        secret = auth.get(key)
+        if secret in (None, ""):
+            raise HTTPException(status_code=400, detail=f"connector secret が未設定です: {key}")
+        return secret
+    if isinstance(value, list):
+        return [_resolve_template_value(v, params=params, auth=auth) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _resolve_template_value(v, params=params, auth=auth) for k, v in value.items()}
+    return value
+
+
+def _resolve_template(template: Any, *, params: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    if not template:
+        return {}
+    if not isinstance(template, dict):
+        raise HTTPException(status_code=400, detail="connector template は object である必要があります")
+    resolved = _resolve_template_value(template, params=params, auth=auth)
+    if not isinstance(resolved, dict):
+        raise HTTPException(status_code=400, detail="connector template は object に解決される必要があります")
+    return resolved
+
+
+def _connector_response(*, connector_id: str, action_id: str, data: Any) -> dict[str, Any]:
+    """Return connector metadata plus the upstream payload in a generated-app-friendly shape.
+
+    Generated apps often expect `const res = await AF.api(...); res.accessJwt`.
+    Existing code also expects the explicit wrapper `res.data`. Keep both forms.
+    """
+    response = {"ok": True, "connector": connector_id, "action": action_id, "data": data}
+    if isinstance(data, dict):
+        response.update({str(k): v for k, v in data.items() if k not in response})
+    return response
+
+
 @router.post("/define")
 def define_connector(body: ConnectorDefineIn, user: CurrentUser = Depends(current_user)) -> dict:
     feature = _safe_id(body.feature, "feature")
@@ -138,8 +233,10 @@ def define_connector(body: ConnectorDefineIn, user: CurrentUser = Depends(curren
         actions[action_id] = {
             "method": method,
             "path": action.path,
-            "side_effect": action.side_effect if action.side_effect in {"read", "low", "medium", "high"} else "read",
+            "side_effect": _normalize_side_effect(action.side_effect),
             "description": action.description,
+            "query_template": action.query_template,
+            "body_template": action.body_template,
         }
     auth = body.auth.model_dump()
     if auth["type"] not in _ALLOWED_AUTH_TYPES:
@@ -225,16 +322,22 @@ def invoke(body: ConnectorInvokeIn, user: CurrentUser = Depends(current_user)) -
     path = _render_path(str(action.get("path") or ""), body.params)
     base_url = str(connector.get("base_url") or "")
     url = urljoin(base_url + "/", path.lstrip("/"))
+    _ensure_same_origin(base_url, url)
     path_keys = _action_params(str(action.get("path") or ""))
     remaining = {k: v for k, v in body.params.items() if k not in path_keys}
-    headers, auth = _auth_kwargs(connector.get("auth") if isinstance(connector.get("auth"), dict) else {})
+    auth_doc = connector.get("auth") if isinstance(connector.get("auth"), dict) else {}
+    headers, auth = _auth_kwargs(auth_doc)
     request_kwargs: dict[str, Any] = {"headers": headers}
     if auth is not None:
         request_kwargs["auth"] = auth
     if method == "GET":
-        request_kwargs["params"] = remaining
-    elif remaining:
-        request_kwargs["json"] = remaining
+        query_template = action.get("query_template") or {}
+        request_kwargs["params"] = _resolve_template(query_template, params=body.params, auth=auth_doc) if query_template else remaining
+    else:
+        body_template = action.get("body_template") or {}
+        payload = _resolve_template(body_template, params=body.params, auth=auth_doc) if body_template else remaining
+        if payload:
+            request_kwargs["json"] = payload
     _audit(
         "connectors.invoke_requested",
         f"connector:{feature}:{connector_id}.{action_id}",
@@ -251,14 +354,24 @@ def invoke(body: ConnectorInvokeIn, user: CurrentUser = Depends(current_user)) -
         with httpx.Client(timeout=20) as client:
             response = client.request(method, url, **request_kwargs)
             response.raise_for_status()
-            try:
-                data: Any = response.json()
-            except ValueError:
-                data = response.text
+            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            if content_type.startswith("image/"):
+                content = response.content
+                if len(content) > _MAX_IMAGE_BYTES:
+                    raise HTTPException(status_code=502, detail="image response too large")
+                data = {
+                    "content_type": content_type,
+                    "data_url": f"data:{content_type};base64,{base64.b64encode(content).decode('ascii')}",
+                }
+            else:
+                try:
+                    data = response.json()
+                except ValueError:
+                    data = response.text
     except httpx.HTTPStatusError as exc:
         detail = exc.response.text[:300] or f"HTTP {exc.response.status_code}"
         raise HTTPException(status_code=502, detail=detail) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     _connector_doc(user, project_id, feature, connector_id).set({"last_used_at": _now_iso()}, merge=True)
-    return {"ok": True, "connector": connector_id, "action": action_id, "data": data}
+    return _connector_response(connector_id=connector_id, action_id=action_id, data=data)

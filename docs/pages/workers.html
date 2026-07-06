@@ -472,7 +472,7 @@
     <tr><td><code>task_id</code></td><td>作業全体の相関 ID（同じ仕事に属する指示・報告を束ねる）。</td></tr>
     <tr><td><code>message_id</code></td><td>この指示の一意 ID（報告はこれを参照して返す）。</td></tr>
     <tr><td><code>from</code> / <code>to</code></td><td>送信元／宛先のワーカー種別＋インスタンス（例 <code>Orchestrator#1</code> → <code>Reviewer</code>）。</td></tr>
-    <tr><td><code>intent</code></td><td>依頼の種類。例：<code>plan</code> / <code>build</code> / <code>edit</code> / <code>review</code> / <code>operate</code>。</td></tr>
+    <tr><td><code>intent</code></td><td>依頼の種類。例：<code>plan</code> / <code>build</code> / <code>edit</code> / <code>verify</code> / <code>review</code> / <code>operate</code> / <code>investigate</code>。</td></tr>
     <tr><td><code>payload</code></td><td><code>intent</code> ごとの定型データ（JSON Schema 準拠）。</td></tr>
     <tr><td><code>context_refs</code></td><td>必要な文脈への<strong>最小ポインタ</strong>。本体は各ワーカーが Firestore から取得（rehydrate）。</td></tr>
     <tr><td><code>deadline_sec</code></td><td>この指示の<strong>想定所要時間（目安）</strong>。Receptor が<strong>停滞（タイムアウト）判定に使うヒント</strong>で、超過しても受け手は<strong>自動失効しない</strong>（停止可否はユーザーが選ぶ。§3(b)）。</td></tr>
@@ -516,6 +516,7 @@
     <tr><td><code>plan</code></td><td>Orchestrator</td><td><code>project_id</code>, <code>goal</code>, <code>hint_feature?</code></td><td><code>design_plan</code>{feature,title,summary,features[],persistence,theme}</td></tr>
     <tr><td><code>build</code></td><td>Orchestrator</td><td><code>project_id</code>, <code>goal</code>, <code>design_plan</code></td><td><code>feature</code>, <code>manifest_ref</code>, <code>approval_id</code></td></tr>
     <tr><td><code>edit</code></td><td>Orchestrator</td><td><code>project_id</code>, <code>feature</code>, <code>instruction</code>, <code>current_ref</code></td><td><code>feature</code>, <code>manifest_ref</code></td></tr>
+    <tr><td><code>investigate</code></td><td>Orchestrator</td><td><code>goal</code>, <code>hint_feature?</code></td><td><code>report</code>（既存機能・保存データ・connector・接続状態の事実確認。コード改修はしない。秘密値は含めない）</td></tr>
     <tr><td><code>verify</code></td><td>Tester</td><td><code>feature</code>, <code>code_ref</code>, <code>commands[]</code></td><td><code>verdict</code>(pass/fail), <code>checks[]</code>, <code>errors[]</code></td></tr>
     <tr><td><code>review</code></td><td>Reviewer</td><td><code>feature</code>, <code>code_ref</code>, <code>conventions_ref</code></td><td><code>verdict</code>(ok/needs_revision), <code>findings[]</code></td></tr>
     <tr><td><code>operate</code></td><td>Specialist Worker</td><td><code>feature</code>, <code>tool_name</code>, <code>args</code></td><td><code>result</code>, <code>saved</code>(bool)</td></tr>
@@ -557,10 +558,11 @@
     </tr>
     <tr>
       <td>アプリ削除</td>
-      <td><strong>ユーザーが明示的にアプリ自体を削除した場合、削除前に方法を選ばせる。</strong>
-        ① 巻き戻し可能な状態で削除（左メニューから外すが、データ・版履歴・要求台帳などは残す）
-        ② 完全に削除（生成ビュー、<code>AF.save</code> の state、エンティティ、アプリチャット履歴、版スナップショット、要求台帳、
-        <code>feature_states</code> の該当メタ情報、現在の端末に保存された <code>AF.saveBlob</code> の Blob なども削除）。
+      <td><strong>ユーザーが明示的にアプリ自体を削除した場合、保存データも失われることを確認し、確認後は完全削除する。</strong>
+        確認文は「アプリを削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？」という趣旨にする。
+        生成ビュー、<code>AF.save</code> の state、エンティティ、アプリチャット履歴、版スナップショット、要求台帳、
+        <code>feature_states</code> の該当メタ情報、現在の端末に保存された <code>AF.saveBlob</code> の Blob なども削除する。
+        状態を残して左メニューからだけ外す削除は、後の再作成・schema 変更時のエラー源になるため実装しない。
         監査ログは削除操作の証跡として残す。
         <strong>巻き戻しとは別操作</strong>で、巻き戻しでは復元可能性を保つためデータを消さない。</td>
       <td><code>approvals.disable_feature</code>（明示削除 API として app-scoped data を purge）</td>

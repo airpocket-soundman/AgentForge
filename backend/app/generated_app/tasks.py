@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import CurrentUser, current_user, require_project_access
 from app.control_plane.approvals import require_feature_active
+from app.control_plane.worker_context import append_messages_compacted, summary_message
 from app.firestore import get_db
 from app.generated_app import task_worker
 from app.models.reception import ChatMessage
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/api/app/tasks", tags=["generated-app:task"])
 
 _COLLECTION = "app_tasks"
 _FEATURE = "task"
+_TASK_CHAT_KEEP_RECENT = 70
 
 
 def _now_iso() -> str:
@@ -60,6 +62,9 @@ def get_task(task_id: str, user: CurrentUser = Depends(current_user)) -> dict:
     require_feature_active(data["project_id"], _FEATURE)
     data.setdefault("messages", [])
     data.setdefault("summary", "")
+    compacted = summary_message(str(data.get("compacted_summary") or ""))
+    if compacted:
+        data["messages"] = [compacted, *data["messages"]]
     return data
 
 
@@ -78,17 +83,13 @@ def post_task_message(task_id: str, body: TaskMessageIn, user: CurrentUser = Dep
     reply_text, summary = task_worker.respond(data, body.text)
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
 
-    from google.cloud import firestore  # local import keeps module import cheap
-
-    ref.set(
-        {
-            "messages": firestore.ArrayUnion(
-                [user_msg.model_dump(mode="json"), assistant_msg.model_dump(mode="json")]
-            ),
-            "summary": summary,
-            "updated_at": _now_iso(),
-        },
-        merge=True,
+    # Transactional append (compaction needs read-modify-write; the transaction
+    # keeps concurrent appends from dropping each other).
+    append_messages_compacted(
+        ref,
+        [user_msg.model_dump(mode="json"), assistant_msg.model_dump(mode="json")],
+        keep_recent=_TASK_CHAT_KEEP_RECENT,
+        base_fields={"summary": summary},
     )
     return {"reply": assistant_msg.model_dump(mode="json"), "summary": summary}
 

@@ -12,12 +12,14 @@ state.
 from __future__ import annotations
 
 import contextvars
+import re
 import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from app.control_plane import registry, worker_status
+from app.control_plane.worker_context import append_messages_compacted, summary_message
 from app.firestore import get_db
 from app.models.generated import DesignPlan
 from app.models.reception import ChatMessage
@@ -26,6 +28,9 @@ from app.models.reception import ChatMessage
 #   conversations/{id}.messages : ordered list of {role, text, created_at}
 # The browser subscribes to this doc for live updates (no backend polling).
 _COLLECTION = "conversations"
+_MAIN_CHAT_KEEP_RECENT = 90
+_MAIN_CONTEXTS = "main_chat_contexts"
+_DEFAULT_CONTEXT = "default"
 
 # Keywords that signal an "app building" request the Orchestrator will own (P2).
 _BUILD_KEYWORDS = ("追加", "作って", "つくって", "ほしい", "欲しい", "add", "create", "build")
@@ -43,19 +48,11 @@ _FEATURE_LABELS = {
     "pdf_memo": "PDFメモ",
     "unknown": "ご要望の機能",
 }
+# Used only for the deterministic default-template catalogue answer — question vs
+# request routing itself is the LLM classifier's job (orchestrator.classify_request).
 _QUESTION_MARKERS = (
     "？", "?", "どんな", "何が", "なにが", "教えて", "ありますか", "ある？",
     "できますか", "できる？", "使い方", "とは", "一覧",
-)
-_INVESTIGATION_MARKERS = (
-    "原因", "確認して", "確認してください", "調べて", "調査", "診断", "検証して",
-    "見て", "見直して", "接続に失敗", "失敗する", "動かない", "エラー", "ログ",
-    "相談", "仕様", "一般的", "世間一般", "事例", "例を", "例は", "比較", "違い",
-    "ベストプラクティス", "設計方針", "どうするべき", "どうしたら", "おすすめ",
-)
-_DIRECT_BUILD_PHRASES = (
-    "作って", "つくって", "追加して", "入れて", "実装して", "直して", "変更して", "修正して",
-    "作成して", "生成して", "build", "create", "add",
 )
 
 
@@ -76,16 +73,6 @@ def user_context_instruction(user_call_name: str | None) -> str:
 def strip_user_context(text: str) -> str:
     marker = "\n\n[ユーザー設定]\n"
     return (text or "").split(marker, 1)[0].rstrip()
-
-
-def is_receptor_direct_question(text: str) -> bool:
-    """Questions/consultations should stay with Receptor, not start the pipeline."""
-    t = (text or "").strip().lower()
-    if not t:
-        return False
-    if any(p in t for p in _DIRECT_BUILD_PHRASES):
-        return False
-    return any(q in t for q in _QUESTION_MARKERS) or any(q in t for q in _INVESTIGATION_MARKERS)
 
 
 def is_template_catalogue_question(text: str) -> bool:
@@ -136,9 +123,201 @@ def classify(text: str) -> str:
     return "chat"
 
 
-def conversation_id_for(project_id: str) -> str:
-    """One rolling conversation per project for the MVP."""
-    return f"conv_{project_id}"
+def _safe_context_id(raw: str | None) -> str:
+    value = re.sub(r"[^a-zA-Z0-9_-]+", "_", (raw or _DEFAULT_CONTEXT).strip()).strip("_")
+    return (value or _DEFAULT_CONTEXT)[:80]
+
+
+def _context_doc_id(project_id: str, context_id: str) -> str:
+    return f"{project_id}:{_safe_context_id(context_id)}"
+
+
+# Background pipeline threads are PINNED to the conversation (session) their
+# request came from: without the pin, every helper that resolves the "active"
+# context would spray progress/results into whichever session the user switched
+# to mid-run. Set per-thread by _spawn_pipeline_thread.
+_PINNED_CONV: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "reception_pinned_conversation", default=None
+)
+
+
+def conversation_id_for(project_id: str, context_id: str | None = None) -> str:
+    """Main-chat conversation id for a project + context.
+
+    Inside a pipeline thread the ORIGINATING session's id (pinned at spawn time)
+    wins over the mutable active context. Backward-compatible default keeps the
+    original `conv_{project}` id.
+    """
+    if context_id is None:
+        pinned = _PINNED_CONV.get()
+        if pinned is not None and _parse_conversation_id(pinned)[0] == project_id:
+            return pinned
+        context_id = active_main_context(project_id)
+    ctx = _safe_context_id(context_id)
+    return f"conv_{project_id}" if ctx == _DEFAULT_CONTEXT else f"conv_{project_id}__{ctx}"
+
+
+def _parse_conversation_id(conversation_id: str) -> tuple[str, str]:
+    raw = conversation_id.removeprefix("conv_")
+    project_id, sep, context_id = raw.partition("__")
+    return project_id, _safe_context_id(context_id if sep else _DEFAULT_CONTEXT)
+
+
+def _spawn_pipeline_thread(conversation_id: str, target, *args) -> None:
+    """Run a background pipeline step pinned to the originating session.
+
+    The caller (request thread) resolves `conversation_id` while the user's
+    context is current; the spawned thread then sees that same conversation from
+    every `conversation_id_for(project_id)` call, no matter how the user switches
+    sessions mid-run."""
+
+    def _entry() -> None:
+        _PINNED_CONV.set(conversation_id)
+        target(*args)
+
+    threading.Thread(target=_entry, daemon=True).start()
+
+
+def active_main_context(project_id: str) -> str:
+    snap = get_db().collection(_MAIN_CONTEXTS).document(project_id).get()
+    data = (snap.to_dict() or {}) if snap.exists else {}
+    return _safe_context_id(data.get("active_context") or _DEFAULT_CONTEXT)
+
+
+def set_active_main_context(project_id: str, context_id: str | None, label: str | None = None) -> str:
+    ctx = _safe_context_id(context_id)
+    now = _now_iso()
+    db = get_db()
+    db.collection(_MAIN_CONTEXTS).document(project_id).set(
+        {"project_id": project_id, "active_context": ctx, "updated_at": now},
+        merge=True,
+    )
+    ref = db.collection(_MAIN_CONTEXTS).document(_context_doc_id(project_id, ctx))
+    snap = ref.get()
+    payload = {"project_id": project_id, "context_id": ctx, "updated_at": now}
+    if label is not None:
+        payload["label"] = label[:80]
+    elif not snap.exists:
+        payload["label"] = "通常" if ctx == _DEFAULT_CONTEXT else "new session"
+    ref.set(payload, merge=True)
+    return ctx
+
+
+def _fallback_context_label(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    cleaned = re.sub(r"[「」『』【】\[\]<>#]+", "", cleaned)
+    if not cleaned:
+        return "new session"
+    return cleaned[:24]
+
+
+def infer_main_context_label(text: str) -> str:
+    """Short user-facing session title from the first request."""
+    from app.llm.gateway import ModelTier, get_llm
+
+    fallback = _fallback_context_label(text)
+    llm = get_llm()
+    if not llm.enabled:
+        return fallback
+    prompt = (
+        "次のユーザー依頼から、メインチャットのsession名を日本語で短く付けてください。\n"
+        "条件: 12文字以内を目安、名詞句、句点なし、説明文なし、引用符なし。\n\n"
+        f"依頼: {text}\n"
+        "session名:"
+    )
+    try:
+        label = llm.generate(prompt, tier=ModelTier.FLASH).strip()
+        label = re.sub(r"^[\"'「『]|[\"'」』。.]$", "", label).strip()
+        return (label or fallback)[:24]
+    except Exception:  # noqa: BLE001
+        return fallback
+
+
+def name_main_context_from_first_message(project_id: str, context_id: str, text: str) -> str:
+    """Name a session once, when its first user request arrives."""
+    ctx = _safe_context_id(context_id)
+    db = get_db()
+    conv = db.collection(_COLLECTION).document(conversation_id_for(project_id, ctx)).get()
+    conv_data = conv.to_dict() if conv.exists else {}
+    if conv_data.get("messages") or conv_data.get("compacted_summary"):
+        return ctx
+    ref = db.collection(_MAIN_CONTEXTS).document(_context_doc_id(project_id, ctx))
+    snap = ref.get()
+    current = (snap.to_dict() or {}).get("label") if snap.exists else ""
+    if current and current not in {ctx, "new session", "通常"}:
+        return ctx
+    set_active_main_context(project_id, ctx, infer_main_context_label(text))
+    return ctx
+
+
+def list_main_contexts(project_id: str) -> dict:
+    db = get_db()
+    active = active_main_context(project_id)
+    seen: dict[str, dict] = {
+        _DEFAULT_CONTEXT: {"context_id": _DEFAULT_CONTEXT, "label": "通常", "message_count": 0, "active": active == _DEFAULT_CONTEXT}
+    }
+    for doc in db.collection(_MAIN_CONTEXTS).where("project_id", "==", project_id).stream():
+        data = doc.to_dict() or {}
+        ctx = _safe_context_id(data.get("context_id"))
+        seen[ctx] = {
+            "context_id": ctx,
+            "label": data.get("label") or ("通常" if ctx == _DEFAULT_CONTEXT else ctx),
+            "updated_at": data.get("updated_at"),
+            "message_count": 0,
+            "active": ctx == active,
+        }
+    for doc in db.collection(_COLLECTION).where("project_id", "==", project_id).stream():
+        data = doc.to_dict() or {}
+        ctx = _safe_context_id(data.get("context_id"))
+        item = seen.setdefault(ctx, {
+            "context_id": ctx,
+            "label": "通常" if ctx == _DEFAULT_CONTEXT else ctx,
+            "active": ctx == active,
+        })
+        item["message_count"] = len(data.get("messages") or [])
+        item["updated_at"] = data.get("updated_at") or item.get("updated_at")
+        item["compacted"] = bool(data.get("compacted"))
+    return {"active_context": active, "contexts": sorted(seen.values(), key=lambda x: (x.get("context_id") != _DEFAULT_CONTEXT, x.get("label") or ""))}
+
+
+def clear_main_context(project_id: str, context_id: str | None = None) -> dict:
+    ctx = _safe_context_id(context_id)
+    conversation_id = conversation_id_for(project_id, ctx)
+    get_db().collection(_COLLECTION).document(conversation_id).set(
+        {
+            "project_id": project_id,
+            "context_id": ctx,
+            "messages": [],
+            "compacted_summary": "",
+            "compacted": False,
+            "flow": {"stage": _STAGE_IDLE},
+            "build": {"status": _BUILD_DONE, "updated_at": _now_iso()},
+            "updated_at": _now_iso(),
+        },
+        merge=True,
+    )
+    return {"project_id": project_id, "context_id": ctx, "cleared": True}
+
+
+def delete_main_context(project_id: str, context_id: str | None = None) -> dict:
+    ctx = _safe_context_id(context_id)
+    if ctx == _DEFAULT_CONTEXT:
+        return clear_main_context(project_id, ctx)
+    db = get_db()
+    db.collection(_COLLECTION).document(conversation_id_for(project_id, ctx)).delete()
+    db.collection(_MAIN_CONTEXTS).document(_context_doc_id(project_id, ctx)).delete()
+    if active_main_context(project_id) == ctx:
+        set_active_main_context(project_id, _DEFAULT_CONTEXT)
+    return {"project_id": project_id, "context_id": ctx, "deleted": True}
+
+
+def rename_main_context(project_id: str, context_id: str | None, label: str) -> dict:
+    ctx = _safe_context_id(context_id)
+    clean = re.sub(r"\s+", " ", (label or "").strip())[:80]
+    if not clean:
+        clean = "通常" if ctx == _DEFAULT_CONTEXT else "new session"
+    set_active_main_context(project_id, ctx, clean)
+    return {"project_id": project_id, "context_id": ctx, "label": clean}
 
 
 def _now_iso() -> str:
@@ -340,6 +519,10 @@ def _flow_record(fields: dict) -> dict:
         "candidate": fields.get("candidate"),  # generated ViewManifest dict (preview source)
         "template": fields.get("template"),
         "pending_images": fields.get("pending_images"),
+        # True only right after a gate-failed codegen: the UI offers 「同じ設計で
+        # 再生成」 instead of the normal 「これで作って」 (a state flag, so the
+        # frontend never has to pattern-match assistant wording).
+        "needs_regeneration": bool(fields.get("needs_regeneration", False)),
         "updated_at": _now_iso(),
     }
 
@@ -373,8 +556,10 @@ _WORKER_OFF = ("不要", "いらない", "要らない", "消して", "削除", 
 _WORKER_ON = ("付けて", "つけて", "表示して", "表示に", "オンに", " on", "出して", "有効", "ほしい", "欲しい")
 _APP_DELETE_WORDS = ("削除", "消して", "消す", "消去", "なくして", "外して", "消したい")
 _APP_DELETE_SCOPE_WORDS = ("アプリ", "ミニアプリ", "機能")
-_DELETE_HARD_EXACT = {"2", "２", "完全削除", "完全に削除", "データも削除", "全部削除", "完全", "hard"}
-_DELETE_SOFT_EXACT = {"1", "１", "巻き戻し可能", "復元可能", "データを残す", "残して削除", "非表示", "soft"}
+_DELETE_CONFIRM_EXACT = {
+    "削除する", "削除して", "完全削除", "完全に削除", "データも削除", "全部削除",
+    "はい", "お願いします", "お願い", "ok", "yes",
+}
 
 
 def worker_toggle_intent(text: str) -> bool | None:
@@ -438,14 +623,13 @@ def start_delete_confirm(project_id: str, feature: str, instruction: str) -> Non
     )
 
 
-def delete_choice(text: str) -> str | None:
-    """Return hard/soft for a pending app deletion choice."""
-    t = _normalize_short(text)
-    if t in _DELETE_HARD_EXACT or any(k in t for k in ("完全", "データも", "全部", "復元不可", "完全削除")):
-        return "hard"
-    if t in _DELETE_SOFT_EXACT or any(k in t for k in ("巻き戻し", "復元", "戻せる", "データを残", "残して", "非表示")):
-        return "soft"
-    return None
+def delete_confirmed(text: str) -> bool:
+    """Return true only for an explicit confirmation of irreversible app deletion.
+
+    Deliberately EXACT-match: this is a destructive gate, so substring heuristics
+    (e.g. 「全部」 inside 「全部残して」) must never confirm it. Anything else
+    re-asks instead of deleting."""
+    return _normalize_short(text) in _DELETE_CONFIRM_EXACT
 
 
 def _active_features(project_id: str) -> dict:
@@ -486,9 +670,7 @@ def start_edit(
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, feature=feature, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
-    threading.Thread(
-        target=_run_edit, args=(project_id, feature, instruction, images), daemon=True
-    ).start()
+    _spawn_pipeline_thread(conversation_id, _run_edit, project_id, feature, instruction, images)
 
 
 def _run_edit(
@@ -617,7 +799,7 @@ def start_candidate_revision(project_id: str, instruction: str, images: list[dic
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction,
                started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
-    threading.Thread(target=_run_candidate_revision, args=(project_id, instruction, images), daemon=True).start()
+    _spawn_pipeline_thread(conversation_id, _run_candidate_revision, project_id, instruction, images)
 
 
 def _run_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
@@ -743,7 +925,14 @@ def handle_request(
     """
     from app.orchestrator import service as orchestrator
 
-    decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
+    try:
+        # Classify against the ACTIVE main-chat session's history (multi-session).
+        conversation_id = conversation_id_for(project_id)
+    except Exception:  # noqa: BLE001 — session lookup must not block classification
+        conversation_id = None
+    decision = orchestrator.classify_request(
+        project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+    )
     action = decision.get("action")
     feature = decision.get("feature")
     # The Orchestrator read the history and may add a context note (resolved target
@@ -779,15 +968,17 @@ def handle_request_bg(
     images: list[dict] | None = None,
     hint_feature: str | None = None,
     user_call_name: str | None = None,
+    user_uid: str | None = None,
 ) -> None:
     """Run classify+route on a background thread so the Receptor can answer instantly.
 
     Classification calls an LLM, so doing it synchronously made the 'immediate' ack
     slow. The Receptor now acknowledges at once; this thread classifies and either
     kicks the build (which posts its own progress) or posts a chat reply."""
-    threading.Thread(
-        target=_handle_request_worker, args=(project_id, goal, images, hint_feature, user_call_name), daemon=True
-    ).start()
+    _spawn_pipeline_thread(
+        conversation_id_for(project_id),
+        _handle_request_worker, project_id, goal, images, hint_feature, user_call_name, user_uid,
+    )
 
 
 def _handle_request_worker(
@@ -796,6 +987,7 @@ def _handle_request_worker(
     images: list[dict] | None,
     hint_feature: str | None,
     user_call_name: str | None,
+    user_uid: str | None,
 ) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.orchestrator import service as orchestrator
@@ -811,7 +1003,9 @@ def _handle_request_worker(
                                 model=_model_for_phase("planning"), detail="依頼を整理中")
     worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED, detail=None)
     try:
-        decision = orchestrator.classify_request(project_id, goal, hint_feature=hint_feature)
+        decision = orchestrator.classify_request(
+            project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+        )
         action = decision.get("action")
         feature = decision.get("feature")
         note = (decision.get("context_note") or "").strip()
@@ -820,6 +1014,8 @@ def _handle_request_worker(
             # Don't dispatch yet — the Receptor restates what it will ask the
             # Orchestrator and waits for the user's OK (then start_confirm path).
             _start_confirm(project_id, action, feature, pipeline_goal, images=images, user_call_name=user_call_name)
+        elif action == "investigate":
+            _run_investigation(project_id, pipeline_goal, user_uid=user_uid, hint_feature=feature or hint_feature)
         else:
             append_message(conversation_id, ChatMessage(
                 role="assistant", text=_receptor_chat(project_id, goal, user_call_name=user_call_name)
@@ -833,6 +1029,82 @@ def _handle_request_worker(
         worker_status.record_status("Receptor", project_id, worker_status.IDLE, detail=None)
     finally:
         _set_build(conversation_id, status=_BUILD_DONE)
+
+
+def handle_investigation_bg(
+    project_id: str,
+    goal: str,
+    user_uid: str | None = None,
+    hint_feature: str | None = None,
+    user_call_name: str | None = None,
+) -> None:
+    _spawn_pipeline_thread(
+        conversation_id_for(project_id),
+        _handle_investigation_worker, project_id, goal, user_uid, hint_feature, user_call_name,
+    )
+
+
+def _handle_investigation_worker(
+    project_id: str,
+    goal: str,
+    user_uid: str | None,
+    hint_feature: str | None,
+    user_call_name: str | None,
+) -> None:
+    conversation_id = conversation_id_for(project_id)
+
+    _set_build(conversation_id, status=_BUILD_DESIGNING, phase="investigating", goal=goal,
+               started_at=_now_iso(), model=_model_for_phase("planning"), timeout_count=0, prompt_pending=False)
+    _run_investigation(project_id, goal, user_uid=user_uid, hint_feature=hint_feature)
+
+
+def _run_investigation(project_id: str, goal: str, user_uid: str | None, hint_feature: str | None = None) -> None:
+    conversation_id = conversation_id_for(project_id)
+    from app.orchestrator import service as orchestrator
+    from app.control_plane import worker_bus
+
+    worker_status.record_status("Receptor", project_id, worker_status.ACTIVE,
+                                model=_model_for_phase("planning"), detail="調査進捗を整理中")
+    worker_status.record_status("Orchestrator", project_id, worker_status.ACTIVE,
+                                model=_model_for_phase("planning"), detail="調査中")
+
+    def _investigate(_payload: dict) -> dict:
+        # Honest progress only: report what actually starts now (VISION 柱4 —
+        # no canned staged messages, no pretend checkmarks).
+        append_message(conversation_id, ChatMessage(
+            role="assistant",
+            text="🔎 Orchestrator が調査を開始しました（対象アプリの特定と、保存状態・connector 定義の照合を行います）。",
+        ))
+        result = orchestrator.investigate_request(project_id, goal, user_uid=user_uid, hint_feature=hint_feature)
+        return {"status": "ok", "result": {"report": result.get("report") or "調査結果を取得できませんでした。"}}
+
+    corr = f"investigate_{uuid.uuid4().hex[:12]}"
+    try:
+        rep = worker_bus.dispatch(
+            task_id=corr,
+            sender="Receptor",
+            to="Orchestrator",
+            intent="investigate",
+            payload={"goal": goal, "hint_feature": hint_feature},
+            handler=_investigate,
+            project_id=project_id,
+            model=_model_for_phase("planning"),
+        )
+        if rep.get("status") == "ok":
+            append_message(conversation_id, ChatMessage(role="assistant", text=str((rep.get("result") or {}).get("report") or "")))
+        else:
+            reason = (rep.get("error") or rep.get("status") or "worker report が ok ではありません")[:200]
+            append_message(conversation_id, ChatMessage(role="assistant", text=f"❌ 調査に失敗しました: {reason}"))
+            _set_build(conversation_id, status=_BUILD_ERROR, error=(rep.get("error") or "")[:300])
+            return
+    except Exception as exc:  # noqa: BLE001
+        append_message(conversation_id, ChatMessage(role="assistant", text=f"❌ 調査中にエラーが発生しました: {str(exc)[:200]}"))
+        _set_build(conversation_id, status=_BUILD_ERROR, error=str(exc)[:300])
+        return
+    finally:
+        worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED, detail=None)
+        worker_status.record_status("Receptor", project_id, worker_status.IDLE, detail=None)
+    _set_build(conversation_id, status=_BUILD_DONE)
 
 
 # --- Restate & confirm BEFORE dispatching to the Orchestrator -----------------
@@ -886,9 +1158,10 @@ def start_confirm_bg(
 ) -> None:
     """Re-run the restatement in the background (used when the user revises at the
     confirm stage), so the HTTP reply stays instant."""
-    threading.Thread(
-        target=_start_confirm, args=(project_id, action, feature, goal, None, user_call_name), daemon=True
-    ).start()
+    _spawn_pipeline_thread(
+        conversation_id_for(project_id),
+        _start_confirm, project_id, action, feature, goal, None, user_call_name,
+    )
 
 
 def _confirm_restatement(
@@ -962,10 +1235,18 @@ def decline_template(project_id: str) -> dict:
 
 def deploy_template(project_id: str, key: str, goal: str) -> dict:
     """Deploy a DEFAULT template as a preview (built candidate) — no LLM. The user
-    publishes with 「反映して」, then improves it via the normal edit pipeline."""
+    publishes with 「反映して」, then improves it via the normal edit pipeline.
+
+    Even defaults must pass the same pre-deploy gates. If a bundled template has
+    drifted from current policy, run the same small repair loop used by generated
+    apps before giving up; otherwise defaults fail permanently until a developer
+    manually patches the repository.
+    """
     from app import templates
+    from app.llm.gateway import get_llm
     from app.models.orchestrator import PlanRequest
     from app.orchestrator import service as orchestrator
+    from app.workers import ui_designer
 
     conversation_id = conversation_id_for(project_id)
     manifest = templates.to_manifest(key)
@@ -977,6 +1258,28 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"template_{uuid.uuid4().hex[:12]}"
     passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+    attempts = 1
+    while not passed and get_llm().enabled and attempts < _GATE_MAX_ATTEMPTS:
+        attempts += 1
+        feedback = _gate_feedback(gates)
+        _progress(conversation_id, f"↩️ デフォルトテンプレートの指摘を反映して小さく修正しています…（{attempts}回目）")
+        with _llm_heartbeat(conversation_id, "🛠 デフォルトテンプレート差分修正"):
+            patched = ui_designer.design_patch(goal, manifest.model_dump(mode="json"), feedback=feedback)
+        if patched is not None:
+            _progress(conversation_id, "🧩 デフォルトテンプレートへ差分パッチを適用しました")
+            manifest = patched
+        else:
+            _progress(conversation_id, "↩️ 差分にできない指摘のため、デフォルトを土台に全体を再生成します…")
+            plan = {
+                "feature": manifest.feature,
+                "title": manifest.title,
+                "theme": manifest.theme,
+                "summary": manifest.description,
+                "features": ["用意済みデフォルトテンプレートを土台に、ゲート指摘だけを修正する"],
+            }
+            with _llm_heartbeat(conversation_id, "🛠 デフォルトテンプレート再生成"):
+                manifest = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
     if not passed:
         append_message(conversation_id, ChatMessage(role="assistant", text=(
             f"❌ デフォルトの「{manifest.title}」は Safety Harness を通過できなかったため、プレビュー登録しませんでした。\n"
@@ -1008,7 +1311,11 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
             "building": False}
 
 
-def _receptor_chat(project_id: str, text: str, user_call_name: str | None = None) -> str:
+def _receptor_chat(
+    project_id: str,
+    text: str,
+    user_call_name: str | None = None,
+) -> str:
     """Receptor's conversational reply — LLM-generated (its own words), not a fixed
     template. Falls back to a minimal line only when no LLM is reachable."""
     from app import agents
@@ -1017,8 +1324,11 @@ def _receptor_chat(project_id: str, text: str, user_call_name: str | None = None
     llm = get_llm()
     if llm.enabled:
         snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
-        msgs = (snap.to_dict() or {}).get("messages", []) if snap.exists else []
+        conv = (snap.to_dict() or {}) if snap.exists else {}
+        msgs = conv.get("messages", [])
         history = "\n".join(f"{m.get('role')}: {(m.get('text') or '')[:160]}" for m in msgs[-6:]) or "（履歴なし）"
+        if conv.get("compacted_summary"):
+            history = "system: 以前の会話要約:\n" + str(conv.get("compacted_summary"))[-3000:] + "\n" + history
         _states = _active_features(project_id)
         _meta = ("_worker", "_theme", "_title")
         feats = "、".join(
@@ -1064,6 +1374,7 @@ def current_build(project_id: str) -> dict:
 
 _PHASE_LABELS = {
     "receiving": "受付（依頼の整理）",
+    "investigating": "調査",
     "planning": "設計案",
     "revising": "修正後の設計案",
     "codegen": "コード",
@@ -1474,7 +1785,7 @@ def _llm_heartbeat(conversation_id: str, label: str):
     read-timeout, so a hung bridge still surfaces as `failed`). Writes only the
     build record — no chat spam."""
     stop = threading.Event()
-    project_id = conversation_id[len("conv_"):] if conversation_id.startswith("conv_") else conversation_id
+    project_id = _parse_conversation_id(conversation_id)[0]
 
     def _beat() -> None:
         n = 0
@@ -1582,9 +1893,7 @@ def start_plan(
     conversation_id = conversation_id_for(project_id)
     phase = "revising" if (feedback and previous) else "planning"
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase=phase, goal=goal, started_at=_now_iso(), model=_model_for_phase(phase), timeout_count=0, prompt_pending=False)
-    threading.Thread(
-        target=_run_plan, args=(project_id, goal, feedback, previous, images), daemon=True
-    ).start()
+    _spawn_pipeline_thread(conversation_id, _run_plan, project_id, goal, feedback, previous, images)
 
 
 def _run_plan(
@@ -1653,9 +1962,7 @@ def start_codegen(project_id: str, goal: str, plan: dict) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"), timeout_count=0, prompt_pending=False)
-    threading.Thread(
-        target=_run_codegen, args=(project_id, goal, plan), daemon=True
-    ).start()
+    _spawn_pipeline_thread(conversation_id, _run_codegen, project_id, goal, plan)
 
 
 # --- Deploy-time gate: Tester (runs / meets intent) + Reviewer (conventions) ---
@@ -1839,17 +2146,19 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             return {"status": "ok", "result": {"passed": True, "feature": feat}}
 
         # Not verified → NOT publishable. Do not register or offer 「反映して」.
-        # Stay at the plan stage so the user can retry (「これで作って」) or redirect.
-        _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan, feature=manifest.feature)
+        # Stay at the plan stage so the user can retry (「同じ設計で再生成」) or
+        # redirect; needs_regeneration tells the UI which button to show.
+        _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan,
+                  feature=manifest.feature, needs_regeneration=True)
         if manifest.generated_by == "stub":
             text = (
                 "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
-                "claude ブリッジ（:8765）が起動しているか確認のうえ、「これで作って」で再試行してください。"
+                "claude ブリッジ（:8765）が起動しているか確認のうえ、「同じ設計で再生成」を選ぶか、設計を変えたい点を返信してください。"
             )
         else:
             text = (
                 "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + _gate_feedback(gates) + "\n"
-                "「これで作って」で作り直すか、設計を変えたい点を返信してください。"
+                "「同じ設計で再生成」を選ぶか、設計を変えたい点を返信してください。"
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         return {"status": "needs_revision",
@@ -1877,26 +2186,38 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
                                     detail="生成失敗・再試行待ち")
 
 
-def conversation_state(project_id: str) -> dict:
+def conversation_state(project_id: str, context_id: str | None = None) -> dict:
     """Everything the chat needs to render from scratch and poll: history, whether
     a background step is running, the current flow stage, and (at the built stage)
-    the feature to preview + the approval to publish."""
-    conversation_id = conversation_id_for(project_id)
+    the feature to preview + the approval to publish.
+
+    READ-ONLY (polled every few seconds): never writes the active context —
+    activation is an explicit POST. `context_id=None` reads the active session."""
+    ctx = _safe_context_id(context_id) if context_id is not None else active_main_context(project_id)
+    conversation_id = conversation_id_for(project_id, ctx)
     snap = get_db().collection(_COLLECTION).document(conversation_id).get()
     data = (snap.to_dict() or {}) if snap.exists else {}
     build = data.get("build") or {}
     flow = data.get("flow") or {"stage": _STAGE_IDLE}
     stage = flow.get("stage", _STAGE_IDLE)
     building = build.get("status") == _BUILD_DESIGNING
+    messages = data.get("messages", [])
+    compacted = summary_message(str(data.get("compacted_summary") or ""))
+    if compacted:
+        messages = [compacted, *messages]
     return {
         "conversation_id": conversation_id,
-        "messages": data.get("messages", []),
+        "context_id": ctx,
+        "messages": messages,
         "building": building,
         # The work happening NOW (planning/revising/codegen/editing). The flow stage
         # stays "plan" during code generation, so the spinner must key off phase.
         "phase": build.get("phase") if building else None,
         "stage": stage,
         "mode": flow.get("mode", "create"),
+        # At the plan stage after a gate-failed codegen: the UI offers regeneration
+        # wording instead of the normal approve wording (state flag, not text-match).
+        "needs_regeneration": bool(flow.get("needs_regeneration")) and stage == _STAGE_PLAN,
         "pending_feature": flow.get("feature") if stage == _STAGE_BUILT else None,
         "active_feature": build.get("feature") if building else (flow.get("feature") if stage == _STAGE_BUILT else None),
         "pending_approval_id": flow.get("approval_id") if stage == _STAGE_BUILT else None,
@@ -1904,14 +2225,15 @@ def conversation_state(project_id: str) -> dict:
 
 
 def append_message(conversation_id: str, message: ChatMessage) -> None:
+    # Transactional: progress messages arrive from background threads while the
+    # user posts, so a plain read-modify-write would silently drop messages.
     doc = get_db().collection(_COLLECTION).document(conversation_id)
-    payload = message.model_dump(mode="json")
-    # ArrayUnion keeps the single-doc model simple and atomic for the MVP volume.
-    from google.cloud import firestore  # local import: keeps module import cheap
-
-    doc.set(
-        {"messages": firestore.ArrayUnion([payload]), "project_id": conversation_id},
-        merge=True,
+    project_id, context_id = _parse_conversation_id(conversation_id)
+    append_messages_compacted(
+        doc,
+        [message.model_dump(mode="json")],
+        keep_recent=_MAIN_CHAT_KEEP_RECENT,
+        base_fields={"project_id": project_id, "context_id": context_id},
     )
 
 

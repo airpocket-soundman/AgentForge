@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import agents
 from app.auth import CurrentUser, current_user, require_project_access
+from app.control_plane.worker_context import append_messages_compacted, summary_message
 from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
 from app.llm.gateway import ModelTier, get_llm
@@ -38,6 +39,7 @@ _VIEWS = "generated_views"
 _STATE = "app_state"
 _APP_CONNECTORS = "app_connectors"
 _DEFAULT_CONTEXT = "default"
+_FEATURE_CHAT_KEEP_RECENT = 70
 
 
 def _today_context() -> str:
@@ -121,19 +123,19 @@ def _append(
     context_label: str | None,
     *messages: ChatMessage,
 ) -> None:
-    from google.cloud import firestore  # local import keeps module import cheap
-
     ctx = _context_id(context_id)
-    _chat_ref(project_id, feature, ctx).set(
-        {
+    # Transactional append (compaction needs read-modify-write; a transaction keeps
+    # concurrent worker replies and user posts from dropping each other).
+    append_messages_compacted(
+        _chat_ref(project_id, feature, ctx),
+        [m.model_dump(mode="json") for m in messages],
+        keep_recent=_FEATURE_CHAT_KEEP_RECENT,
+        base_fields={
             "project_id": project_id,
             "feature": feature,
             "context_id": ctx,
             "context_label": context_label or ctx,
-            "messages": firestore.ArrayUnion([m.model_dump(mode="json") for m in messages]),
-            "updated_at": _now_iso(),
         },
-        merge=True,
     )
 
 
@@ -149,11 +151,15 @@ def get_worker(
     ctx = _context_id(context_id)
     doc = _chat_ref(project_id, feature, ctx).get()
     data = doc.to_dict() if doc.exists else {}
+    messages = data.get("messages", [])
+    compacted = summary_message(str(data.get("compacted_summary") or ""))
+    if compacted:
+        messages = [compacted, *messages]
     return {
         "enabled": _worker_enabled(project_id, feature),
         "context_id": ctx,
         "context_label": data.get("context_label") or ctx,
-        "messages": data.get("messages", []),
+        "messages": messages,
     }
 
 
@@ -166,7 +172,12 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
 
     ctx = _context_id(body.context_id)
     snap = _chat_ref(body.project_id, feature, ctx).get()
-    history = snap.to_dict().get("messages", []) if snap.exists else []
+    chat_data = snap.to_dict() if snap.exists else {}
+    history = chat_data.get("messages", [])
+    if chat_data.get("compacted_summary"):
+        history = [
+            {"role": "system", "text": "以前の会話要約:\n" + str(chat_data.get("compacted_summary"))[-3000:]}
+        ] + history
     user_msg = ChatMessage(role="user", text=body.text)
 
     # Attached images (e.g. a 翻訳 button sending a pasted photo) → vision input.
@@ -527,6 +538,7 @@ def _app_runtime_context(project_id: str, feature: str, user_uid: str | None) ->
         "- AF.defineConnector(def): このアプリ専用の外部API connectorをユーザー操作で登録する。\n"
         "- AF.listConnectors()/AF.deleteConnector(id): 登録済み connector の確認/削除。\n"
         "- AF.api('connector.action', params): 登録済み connector action だけを呼び出す。任意URLへ直接fetchする設計ではない。\n"
+        "- AF.openExternal(url): ユーザーのクリック操作に応じて http(s) URL をシェル経由で別タブに開く。生成HTMLで window.open や href 直入れは使わない。\n"
         "- AF.askWorker(text): アプリ内UIからこの Specialist Worker に相談/操作依頼する。\n"
         "- AF.setChatContext(id,label): 画面や対象ごとにこのワーカーの会話文脈を分ける。\n"
         "- AF.setChatVisible(bool): 画面ごとにチャット欄の表示だけを切り替える。\n"

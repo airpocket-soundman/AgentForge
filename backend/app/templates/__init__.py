@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from app.models.generated import ViewManifest
 
-from . import calculator, household_budget, memo, paint, retouch, schedule, task_manager, translate
+from . import bluesky, calculator, household_budget, memo, paint, retouch, schedule, task_manager, translate
 
-_MODULES = [calculator, task_manager, schedule, memo, household_budget, translate, paint, retouch]
+_MODULES = [calculator, task_manager, schedule, memo, household_budget, translate, paint, retouch, bluesky]
 
 # feature slug -> manifest dict
 TEMPLATES: dict[str, dict] = {m.MANIFEST["feature"]: m.MANIFEST for m in _MODULES}
@@ -32,6 +32,7 @@ _KEYWORDS: dict[str, tuple[str, ...]] = {
     "translate": ("翻訳", "translate", "translation", "ほんやく"),
     "paint": ("ペイント", "お絵描き", "おえかき", "お絵かき", "落書き", "paint", "drawing", "draw"),
     "retouch": ("レタッチ", "画像編集", "写真編集", "背景削除", "透過", "輪郭抽出", "retouch", "photo editor", "background remover"),
+    "bluesky": ("bluesky", "ブルースカイ", "bsky", "atproto", "at protocol"),
 }
 
 

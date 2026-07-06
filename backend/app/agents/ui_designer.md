@@ -21,15 +21,31 @@
   その後は `await AF.api("connector_id.action_id", params)` で登録済み action だけ呼ぶ。
   token/API key/password は `AF.save()` state に保存せず、保存後は入力欄を空にし、再表示しない。
   GitHub/Notion/Bluesky などのテンプレートを置く場合も、固定サービス専用実装ではなく編集可能な初期値として扱う。
+  action には `query_template` / `body_template` を指定できる。値はリテラル、`$params.name`（AF.api 呼び出し時の引数）、
+  `$secret.password` / `$secret.token` / `$secret.username`（connector auth に保存済みの secret）を使える。
   例:
-  `await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read"}}})`
+  `await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read",query_template:{limit:"$params.limit"}}}})`
   `const res = await AF.api("my_api.list_items", { limit: 20 })`
   接続設定だけを扱う画面は、それ自体を `worker_state_mode: "hybrid"` にしない。connector 定義は `AF.defineConnector` 側で永続化されるため、
   `state_schema` に `base_url`、token、認証ヘッダ、connector 定義を入れない。公開済み接続の表示は `AF.listConnectors()` から復元する。
+  session 発行や refresh で保存済み secret を body に入れる必要がある場合は、HTML state に secret を戻さず
+  `body_template:{password:"$secret.password"}` のように backend 側で差し込む。
+  `AF.api()` の戻り値は外部 API のレスポンス本体をトップレベルにも展開し、同じ値を `data` にも保持する。
+  例: session API が `{accessJwt:"..."}` を返す場合は `res.accessJwt` と `res.data.accessJwt` の両方で読める。
   Bluesky/AT Protocol のユーザータイムラインなど認証が必要な API は、App Password を Bearer token として使わない。
-  まず `auth:{type:"none"}` の connector/action で `POST /xrpc/com.atproto.server.createSession` を呼び、
+  App Password は connector secret として保存し、`POST /xrpc/com.atproto.server.createSession` の action は
+  ログイン用 connector を `auth:{type:"none",username:identifier,password:password}` として定義した上で
+  `body_template:{identifier:"$secret.username",password:"$secret.password"}` で呼び、Basic 認証ヘッダは送らない。
   返った `accessJwt` を `auth:{type:"bearer", token: accessJwt}` の connector に入れて
   `GET /xrpc/app.bsky.feed.getTimeline` 等を呼ぶ。App Password と accessJwt は `AF.save()` state に保存しない。
+  UI の接続状態は `credential_saved` / `session_ready` / `last_test_ok` / `last_error` を分ける。
+  外部API由来の投稿本文・表示名・URL・alt などは、`innerHTML` に文字列連結で入れない。
+  `textContent` / `createTextNode` を使うか、`escapeHtml()` で `& < > " '` をエスケープする。
+  `safeText()` のような String 化だけでは HTML エスケープにならない。
+  外部画像URLやリンクURLを `<img src="${...}">` / `<a href="${...}">` / `element.src = url` / `element.href = url`
+  として直接使わない。リンクを開く必要がある場合は、ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。
+  画像は原則として「画像あり」「alt」「URL文字列」などのテキストで表示する。
+  画像実体を扱う場合は承認済み backend/Blob 経路で取得し、`AF.loadBlob()` が null のときは欠落表示を出す。
 
 ## ミニアプリの「内容編集ツール契約」（標準仕様・必須 / MCP形式）
 生成する機能＝「ミニアプリ」、その中身を担当するのが「専門ワーカー」。アプリ型（kind=app）を

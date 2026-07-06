@@ -341,11 +341,6 @@ def _soft_disable_feature(project_id: str, feature: str, reason: str) -> dict:
     return {"project_id": project_id, "feature": feature, "status": "disabled"}
 
 
-def archive_feature(project_id: str, feature: str) -> dict:
-    """User-chosen reversible deletion: hide the app but keep app-scoped data."""
-    return _soft_disable_feature(project_id, feature, reason="user_reversible_delete")
-
-
 def disable_feature(project_id: str, feature: str) -> dict:
     """Explicit app deletion: remove the app and all app-scoped data.
 

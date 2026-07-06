@@ -2,10 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import {
   getCandidate,
   getConversationState,
+  listMainChatContexts,
+  activateMainChatContext,
+  deleteMainChatContext,
+  renameMainChatContext,
   sendMessage,
   type Attachment,
   type ChatMessage,
   type ConversationState,
+  type MainChatContext,
   type ViewManifest,
 } from "../api";
 import { AppFrame, deleteFeatureBlobs } from "./AppFrame";
@@ -39,6 +44,11 @@ export function ChatView({
   const [pendingFeature, setPendingFeature] = useState<string | null>(null);
   const [preview, setPreview] = useState<ViewManifest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [contexts, setContexts] = useState<MainChatContext[]>([]);
+  const [chatContext, setChatContext] = useState(() => localStorage.getItem("af_main_chat_context") || "default");
+  // Backend state flag (set when a codegen failed its gates) — not derived from
+  // assistant wording, so message-text changes can never break the button.
+  const [needsRegeneration, setNeedsRegeneration] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const att = useAttachments();
 
@@ -48,12 +58,13 @@ export function ChatView({
 
   async function loadState() {
     try {
-      const s = await getConversationState();
+      const s = await getConversationState(undefined, chatContext);
       setMessages(s.messages.length ? s.messages : [WELCOME]);
       setBuilding(s.building);
       setStage(s.stage);
       setPhase(s.phase ?? null);
       setMode(s.mode);
+      setNeedsRegeneration(!!s.needs_regeneration);
       setPendingFeature(s.pending_feature);
       // Fetch the candidate app the moment code is built (create OR edit), in the
       // SAME call that flips the stage — avoids a one-shot race that left the
@@ -77,8 +88,18 @@ export function ChatView({
 
   useEffect(() => {
     void loadState();
+    void loadContexts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [chatContext]);
+
+  async function loadContexts() {
+    try {
+      const c = await listMainChatContexts();
+      setContexts(c.contexts);
+    } catch {
+      setContexts([]);
+    }
+  }
 
   // Poll while a background step runs, and keep polling until the built-stage
   // preview has actually loaded (so a slow/again-null candidate still appears).
@@ -115,7 +136,7 @@ export function ChatView({
     setMessages((prev) => [...prev, { role: "user", text: note, created_at: new Date().toISOString() }]);
     scrollDown();
     try {
-      const res = await sendMessage(text, attachments);
+      const res = await sendMessage(text, attachments, undefined, chatContext);
       if (res.building) setBuilding(true);
       if (res.activated_feature) onFeatureActivated(res.activated_feature);
       if (res.deleted_feature) {
@@ -126,6 +147,7 @@ export function ChatView({
         onFeatureDisabled(res.disabled_feature);
       }
       await loadState();
+      await loadContexts();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -140,6 +162,39 @@ export function ChatView({
     setInput("");
     att.clear();
     await send(text, files);
+  }
+
+  async function switchContext(id: string) {
+    const next = id || "default";
+    setChatContext(next);
+    localStorage.setItem("af_main_chat_context", next);
+    await activateMainChatContext(next).catch(() => undefined);
+  }
+
+  async function createContext() {
+    const id = `session_${Date.now().toString(36)}`;
+    await switchContext(id);
+    await loadContexts();
+  }
+
+  async function clearContext() {
+    if (!window.confirm("この session を削除しますか？")) return;
+    await deleteMainChatContext(chatContext);
+    const next = "default";
+    setChatContext(next);
+    localStorage.setItem("af_main_chat_context", next);
+    await activateMainChatContext(next).catch(() => undefined);
+    await loadContexts();
+    await loadState();
+  }
+
+  async function editSessionName() {
+    const current = contexts.find((c) => c.context_id === chatContext);
+    const raw = window.prompt("session name", current?.label || chatContext);
+    const label = (raw || "").trim();
+    if (!label) return;
+    await renameMainChatContext(chatContext, label);
+    await loadContexts();
   }
 
   // Drive the spinner by the ACTIVE phase, not the flow stage: the stage stays
@@ -158,6 +213,18 @@ export function ChatView({
 
   return (
     <div className="chatview">
+      <div className="main-context-bar">
+        <select value={chatContext} onChange={(e) => void switchContext(e.target.value)} aria-label="メインチャット文脈">
+          {(contexts.length ? contexts : [{ context_id: "default", label: "通常", message_count: 0, active: true }]).map((c) => (
+            <option key={c.context_id} value={c.context_id}>
+              {c.label || c.context_id}{c.message_count ? ` (${c.message_count})` : ""}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="secondary" onClick={() => void createContext()}>new session</button>
+        <button type="button" className="secondary" onClick={() => void editSessionName()}>session name edit</button>
+        <button type="button" className="danger" onClick={() => void clearContext()}>session delete</button>
+      </div>
       <div className="chat" ref={listRef}>
         {messages.map((m, i) => (
           <div key={i} className={`bubble bubble--${m.role}`}>
@@ -215,10 +282,16 @@ export function ChatView({
 
       {!building && stage === "plan" && (
         <div className="approval">
-          <span>この設計案で進めますか？修正があればメッセージで指示してください。</span>
+          <span>
+            {needsRegeneration
+              ? "未通過の生成物は公開できません。同じ設計で再生成するか、修正内容をメッセージで指示してください。"
+              : "この設計案で進めますか？修正があればメッセージで指示してください。"}
+          </span>
           <div className="approval__actions">
             <button className="rollback" onClick={() => void send("キャンセル")}>やめる</button>
-            <button onClick={() => void send("これで作って")}>これで作って（コード生成）</button>
+            <button onClick={() => void send("これで作って")}>
+              {needsRegeneration ? "同じ設計で再生成" : "これで作って（コード生成）"}
+            </button>
           </div>
         </div>
       )}
@@ -245,7 +318,9 @@ export function ChatView({
             value={input}
             placeholder={
               stage === "plan"
-                ? "修正を入力…（例：色を増やして / 保存も付けて）。OKなら「これで作って」"
+                ? needsRegeneration
+                  ? "修正を入力…（例：指摘の表示方法を変えて）。同じ設計なら「同じ設計で再生成」"
+                  : "修正を入力…（例：色を増やして / 保存も付けて）。OKなら「これで作って」"
                 : "追加したい機能を入力…（画像やファイルも貼り付け・ドロップ・＋で添付）"
             }
             onChange={(e) => setInput(e.target.value)}

@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from app.firestore import get_db
 
 _COLLECTION = "worker_contexts"
+_SUMMARY_LIMIT = 8000
+_MESSAGE_TEXT_LIMIT = 500
 
 
 def _now_iso() -> str:
@@ -48,3 +50,96 @@ def plan_compaction(items: list, keep_recent: int) -> tuple[list, list]:
         return [], list(items)
     return list(items[:-keep_recent]) if keep_recent else list(items), \
         list(items[-keep_recent:]) if keep_recent else []
+
+
+def _message_line(message: dict) -> str:
+    role = str(message.get("role") or "?")
+    text = " ".join(str(message.get("text") or "").split())
+    if len(text) > _MESSAGE_TEXT_LIMIT:
+        text = text[:_MESSAGE_TEXT_LIMIT] + "..."
+    created = str(message.get("created_at") or "")[:19]
+    prefix = f"{created} " if created else ""
+    return f"- {prefix}{role}: {text}"
+
+
+def compact_message_history(
+    current_messages: list[dict],
+    new_messages: list[dict],
+    *,
+    summary: str = "",
+    keep_recent: int = 80,
+    summary_limit: int = _SUMMARY_LIMIT,
+) -> tuple[list[dict], str, bool]:
+    """Append messages and compact old raw history into a bounded summary.
+
+    This is intentionally deterministic: compaction must still work when the LLM
+    provider is down. The summary is an audit-friendly digest, not a replacement
+    for long-term logs.
+    """
+    combined = list(current_messages or []) + list(new_messages or [])
+    to_fold, keep = plan_compaction(combined, keep_recent)
+    if not to_fold:
+        return combined, summary or "", False
+
+    folded = "\n".join(_message_line(m) for m in to_fold if isinstance(m, dict))
+    next_summary = (summary or "").strip()
+    if folded:
+        block = "[compacted messages]\n" + folded
+        next_summary = f"{next_summary}\n\n{block}".strip() if next_summary else block
+    if len(next_summary) > summary_limit:
+        next_summary = "...(older compacted summary truncated)\n" + next_summary[-summary_limit:]
+    return keep, next_summary, True
+
+
+def summary_message(summary: str) -> dict | None:
+    """Synthetic chat message used by UI/API readers before recent messages."""
+    if not (summary or "").strip():
+        return None
+    return {
+        "role": "system",
+        "text": "以前の会話要約:\n" + summary.strip(),
+        "created_at": "",
+    }
+
+
+def append_messages_compacted(
+    doc_ref,
+    new_payloads: list[dict],
+    *,
+    keep_recent: int,
+    base_fields: dict | None = None,
+) -> None:
+    """Atomically append messages to a chat document, compacting old history.
+
+    Compaction needs read-modify-write, which would lose concurrent appends (the
+    pipeline writes progress from background threads while the user posts), so the
+    whole cycle runs inside a Firestore transaction — contention retries instead of
+    dropping messages.
+    """
+    from google.cloud import firestore  # local import keeps module import cheap
+
+    db = get_db()
+
+    @firestore.transactional
+    def _txn(transaction) -> None:
+        snap = doc_ref.get(transaction=transaction)
+        data = (snap.to_dict() or {}) if snap.exists else {}
+        messages, summary, compacted = compact_message_history(
+            data.get("messages", []),
+            new_payloads,
+            summary=str(data.get("compacted_summary") or ""),
+            keep_recent=keep_recent,
+        )
+        transaction.set(
+            doc_ref,
+            {
+                **(base_fields or {}),
+                "messages": messages,
+                "compacted_summary": summary,
+                "compacted": compacted or bool(data.get("compacted")),
+                "updated_at": _now_iso(),
+            },
+            merge=True,
+        )
+
+    _txn(db.transaction())

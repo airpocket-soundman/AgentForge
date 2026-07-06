@@ -61,6 +61,7 @@ export interface ReceptionReply {
 // design runs (so navigating away / reloading keeps the design going).
 export interface ConversationState {
   conversation_id: string;
+  context_id?: string;
   messages: ChatMessage[];
   building: boolean;
   // What the worker is doing now while building: "planning" | "revising" | "codegen" | "editing".
@@ -68,9 +69,21 @@ export interface ConversationState {
   // Flow: "idle" | "confirm" (restated, awaiting OK) | "plan" | "built".
   stage: "idle" | "confirm" | "plan" | "built";
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
+  // At "plan" after a gate-failed codegen: offer 「同じ設計で再生成」 instead of
+  // the normal approve wording (backend state flag — no assistant-text matching).
+  needs_regeneration?: boolean;
   pending_feature: string | null; // at "built": the feature to preview
   active_feature?: string | null; // while building/built: feature this shared pipeline belongs to
   pending_approval_id: string | null; // at "built": the approval to publish
+}
+
+export interface MainChatContext {
+  context_id: string;
+  label: string;
+  message_count: number;
+  updated_at?: string | null;
+  active: boolean;
+  compacted?: boolean;
 }
 
 export interface Task {
@@ -108,15 +121,54 @@ export function sendMessage(
   text: string,
   attachments: Attachment[] = [],
   projectId = PROJECT_ID,
+  contextId = "default",
 ): Promise<ReceptionReply> {
   return request<ReceptionReply>("/api/reception/messages", {
     method: "POST",
-    body: JSON.stringify({ text, project_id: projectId, attachments, user_call_name: userCallName() }),
+    body: JSON.stringify({ text, project_id: projectId, attachments, context_id: contextId, user_call_name: userCallName() }),
   });
 }
 
-export function getConversationState(projectId = PROJECT_ID): Promise<ConversationState> {
-  return request<ConversationState>(`/api/reception/state/${encodeURIComponent(projectId)}`);
+export function getConversationState(projectId = PROJECT_ID, contextId?: string): Promise<ConversationState> {
+  const suffix = contextId ? `?context_id=${encodeURIComponent(contextId)}` : "";
+  return request<ConversationState>(
+    `/api/reception/state/${encodeURIComponent(projectId)}${suffix}`,
+  );
+}
+
+export function listMainChatContexts(projectId = PROJECT_ID): Promise<{ active_context: string; contexts: MainChatContext[] }> {
+  return request(`/api/reception/contexts/${encodeURIComponent(projectId)}`);
+}
+
+export function activateMainChatContext(
+  contextId: string,
+  projectId = PROJECT_ID,
+): Promise<{ project_id: string; active_context: string }> {
+  return request(
+    `/api/reception/contexts/${encodeURIComponent(projectId)}/${encodeURIComponent(contextId)}/active`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function deleteMainChatContext(
+  contextId: string,
+  projectId = PROJECT_ID,
+): Promise<{ project_id: string; context_id: string; deleted?: boolean; cleared?: boolean }> {
+  return request(
+    `/api/reception/contexts/${encodeURIComponent(projectId)}/${encodeURIComponent(contextId)}/delete`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export function renameMainChatContext(
+  contextId: string,
+  label: string,
+  projectId = PROJECT_ID,
+): Promise<{ project_id: string; context_id: string; label: string }> {
+  return request(
+    `/api/reception/contexts/${encodeURIComponent(projectId)}/${encodeURIComponent(contextId)}/rename`,
+    { method: "POST", body: JSON.stringify({ label }) },
+  );
 }
 
 export function approve(approvalId: string): Promise<{ status: string; feature: string }> {
@@ -559,6 +611,8 @@ export interface AppConnectorAction {
   path: string;
   side_effect?: "read" | "low" | "medium" | "high";
   description?: string;
+  query_template?: Record<string, unknown>;
+  body_template?: Record<string, unknown>;
 }
 
 export interface AppConnectorDefinition {

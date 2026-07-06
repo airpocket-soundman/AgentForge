@@ -2,7 +2,10 @@
 from app import templates
 from app.models.generated import ViewManifest
 
-EXPECTED = {"calculator", "task_manager", "schedule", "memo", "household_budget", "translate", "paint", "retouch"}
+EXPECTED = {
+    "calculator", "task_manager", "schedule", "memo", "household_budget",
+    "translate", "paint", "retouch", "bluesky",
+}
 
 
 def test_all_templates_present():
@@ -34,6 +37,7 @@ def test_matcher_maps_keywords():
     assert templates.match_template("翻訳ツールを作って") == "translate"
     assert templates.match_template("お絵描きアプリを作って") == "paint"
     assert templates.match_template("背景削除できるレタッチソフトを作って") == "retouch"
+    assert templates.match_template("Blueskyアプリを作って") == "bluesky"
 
 
 def test_matcher_returns_none_for_unrelated():
@@ -50,7 +54,172 @@ def test_judge_template_keyword_fallback():
     # No LLM in tests → judge_template falls back to the keyword matcher.
     from app.orchestrator import service as orch
     assert orch.judge_template("電卓を作って")["template"] == "calculator"
+    assert orch.judge_template("Blueskyを作って")["template"] == "bluesky"
     assert orch.judge_template("在庫管理を作って")["template"] is None
+
+
+def test_bluesky_template_keeps_connector_secrets_and_clear_persistence():
+    manifest = templates.get_template("bluesky")
+    html = manifest["html"]
+    assert "auth:{type:\"none\",username:identifier,password:password}" in html
+    assert "auth:{type:\"basic\",username:identifier,password:password}" not in html
+    assert "body_template:{identifier:\"$secret.username\",password:\"$secret.password\"}" in html
+    assert 'name==="clear_posts"){posts=[];cursor=null;save();' in html
+    assert 'timeline:{method:"GET",path:"/xrpc/app.bsky.feed.getTimeline",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor"}}' in html
+    assert 'author_feed:{method:"GET",path:"/xrpc/app.bsky.feed.getAuthorFeed",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor",actor:"$params.actor"}}' in html
+    assert 'profile:{method:"GET",path:"/xrpc/app.bsky.actor.getProfile",side_effect:"read",query_template:{actor:"$params.actor"}}' in html
+    assert 'follow:{method:"POST",path:"/xrpc/com.atproto.repo.createRecord",side_effect:"medium"' in html
+    assert 'unfollow:{method:"POST",path:"/xrpc/com.atproto.repo.deleteRecord",side_effect:"medium"' in html
+    assert 'record:{"$type":"app.bsky.graph.follow",subject:"$params.subject",createdAt:"$params.createdAt"}' in html
+    assert 'var PAGE_LIMIT=20,PREFETCH_AFTER=15,MAX_POSTS=200;' in html
+    assert 'feedTimer=null,loadSeq=0;' in html
+    assert 'var params={limit:PAGE_LIMIT,cursor:(more&&cursor)?cursor:""};' in html
+    assert 'posts=more?posts.concat(normalized):normalized;' in html
+    assert 'if(loading&&more)return;' in html
+    assert 'var seq=++loadSeq;' in html
+    assert 'if(seq!==loadSeq)return;' in html
+    assert 'finally{if(seq===loadSeq){loading=false;setTimeout(maybeLoadMore,0);}}' in html
+    assert 'function prefetchTargetVisible()' in html
+    assert 'var offset=Math.max(1,PAGE_LIMIT-PREFETCH_AFTER);' in html
+    assert 'prefetchTargetVisible()||nearBottom()' in html
+    assert 'window.addEventListener("scroll",maybeLoadMore,{passive:true});' in html
+    assert 'function scheduleConnect()' in html
+    assert 'function ensureSessionAndLoad()' in html
+    assert 'id="home"' in html
+    assert 'id="accountSearch"' in html
+    assert 'function searchAccount()' in html
+    assert 'function showHome()' in html
+    assert 'function showHome(){\n    clearTimeout(feedTimer);' in html
+    assert 'state.feedType="timeline";state.actor=""' in html
+    assert 'function renderProfileCard(feed)' in html
+    assert 'function loadProfile(actor,seq)' in html
+    assert 'function toggleFollow()' in html
+    assert 'avatar_url:p.avatar||"",banner_url:p.banner||"",avatar_ref:"",banner_ref:""' in html
+    assert 'function fetchProfileImages(p)' in html
+    assert 'function renderBlobImage(container,name,alt,cls)' in html
+    assert 'className="profilebanner"' in html
+    assert 'className="profileavatar"' in html
+    assert 'await fetchProfileImages(state.profile);' in html
+    assert 'p[refKey]=name;' in html
+    assert 'function postAvatar(item)' in html
+    assert 'author_avatar_url:postAvatar(item)' in html
+    assert 'avatar_ref:""' in html
+    assert 'className="postavatar"' in html
+    assert 'renderBlobImage(postAvatarEl,item.avatar_ref,postAuthor(item)+" avatar","");' in html
+    assert 'list[i].avatar_ref=avatarName;' in html
+    assert 'AF.api("bluesky.follow"' in html
+    assert 'AF.api("bluesky.unfollow"' in html
+    assert 'state.currentDid=res.did||state.currentDid||"";' in html
+    assert 'state.profile=normalizeProfile(p);save();' in html
+    assert "AF.openExternal(url)" in html
+    assert "AF.saveBlob(name,res.data_url)" in html
+    assert "AF.loadBlob(pic.name)" in html
+    assert "画像データがこの端末にありません" in html
+    assert "src:res.data_url" not in html
+    assert "pic.src" not in html
+    assert "function showAuthor(handle)" in html
+    assert 'id="limit"' not in html
+    assert 'id="more"' not in html
+    assert 'id="load"' not in html
+    assert 'id="connect"' not in html
+    assert 'id="test"' not in html
+    assert 'id="disconnect"' not in html
+    assert 'id="feedType"' not in html
+    assert 'id="actor"' not in html
+    assert "投稿を開く" not in html
+    assert "window.open" not in html
+    assert "href=" not in html.lower()
+    assert 'function normalizeIdentifier(value){return String(value||"").trim().replace(/^@+/,"");}' in html
+    post_props = manifest["state_schema"]["properties"]["posts"]["items"]["properties"]
+    assert "currentDid" in manifest["state_schema"]["properties"]
+    assert "profile" in manifest["state_schema"]["properties"]
+    profile_props = manifest["state_schema"]["properties"]["profile"]["properties"]
+    assert "avatar_url" in profile_props
+    assert "banner_url" in profile_props
+    assert "avatar_ref" in profile_props
+    assert "banner_ref" in profile_props
+    assert "image_urls" in post_props
+    assert "image_refs" in post_props
+    assert "author_avatar_url" in post_props
+    assert "avatar_ref" in post_props
+    assert "links" in post_props
+    assert "post_url" not in post_props
+
+
+def test_retouch_template_has_worker_layer_controls_and_blob_fallback():
+    manifest = templates.get_template("retouch")
+    html = manifest["html"]
+    command_names = {c["name"] for c in manifest["commands"]}
+    assert manifest["worker_state_mode"] == "hybrid"
+    assert manifest["worker_eval_cases"]
+    assert "select_layer" in command_names
+    assert "rename_layer" in command_names
+    assert "delete_layer" in command_names
+    assert "undo" in command_names
+    assert "redo" in command_names
+    assert "clear_layer" in command_names
+    assert "crop_to_content" in command_names
+    assert "set_tool" in command_names
+    assert "set_zoom" in command_names
+    assert "adjust_color" in command_names
+    assert "select_object_at" in command_names
+    assert "expand_selection" in command_names
+    assert "clear_selection" in command_names
+    assert "delete_outside_selection" in command_names
+    assert "function saveProject()" in html
+    assert "AF.save({activeId:activeId,width:w,height:h,tool:tool,zoom:zoom,layers:layers.map" in html
+    assert "AF.saveBlob('retouch-project'" in html
+    assert "function loadProject()" in html
+    assert "AF.loadBlob('retouch-project')" in html
+    assert "保存済みプロジェクトの画像本体がこの端末にありません" in html
+    assert "レイヤ画像のBlobがこの端末にありません" in html
+    assert "function findLayer(args)" in html
+    assert "function selectLayer(args)" in html
+    assert "function renameLayer(args)" in html
+    assert "function pushHistory(entry)" in html
+    assert "function undo()" in html
+    assert "function redo()" in html
+    assert "function setTool(t)" in html
+    assert "function cropToContent()" in html
+    assert "function pointerDown(e)" in html
+    assert "function adjustActive(br,ct)" in html
+    assert "else if(name==='select_layer')selectLayer(args);" in html
+    assert "else if(name==='rename_layer')renameLayer(args);" in html
+    assert "else if(name==='delete_layer')removeLayer(args);" in html
+    assert "else if(name==='undo')undo();" in html
+    assert "else if(name==='redo')redo();" in html
+    assert "else if(name==='set_tool')setTool(args.tool||'move');" in html
+    assert "else if(name==='set_zoom')" in html
+    assert "else if(name==='crop_to_content')cropToContent();" in html
+    assert "else if(name==='adjust_color')adjustActive(+args.brightness||0,+args.contrast||0);" in html
+    # Click-to-select: flood-fill object selection that unions per click (so
+    # contiguous objects merge into one boundary), rough-trace edge snapping,
+    # expand + hole fill, then keep-selected transparency.
+    assert "function selectObjectAt(pt,th,erase)" in html
+    assert "function deleteOutsideSelection()" in html
+    assert "function floodAdd(d,cw,ch,sx,sy,th,erase)" in html
+    assert "function maskBoundary(mask,cw,ch)" in html
+    assert "function fillPolygon(pts,cw,ch)" in html
+    assert "function snapRegion(d,cw,ch,pts)" in html
+    assert "function traceSelect(pts,erase)" in html
+    assert "function expandSelection(px)" in html
+    assert "else if(name==='select_object_at')" in html
+    assert "else if(name==='expand_selection')expandSelection(+args.pixels||2);" in html
+    assert "else if(name==='delete_outside_selection')deleteOutsideSelection();" in html
+    # Usability: zoom/fit, drag&drop + paste loading, keyboard shortcuts, and
+    # drawing that works on the in-memory layer canvas (no per-stroke re-decode).
+    assert "function fitZoom()" in html
+    assert "addEventListener('drop'" in html
+    assert "addEventListener('paste'" in html
+    assert "addEventListener('keydown'" in html
+    assert "requestAnimationFrame" in html
+    assert "toDataURL" not in html.split("function paintLine", 1)[1].split("function pointerDown", 1)[0]
+    props = manifest["state_schema"]["properties"]
+    assert "tool" in props
+    assert "zoom" in props
+    layer_props = props["layers"]["items"]["properties"]
+    assert "x" in layer_props
+    assert "y" in layer_props
 
 
 def test_is_scratch_detector():

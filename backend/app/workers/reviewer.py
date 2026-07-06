@@ -22,6 +22,27 @@ _PERSISTENCE_KEYWORDS = (
     "ゲーム", "テトリス", "tetris", "盤面", "スコア", "レベル", "手番",
     "クイズ", "進捗", "家計簿", "日記", "予定", "スケジュール",
 )
+_STATE_SECRET_KEYS = {
+    "password",
+    "passwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "accessjwt",
+    "refreshjwt",
+    "apikey",
+    "api_key",
+    "authorization",
+    "auth",
+    "secret",
+    "baseurl",
+    "base_url",
+    "headers",
+}
+_VARIABLE_EXTERNAL_ATTR_RE = re.compile(
+    r"""<\s*(?:img|a)\b[^>]+\b(?:src|href)\s*=\s*["']?\s*\$\{|\.(?:src|href)\s*=\s*[^;\n]*(?:url|uri|link|thumb|image|avatar)""",
+    re.I,
+)
 
 
 def _requires_persistence(goal: str, design_plan: dict | None, requirements: list[str] | None) -> bool:
@@ -36,6 +57,22 @@ def _requires_persistence(goal: str, design_plan: dict | None, requirements: lis
         ]
     ).lower()
     return any(k.lower() in hay for k in _PERSISTENCE_KEYWORDS)
+
+
+def _sensitive_state_paths(value: object, prefix: str = "") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            name = str(key)
+            path = f"{prefix}.{name}" if prefix else name
+            normalized = re.sub(r"[^a-z0-9_]", "", name.lower())
+            if normalized in _STATE_SECRET_KEYS:
+                paths.append(path)
+            paths.extend(_sensitive_state_paths(child, path))
+    elif isinstance(value, list):
+        for i, child in enumerate(value[:20]):
+            paths.extend(_sensitive_state_paths(child, f"{prefix}[{i}]"))
+    return paths
 
 
 def _static_findings(manifest: dict) -> list[str]:
@@ -99,6 +136,36 @@ def _static_findings(manifest: dict) -> list[str]:
         findings.append("clarification_policy が無い（対象不明・異常値・情報不足時の聞き返し方針が必要）")
     if (commands or state_mode in {"state", "hybrid"}) and not str(manifest.get("dangerous_action_policy") or "").strip():
         findings.append("dangerous_action_policy が無い（一括削除・初期化など危険操作の確認方針が必要）")
+    if "AF.defineConnector" in html or "AF.api" in html:
+        if ".innerHTML" in html and "escapeHtml" not in html and "escapeHTML" not in html:
+            findings.append(
+                "外部API由来データを扱うアプリで innerHTML を使っています。"
+                "投稿本文・表示名・URL等は textContent/createTextNode または escapeHtml() でHTMLエスケープしてください"
+            )
+        if _VARIABLE_EXTERNAL_ATTR_RE.search(html):
+            findings.append(
+                "外部API由来のURLを img/src または a/href に直接入れる可能性があります。"
+                "生成HTMLは外部URLを直接読み込まず、画像/リンクはクリック不可テキストまたは承認済みBlob経路で扱ってください"
+            )
+        sensitive_paths = _sensitive_state_paths(state_schema)
+        if sensitive_paths:
+            findings.append(
+                "state_schema に外部接続の秘密情報/接続定義らしき項目が含まれる: "
+                + ", ".join(sensitive_paths[:8])
+                + "（secret・URL・認証ヘッダは connector 側に保存し、AF.save state に入れない）"
+            )
+        if re.search(r"create[_-]?session|createsession", html, re.I) and "password" in html.lower() and "body_template" not in html:
+            findings.append(
+                "session 発行に password を使う外部連携で body_template が無い"
+                "（保存済み secret を安全に body へ差し込めず、再接続が壊れやすい）"
+            )
+        if re.search(r"create[_-]?session|createsession", html, re.I) and re.search(
+            r"auth\s*:\s*\{\s*type\s*:\s*['\"]basic['\"]", html
+        ):
+            findings.append(
+                "session 発行用 connector が basic 認証を使っている"
+                "（App Password は connector secret に保存し、createSession は body_template の identifier/password だけで送る）"
+            )
     return findings
 
 

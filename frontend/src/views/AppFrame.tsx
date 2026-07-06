@@ -11,6 +11,28 @@ import {
   type Attachment,
 } from "../api";
 
+function normalizeConnectorResult(result: Record<string, unknown>): Record<string, unknown> {
+  const data = result?.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return { ...(data as Record<string, unknown>), ...result };
+  }
+  return result;
+}
+
+function normalizeExternalUrl(value: unknown): string | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    u.username = "";
+    u.password = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 // --- Browser-local binary store (IndexedDB) for AF.saveBlob/loadBlob ----------
 // Large files (PDFs, images) can't go in AF.save: that whole-state blob is a
 // Firestore doc (≈1MB cap). So big originals live in the user's browser via
@@ -108,6 +130,9 @@ const AF_PRELUDE = `<meta http-equiv="Content-Security-Policy" content="default-
     listConnectors:function(){return req('connector_list');},
     deleteConnector:function(id){return req('connector_delete',{id:String(id||'')});},
     api:function(name,params){return req('api',{name:String(name||''),params:params||{}});},
+    // openExternal(url): ask the shell to open a http(s) URL in a new tab with
+    // noopener/noreferrer. Generated HTML must not call window.open directly.
+    openExternal:function(url){return req('open_external',{url:String(url||'')});},
     // askWorker(text,{images}): let the APP itself invoke its Specialist Worker
     // (e.g. a 翻訳 button) — images are data: URLs. Returns {reply,command}; any
     // returned content command is also dispatched to applyAgentCommand.
@@ -192,6 +217,14 @@ export function AppFrame({
       if (!live) {
         // Preview: feature isn't published yet. load/list → empty; askWorker n/a.
         if (d.op === "ask_worker") { reply({ reply: "（プレビューでは実行できません。公開後にお使いください）", command: null }); return; }
+        if (d.op === "open_external") {
+          const p = (d.payload as { url?: string }) || {};
+          const safeUrl = normalizeExternalUrl(p.url);
+          if (!safeUrl) { reply({ ok: false, error: "外部URLは http(s) のみ開けます。" }); return; }
+          const opened = window.open(safeUrl, "_blank", "noopener,noreferrer");
+          reply({ ok: !!opened, url: safeUrl });
+          return;
+        }
         if (d.op === "api" || String(d.op || "").startsWith("connector_")) { reply({ ok: false, error: "プレビューでは外部APIコネクタを実行できません。公開後にお使いください。" }); return; }
         reply(d.op === "load" || d.op === "blob_load" ? null : d.op === "blob_list" ? [] : true);
         return;
@@ -223,7 +256,7 @@ export function AppFrame({
       } else if (d.op === "api") {
         const p = (d.payload as { name?: string; params?: Record<string, unknown> }) || {};
         invokeConnectorAction(feature, String(p.name || ""), p.params || {})
-          .then(reply)
+          .then((res) => reply(normalizeConnectorResult(res)))
           .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
       } else if (d.op === "connector_define") {
         defineFeatureConnector(feature, d.payload as AppConnectorDefinition)
@@ -238,6 +271,15 @@ export function AppFrame({
         deleteFeatureConnector(feature, String(p.id || ""))
           .then(reply)
           .catch((err) => reply({ ok: false, error: err instanceof Error ? err.message : String(err) }));
+      } else if (d.op === "open_external") {
+        const p = (d.payload as { url?: string }) || {};
+        const safeUrl = normalizeExternalUrl(p.url);
+        if (!safeUrl) {
+          reply({ ok: false, error: "外部URLは http(s) のみ開けます。" });
+          return;
+        }
+        const opened = window.open(safeUrl, "_blank", "noopener,noreferrer");
+        reply({ ok: !!opened, url: safeUrl });
       } else if (d.op === "blob_save") {
         blobSave(feature, bname, bp.data).then(reply).catch(() => reply(false));
       } else if (d.op === "blob_load") {

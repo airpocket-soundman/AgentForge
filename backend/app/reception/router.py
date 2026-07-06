@@ -11,6 +11,7 @@ Responsibilities:
 - Reply immediately; the browser also subscribes to Firestore for live state.
 """
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, current_user, require_project_access
 from app.control_plane import approvals, registry, worker_status
@@ -20,25 +21,71 @@ from app.reception import service
 router = APIRouter(prefix="/api/reception", tags=["reception"])
 
 
+class ContextRenameIn(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+
+
 @router.get("/health")
 def reception_health() -> dict:
     return {"status": "ok", "module": "reception"}
 
 
 @router.get("/state/{project_id}")
-def get_state(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+def get_state(project_id: str, context_id: str | None = None, user: CurrentUser = Depends(current_user)) -> dict:
     """Full chat state for the browser to render from scratch and poll while a
     background design runs (survives navigation / reload).
 
     The poll doubles as the Receptor's stall watch (VISION 柱5): while a build is
     running it judges slow/stuck and PROACTIVELY posts the ①②③ choices — the user
-    doesn't have to speak first. Poll-driven ⇒ pauses while the app is closed."""
+    doesn't have to speak first. Poll-driven ⇒ pauses while the app is closed.
+
+    READ-ONLY: polling must not write. Session activation happens only via
+    POST /contexts/.../active and on message post — otherwise two open tabs
+    showing different sessions would overwrite each other's active context on
+    every poll (and each GET would cost Firestore writes)."""
     require_project_access(user, project_id)
     try:
         service.judge_stall_on_poll(project_id)
     except Exception:  # noqa: BLE001 — the watch must never break state reads
         pass
-    return service.conversation_state(project_id)
+    return service.conversation_state(project_id, context_id)
+
+
+@router.get("/contexts/{project_id}")
+def list_contexts(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
+    return service.list_main_contexts(project_id)
+
+
+@router.post("/contexts/{project_id}/{context_id}/active")
+def activate_context(project_id: str, context_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
+    ctx = service.set_active_main_context(project_id, context_id)
+    return {"project_id": project_id, "active_context": ctx}
+
+
+@router.post("/contexts/{project_id}/{context_id}/clear")
+def clear_context(project_id: str, context_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
+    service.set_active_main_context(project_id, context_id)
+    return service.clear_main_context(project_id, context_id)
+
+
+@router.post("/contexts/{project_id}/{context_id}/delete")
+def delete_context(project_id: str, context_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+    require_project_access(user, project_id)
+    return service.delete_main_context(project_id, context_id)
+
+
+@router.post("/contexts/{project_id}/{context_id}/rename")
+def rename_context(
+    project_id: str,
+    context_id: str,
+    body: ContextRenameIn,
+    user: CurrentUser = Depends(current_user),
+) -> dict:
+    require_project_access(user, project_id)
+    return service.rename_main_context(project_id, context_id, body.label)
 
 
 @router.get("/candidate/{project_id}")
@@ -51,7 +98,9 @@ def get_candidate(project_id: str, user: CurrentUser = Depends(current_user)) ->
 @router.post("/messages", response_model=ReceptionReply)
 def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> ReceptionReply:
     require_project_access(user, body.project_id)
-    conversation_id = service.conversation_id_for(body.project_id)
+    context_id = service.set_active_main_context(body.project_id, body.context_id)
+    context_id = service.name_main_context_from_first_message(body.project_id, context_id, body.text)
+    conversation_id = service.conversation_id_for(body.project_id, context_id)
     # Receptor is active while handling a message (returns to idle below).
     worker_status.record_status("Receptor", body.project_id, worker_status.ACTIVE, model=service._model_for_phase("planning"))
     service.append_message(conversation_id, ChatMessage(role="user", text=body.text))
@@ -142,50 +191,40 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
     delete_feature = service.resolve_feature_delete(body.project_id, body.text)
     worker_toggle = service.worker_toggle_intent(body.text)
 
-    # === Pending app deletion choice ==========================================
+    # === Pending app deletion confirmation ====================================
     if stage == "confirm" and flow.get("mode") == "delete":
         feature = flow.get("feature")
         title = service.feature_title(body.project_id, feature) if feature else "対象アプリ"
-        choice = service.delete_choice(body.text)
         if service.is_cancel(body.text) or service.is_rejection(body.text):
             service.clear_flow(body.project_id)
             reply_text = "削除をキャンセルしました。"
         elif not feature:
             service.clear_flow(body.project_id)
             reply_text = "削除対象が見つかりませんでした。もう一度、対象アプリ名を添えて依頼してください。"
-        elif choice == "soft":
-            approvals.archive_feature(body.project_id, feature)
-            disabled_feature = feature
-            service.clear_flow(body.project_id)
-            reply_text = f"「{title}」を左メニューから外しました。データと版履歴は残しているため、後で巻き戻し・復元できる状態です。"
-        elif choice == "hard":
+        elif service.delete_confirmed(body.text):
             res = approvals.disable_feature(body.project_id, feature)
             deleted_feature = feature
             deleted = res.get("deleted") or {}
             service.clear_flow(body.project_id)
             reply_text = (
-                f"「{title}」を完全削除し、このアプリに紐づくデータも削除しました。"
+                f"「{title}」を削除しました。アプリ内で保存したデータも削除されています。"
                 f"（削除対象: {sum(int(v) for v in deleted.values() if isinstance(v, int))}件）"
             )
         else:
             reply_text = (
-                f"「{title}」の削除方法を選んでください。\n"
-                "1. 巻き戻し可能な状態で削除（左メニューから外すが、データと版履歴は残す）\n"
-                "2. 完全に削除（アプリ本体・保存データ・チャット履歴・版履歴を削除）\n"
-                "「1」または「2」で返信できます。"
+                f"「{title}」を削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
+                "実行する場合は「削除する」、やめる場合は「キャンセル」と返信してください。"
             )
 
-    # === Explicit app deletion: ask how to delete before doing it =============
+    # === Explicit app deletion: confirm irreversible deletion before doing it ==
     elif delete_feature and stage in ("idle", "confirm"):
         if stage == "confirm":
             service.clear_flow(body.project_id)
         title = service.feature_title(body.project_id, delete_feature)
         service.start_delete_confirm(body.project_id, delete_feature, body.text)
         reply_text = (
-            f"「{title}」を削除します。削除方法を選んでください。\n"
-            "1. 巻き戻し可能な状態で削除（左メニューから外すが、データと版履歴は残す）\n"
-            "2. 完全に削除（アプリ本体・保存データ・チャット履歴・版履歴を削除）\n"
-            "「1」または「2」で返信できます。"
+            f"「{title}」を削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
+            "実行する場合は「削除する」、やめる場合は「キャンセル」と返信してください。"
         )
 
     # === Worker chat (app chat) on/off — a deterministic feature-level toggle ===
@@ -359,27 +398,25 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
                 disabled_feature = None
                 reply_text = f"「{title}」を直前の版に巻き戻しました。"
 
-    elif service.is_receptor_direct_question(body.text):
-        # Questions/consultations are Receptor's job. Do not show the build-style
-        # "受け付けました" ack or route to Orchestrator unless the user gives a
-        # concrete create/edit instruction.
-        reply_text = (
-            service.template_catalogue_reply()
-            if service.is_template_catalogue_question(body.text)
-            else service._receptor_chat(body.project_id, body.text, user_call_name=body.user_call_name)
-        )
+    elif service.is_template_catalogue_question(body.text):
+        # Deterministic factual answer (the default-template catalogue) — the one
+        # question the Receptor answers without any judgement call.
+        reply_text = service.template_catalogue_reply()
 
     else:
-        # Substantive request. Classification calls an LLM, so run it (and the
-        # routing) in the background and acknowledge IMMEDIATELY — the Receptor does
-        # only light work synchronously. The background then posts progress/results
-        # (build) or a conversational reply (chat).
+        # Everything else — build requests AND questions/consultations — goes to
+        # the LLM classifier with the conversation context. Keyword pre-gates are
+        # deliberately NOT used here: the classifier evaluates the user's actual
+        # intent (chat / investigate / edit / create) and can resolve fuzzy
+        # references, so the Receptor never misroutes on a word list. It runs in
+        # the background and acknowledges IMMEDIATELY (Receptor stays light); the
+        # background then posts progress/results (build) or the chat answer.
         service.handle_request_bg(
-            body.project_id, goal_text, images=images, user_call_name=body.user_call_name
+            body.project_id, goal_text, images=images, user_call_name=body.user_call_name, user_uid=user.uid
         )
         building = True
         dispatched_bg = True
-        reply_text = "受け付けました。内容を確認して進めます。"
+        reply_text = "承知しました。内容を確認しています…"
 
     assistant_msg = ChatMessage(role="assistant", text=reply_text)
     service.append_message(conversation_id, assistant_msg)

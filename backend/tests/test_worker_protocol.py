@@ -1,5 +1,5 @@
 """MCP-like inter-worker protocol schema tests (pure, no Firestore)."""
-from app.control_plane.worker_bus import gate_report_fields, validate_report, validate_request
+from app.control_plane.worker_bus import gate_report_fields, normalize_report_body, validate_report, validate_request
 from app.models.worker_protocol import WorkerReport, WorkerRequest
 
 
@@ -18,6 +18,16 @@ def test_gate_report_fields_review_findings_collected():
     assert body["status"] == "needs_revision" and "theme 規定外" in body["findings"]
 
 
+def test_normalize_report_body_accepts_legacy_report_text():
+    body = normalize_report_body({"report": "調査結果です。"})
+    assert body == {"status": "ok", "result": {"report": "調査結果です。"}}
+
+
+def test_normalize_report_body_keeps_explicit_status():
+    body = normalize_report_body({"status": "failed", "error": "boom"})
+    assert body == {"status": "failed", "error": "boom"}
+
+
 def test_valid_request_parses_with_from_alias():
     req, err = validate_request({
         "task_id": "t1", "message_id": "m1", "from": "Orchestrator#1",
@@ -27,6 +37,15 @@ def test_valid_request_parses_with_from_alias():
     assert req.sender == "Orchestrator#1" and req.intent == "review"
     # round-trips back out under the 'from' alias
     assert req.model_dump(by_alias=True)["from"] == "Orchestrator#1"
+
+
+def test_valid_investigate_request_parses():
+    req, err = validate_request({
+        "task_id": "investigate_t1", "message_id": "m1", "from": "Receptor",
+        "to": "Orchestrator", "intent": "investigate", "payload": {"goal": "保存状況を調査"},
+    })
+    assert err is None and req is not None
+    assert req.intent == "investigate"
 
 
 def test_request_rejected_on_bad_intent():
@@ -56,3 +75,13 @@ def test_report_rejected_on_bad_status():
         "task_id": "t1", "in_reply_to": "m1", "from": "R", "to": "O", "status": "maybe",
     })
     assert rep is None and err
+
+
+def test_investigate_ok_report_shape_validates():
+    rep, err = validate_report({
+        "task_id": "investigate_t1", "in_reply_to": "m1", "from": "Orchestrator", "to": "Receptor",
+        "status": "ok", "result": {"report": "done"},
+    })
+    assert err is None and rep is not None
+    assert rep.status == "ok"
+    assert rep.result == {"report": "done"}

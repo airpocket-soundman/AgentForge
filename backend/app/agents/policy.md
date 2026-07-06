@@ -38,12 +38,28 @@
    必要ならミニアプリ内の「接続テンプレート」として定義フォームの初期値にするだけに留める。
    connector 定義は `AF.defineConnector` 側で永続化されるため、接続設定だけを理由に AF.save state や
    `worker_state_mode=hybrid` を作らない。保存済み接続の表示は `AF.listConnectors()` を使う。
-   Bluesky/AT Protocol の App Password は Bearer token ではない。ミニアプリ側で
-   `createSession` action（auth none）を呼び、返った `accessJwt` を `auth:{type:"bearer", token: accessJwt}` の
-   connector に入れて認証が必要な API を呼ぶ。
-7. ユーザーがアプリ自体を明示的に削除した場合は、削除前に「巻き戻し可能な状態で削除」か
-   「完全に削除」かを質問して選ばせる。
-   - 巻き戻し可能な削除: 左メニューから外すが、データ・版履歴・要求台帳などは残す。
-   - 完全削除: 生成ビュー、AF.save の state、エンティティ、アプリチャット履歴、版スナップショット、要求台帳、
-     feature_states の該当メタ情報、現在の端末に保存された AF.saveBlob の Blob なども削除する。
+   action は `query_template` / `body_template` を持てる。テンプレートでは `$params.xxx`（呼び出し時引数）と
+   `$secret.password` / `$secret.token` / `$secret.username`（connector auth に保存済みの secret）だけを参照できる。
+   例: 保存済み App Password を JSON body に入れて session を再発行する場合は
+   `auth:{type:"none", username:identifier, password:password}` で secret だけ保存し、
+   `body_template:{identifier:"$secret.username", password:"$secret.password"}` とし、HTML state に password を戻さない。
+   `AF.api()` の戻り値は外部 API のレスポンス本体をトップレベルにも展開し、同じ値を `data` にも保持する。
+   例: session API が `{accessJwt:"..."}` を返す場合、`res.accessJwt` と `res.data.accessJwt` の両方で読める。
+   接続状態は「保存済み」「接続確認成功」「session 有効」「最終エラー」を分けて表示し、接続確認に失敗しても
+   connector 保存済みなら未保存扱いに戻さない。
+   外部 API 由来の投稿本文・表示名・URL・alt 等を DOM に入れる場合、`innerHTML` へ未エスケープ文字列を連結しない。
+   `textContent` / `createTextNode` か、`& < > " '` を処理する `escapeHtml()` を使う。
+   外部画像 URL やリンク URL を `src` / `href` に直接入れない。リンクを開く必要がある場合は
+   ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。画像実体が必要な場合は承認済み
+   backend/Blob 経路と `AF.loadBlob()` 欠落表示を用意する。
+   Bluesky/AT Protocol の App Password は Bearer token ではない。App Password は connector secret として保存し、
+   ログイン用 connector の `auth.type` は `none` にし、Basic 認証ヘッダを出さない。
+   `createSession` action では `body_template` で `$secret.username` と `$secret.password` を送る。返った `accessJwt` は
+   `auth:{type:"bearer", token: accessJwt}` の短期 API connector に入れて認証が必要な API を呼ぶ。
+7. ユーザーがアプリ自体を明示的に削除した場合は、
+   「アプリを削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？」という趣旨で確認し、
+   確認後は完全削除する。
+   生成ビュー、AF.save の state、エンティティ、アプリチャット履歴、版スナップショット、要求台帳、
+   feature_states の該当メタ情報、現在の端末に保存された AF.saveBlob の Blob なども削除する。
+   状態を残して左メニューからだけ外す削除は、後の再作成・schema 変更時のエラー源になるため実装しない。
    監査ログは「誰がいつ削除したか」の記録として残す。巻き戻し（rollback）は別操作であり、復元可能性を保つためデータを消さない。

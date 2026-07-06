@@ -39,13 +39,42 @@ def test_summary_mentions_pending():
     assert "task_list_api" in summary
 
 
-def test_classify_stub_treats_connection_investigation_as_chat():
+def test_classify_stub_treats_connection_investigation_as_investigate():
     result = service._classify_stub(
         "Blueskyアプリで接続に失敗するので原因を確認してください",
         {"bluesky_viewer": "Bluesky縦書きビューア"},
         "bluesky_viewer",
     )
-    assert result == {"action": "chat", "feature": None}
+    assert result == {"action": "investigate", "feature": "bluesky_viewer"}
+
+
+def test_classify_stub_treats_storage_investigation_as_investigate():
+    result = service._classify_stub(
+        "改めて依頼します。blueskyアプリには、パスワードとアカウントが保存されていますか",
+        {"bluesky_vertical_viewer": "Bluesky縦書きビューア"},
+        "bluesky_vertical_viewer",
+    )
+    assert result == {"action": "investigate", "feature": "bluesky_vertical_viewer"}
+
+
+def test_classify_stub_treats_storage_persistence_request_as_edit():
+    result = service._classify_stub(
+        "bluskyアプリについて、パスワードとアカウントを入力したら、確実に保存するようにしてください。また保存してあることがわかるようなUIにしてください。そのうえで変更も可能にしてください",
+        {"bluesky_vertical_viewer": "Bluesky縦書きビューア"},
+        None,
+    )
+    assert result == {"action": "edit", "feature": "bluesky_vertical_viewer"}
+
+
+def test_classify_stub_matches_ascii_token_in_title_generically():
+    # No per-service special case: any ASCII word (>=4 chars) in the stored title
+    # (e.g. "GitHub", "Bluesky", "Notion") matches the feature by name.
+    result = service._classify_stub(
+        "githubアプリの接続を調べてください",
+        {"gh_dashboard": "GitHub ダッシュボード"},
+        None,
+    )
+    assert result == {"action": "investigate", "feature": "gh_dashboard"}
 
 
 def test_classify_stub_treats_general_spec_consultation_as_chat():

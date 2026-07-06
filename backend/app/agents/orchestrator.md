@@ -17,10 +17,19 @@
   接続UI、`AF.defineConnector` で登録する connector 定義、呼び出す action、必要な認証入力、エラー表示、切断/更新導線を設計する。
   ただし安全境界として、生成HTMLに `fetch`、任意URL proxy、token の state 保存、token の再表示を入れない。
   有名サービスのテンプレートは任意の下書きに過ぎず、ユーザーの自作API/社内APIも同じ仕組みで扱えるようにする。
-  connector 定義は `connector_id`、`base_url`、`auth`、`actions`（method/path/side_effect）を持つ形で計画する。
+  connector 定義は `connector_id`、`base_url`、`auth`、`actions`（method/path/side_effect/query_template/body_template）を持つ形で計画する。
   接続定義の永続化は `AF.defineConnector` が担うため、接続フォームだけを理由に `worker_state_mode=hybrid` や
   `state_schema.settings.baseUrl` を要求しない。アプリ固有の非接続データがある場合だけ AF.load/AF.save の state を設計する。
+  action の `query_template` / `body_template` では `$params.xxx` と `$secret.password` / `$secret.token` /
+  `$secret.username` だけを使い、保存済み secret を backend 側で query/body に差し込む。HTML state には
+  secret、base_url、認証ヘッダ、connector 定義を入れない。接続状態は「credential_saved」「session_ready」
+  「last_test_ok」「last_error」を分け、接続確認失敗で保存済み credentials を未保存扱いに戻さない。
+  `AF.api()` の戻り値は外部 API のレスポンス本体をトップレベルにも展開し、同じ値を `data` にも保持する。
+  例: session API が `{accessJwt:"..."}` を返す場合は `res.accessJwt` と `res.data.accessJwt` の両方で読める。
+  外部 API 由来の文字列は `innerHTML` に直接入れず、`textContent` / `createTextNode` / `escapeHtml()` で扱う。
+  生成 HTML から外部画像 URL やリンク URL を `src` / `href` に直接入れる設計にしない。
+  外部画像は原則テキスト表示にし、画像実体を扱うなら承認済み backend/Blob 経路と `AF.loadBlob()` 欠落表示を計画する。
   Bluesky/AT Protocol を扱う場合、App Password は Bearer token ではない。AgentForge 本体に専用認証を要求せず、
-  ミニアプリ内で `auth:{type:"none"}` の `createSession` connector を定義して
-  `/xrpc/com.atproto.server.createSession` を呼び、返った `accessJwt` を使って
+  ミニアプリ内で App Password を secret として保存する connector と、`body_template` 付きの
+  `/xrpc/com.atproto.server.createSession` action を定義して session を発行し、返った `accessJwt` を使って
   `auth:{type:"bearer", token: accessJwt}` の API connector を再定義してから timeline 等を呼ぶ設計にする。

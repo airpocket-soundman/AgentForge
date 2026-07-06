@@ -47,6 +47,9 @@ _PLAN_SCHEMA = '''ユーザーの要求から「設計案」だけをJSONで出�
   不要なのは、電卓のように途中状態を保持しなくても機能価値が落ちない一時操作、時計のような現在値表示などに限る。
 - お絵描き・ゲーム・電卓などインタラクティブな要求は、その操作内容を features に具体的に書く（「実際に描ける」等）。
 - acceptance: 完成品で Tester が1つずつ検証する。曖昧な表現（「使いやすい」等）でなく、動作として判定できる文にする。
+- 外部API連携アプリでは、画像サムネイルや外部リンクを直接表示できると安易に約束しない。
+  生成HTMLは外部URLを `src` / `href` で読めないため、外部画像は「画像あり」「alt」「件数」などのテキスト表示を基本にする。
+  画像実体を表示する設計にするのは、承認済みの backend/Blob 取得経路がある場合だけ。
 - スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
 
 _SCHEMA = '''ユーザーの要求を「忠実に・省略せず」実装した、単一の完結したHTMLアプリを作ってください。
@@ -144,16 +147,34 @@ html の要件（重要）:
     ユーザー入力を `AF.defineConnector({...})` で feature-scoped connector として登録する。
     呼び出しは登録済み action に限り `await AF.api("connector_id.action_id", params)` で行う。
     token/API key/password は `AF.save()` state に保存せず、登録後は入力欄を空にして再表示しない。
+    action には query_template / body_template を指定できる。テンプレート値はリテラル、
+    "$params.name"（AF.api 呼び出し時の引数）、"$secret.password" / "$secret.token" /
+    "$secret.username"（connector auth に保存済みの secret）を使える。
     例:
-      await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read"}}});
+      await AF.defineConnector({connector_id:"my_api",label:"My API",base_url:"https://api.example.com",auth:{type:"bearer",token},actions:{list_items:{method:"GET",path:"/items",side_effect:"read",query_template:{limit:"$params.limit"}}}});
       const res = await AF.api("my_api.list_items", {limit: 20});
     接続設定だけを扱う画面は、それ自体を worker_state_mode='hybrid' にしない。connector 定義は
     AF.defineConnector 側で永続化されるため、state_schema に base_url、token、認証ヘッダ、
     connector 定義を入れない。公開済み接続の表示は AF.listConnectors() から復元する。
+    session 発行や refresh で保存済み secret を body に入れる必要がある場合は、HTML state に secret を戻さず
+    body_template:{password:"$secret.password"} のように backend 側で差し込む。
+    AF.api() の戻り値は外部 API のレスポンス本体をトップレベルにも展開し、同じ値を data にも保持する。
+    例: session API が {accessJwt:"..."} を返す場合は res.accessJwt と res.data.accessJwt の両方で読める。
     Bluesky/AT Protocol の認証が必要な API は、App Password を Bearer token として使わない。
-    まず auth:{type:"none"} の connector/action で POST /xrpc/com.atproto.server.createSession を呼び、
+    App Password は connector secret として保存し、POST /xrpc/com.atproto.server.createSession の action は
+    body_template:{identifier:"$params.identifier",password:"$secret.password"} で呼び、
     返った accessJwt を auth:{type:"bearer", token: accessJwt} の connector に入れて
     GET /xrpc/app.bsky.feed.getTimeline 等を呼ぶ。App Password と accessJwt は AF.save() state に保存しない。
+    接続状態は credential_saved / session_ready / last_test_ok / last_error を分け、
+    接続確認に失敗しても connector 保存済みなら未保存扱いに戻さない。
+    外部API由来の投稿本文・表示名・URL・alt などを DOM に入れるときは、`innerHTML` へ直接連結しない。
+    `textContent` / `createTextNode` を使うか、`escapeHtml()` で `& < > " '` をエスケープしてから入れる。
+    `safeText()` のように String 化するだけでは HTML エスケープにならない。
+    外部画像URLやリンクURLを `<img src="${...}">` / `<a href="${...}">` / `element.src = url` / `element.href = url`
+    として直接使わない。リンクを開く必要がある場合は、ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。
+    画像は原則として「画像あり」「alt」「URL文字列」などのテキストで表示する。
+    画像実体を扱う場合は承認済み backend/Blob 経路で取得し、`AF.loadBlob()` が null のときは
+    「画像データがこの端末にありません」「再取得が必要です」のような欠落表示を必ず出す。
   ※ 保存する状態は JSON 化できる小さなデータにする（例: 盤面配列、現在ピース、次ピース、スコア、設定、入力値）。
   ※ 電卓・時計など、本当に途中状態を保持しなくてもよい一時操作だけは AF を使わなくてよい。
 - **大きいファイル（PDF・画像・音声など）は AF.save の状態に入れない**（状態は約1MB上限。巨大 base64 を

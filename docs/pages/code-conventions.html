@@ -38,7 +38,18 @@
     <li><strong>使用禁止</strong>：<code>localStorage</code> / <code>cookie</code> / <code>fetch</code> / 外部通信 / 別ウィンドウ。</li>
     <li>外部サービス連携は、生成 HTML から直接通信せず、ミニアプリがユーザー入力から
       <code>AF.defineConnector({...})</code> で feature-scoped connector を定義し、登録済み action を
-      <code>AF.api("connector_id.action_id", params)</code> で呼ぶ。URL・ヘッダ・トークンは AgentForge backend が管理し、生成 HTML の state には保存しない。</li>
+      <code>AF.api("connector_id.action_id", params)</code> で呼ぶ。URL・ヘッダ・トークンは AgentForge backend が管理し、生成 HTML の state には保存しない。
+      action は <code>query_template</code> / <code>body_template</code> を持てる。テンプレートでは <code>$params.xxx</code> と
+      <code>$secret.password</code> / <code>$secret.token</code> / <code>$secret.username</code> を使い、保存済み secret を backend 側で
+      query/body に差し込む。session 発行や refresh で password/token が必要な外部サービスは、この方式で再接続できるようにする。
+      Bluesky/AT Protocol の <code>createSession</code> はログイン用 connector を <code>auth.type="none"</code> として secret だけ保存し、
+      Basic 認証ヘッダを送らず <code>body_template</code> の <code>identifier</code> / <code>password</code> だけで呼ぶ。
+      <code>AF.api()</code> の戻り値は外部 API のレスポンス本体をトップレベルにも展開し、同じ値を <code>data</code> にも保持する
+      （例: <code>res.accessJwt</code> と <code>res.data.accessJwt</code> の両方で読める）。
+      外部 API 由来の文字列は <code>innerHTML</code> に直接入れず、<code>textContent</code> / <code>createTextNode</code> /
+      HTML エスケープ関数で扱う。外部画像 URL やリンク URL を <code>src</code> / <code>href</code> に直接入れない。
+      リンクを開く必要がある場合は、ユーザーのクリック操作で <code>AF.openExternal(url)</code> を呼ぶ。
+      画像実体を扱う場合は承認済み backend/Blob 経路と <code>AF.loadBlob()</code> 欠落表示を用意する。</li>
     <li>状態保存は<strong><code>AF.load()</code> / <code>AF.save()</code> のみ</strong>（サーバ側にミニアプリ単位で永続化）。
       画面遷移・リロード・別メニューへ移動して戻った後も途中状態を復元するのがミニアプリの基本仕様。
       タスク／メモ／フォーム／設定だけでなく、ゲームの盤面・スコア・進行状態も保存対象。
@@ -153,12 +164,12 @@
   <ul>
     <li>データは<strong>ミニアプリ単位でスコープ</strong>（<code>feature</code> で名前空間化）。<strong>他ミニアプリのデータに触れない</strong>。</li>
     <li>サーバ側保存はミニアプリ単位（HTML アプリは <code>AF.load/save</code>、API 型は <code>feature</code> 付きのコレクション）。</li>
-    <li><strong>アプリ削除時は削除方法を確認する</strong>。ユーザーがアプリ自体の削除を明示した場合、
-      「巻き戻し可能な状態で削除」か「完全に削除」かを選ばせる。
-      巻き戻し可能な削除では左メニューから外すだけで、データ・版履歴・要求台帳などは残す。
-      完全削除では生成ビュー、<code>AF.save</code> の state、エンティティ、アプリチャット履歴、版スナップショット、
+    <li><strong>アプリ削除時は保存データも失われることを確認し、確認後は完全削除する</strong>。ユーザーがアプリ自体の削除を明示した場合、
+      「アプリを削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？」という趣旨で確認する。
+      生成ビュー、<code>AF.save</code> の state、エンティティ、アプリチャット履歴、版スナップショット、
       要求台帳、<code>feature_states</code> の該当メタ情報などを削除する。
-      <code>AF.saveBlob</code> で現在の端末に保存した Blob も、完全削除を行ったブラウザでは同時に削除する。
+      状態を残して左メニューからだけ外す削除は、後の再作成・schema 変更時のエラー源になるため実装しない。
+      <code>AF.saveBlob</code> で現在の端末に保存した Blob も、削除を行ったブラウザでは同時に削除する。
       監査ログは削除操作の証跡として残す。巻き戻し（rollback）は削除ではなく、復元可能性を保つためデータを消さない。</li>
   </ul>
 

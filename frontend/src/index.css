@@ -1506,6 +1506,16 @@ button { font: inherit; }
 
 /* ---- Chat (main chat uses default theme; feature worker chat inherits feature theme) ---- */
 .chatview { display: flex; flex-direction: column; height: 100%; padding: 16px; gap: 10px; min-height: 0; }
+.main-context-bar { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.main-context-bar select {
+  min-width: 160px; max-width: 280px; padding: 7px 9px;
+  border: 1px solid var(--gv-border-strong); border-radius: 8px; background: #fff; font: inherit;
+}
+.main-context-bar button {
+  border: 1px solid var(--gv-border-strong); border-radius: 8px; padding: 7px 10px;
+  background: #fff; color: var(--gv-text); cursor: pointer; white-space: nowrap;
+}
+.main-context-bar button.danger { color: #b00020; border-color: #e3a3a3; }
 .chat {
   flex: 1;
   overflow-y: auto;

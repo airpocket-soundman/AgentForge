@@ -26,6 +26,27 @@ _FORBIDDEN_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 _EXTERNAL_RESOURCE_RE = re.compile(r"""(?:src|href|action)\s*=\s*["']https?://""", re.I)
+_VARIABLE_EXTERNAL_ATTR_RE = re.compile(
+    r"""<\s*(?:img|a)\b[^>]+\b(?:src|href)\s*=\s*["']?\s*\$\{|\.(?:src|href)\s*=\s*[^;\n]*(?:url|uri|link|thumb|image|avatar)""",
+    re.I,
+)
+_STATE_SECRET_KEYS = {
+    "password",
+    "passwd",
+    "token",
+    "access_token",
+    "refresh_token",
+    "accessjwt",
+    "refreshjwt",
+    "apikey",
+    "api_key",
+    "authorization",
+    "auth",
+    "secret",
+    "baseurl",
+    "base_url",
+    "headers",
+}
 
 
 def _now_iso() -> str:
@@ -34,6 +55,22 @@ def _now_iso() -> str:
 
 def _as_verdict_ok(value: Any, ok_value: str) -> bool:
     return isinstance(value, dict) and value.get("verdict") == ok_value
+
+
+def _sensitive_state_paths(value: Any, prefix: str = "") -> list[str]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            name = str(key)
+            path = f"{prefix}.{name}" if prefix else name
+            normalized = re.sub(r"[^a-z0-9_]", "", name.lower())
+            if normalized in _STATE_SECRET_KEYS:
+                paths.append(path)
+            paths.extend(_sensitive_state_paths(child, path))
+    elif isinstance(value, list):
+        for i, child in enumerate(value[:20]):
+            paths.extend(_sensitive_state_paths(child, f"{prefix}[{i}]"))
+    return paths
 
 
 def inspect_manifest(manifest: dict) -> tuple[list[str], list[str]]:
@@ -100,6 +137,39 @@ def inspect_manifest(manifest: dict) -> tuple[list[str], list[str]]:
             checks.append("dangerous_action_policy あり")
         else:
             findings.append("dangerous_action_policy が無い")
+
+    connector_used = "AF.defineConnector" in html or "AF.api" in html
+    if connector_used:
+        checks.append("外部接続は Connector Bridge 経由")
+        if ".innerHTML" in html and "escapeHtml" not in html and "escapeHTML" not in html:
+            findings.append(
+                "外部API由来データを扱うアプリで innerHTML を使っている"
+                "（textContent/createTextNode または escapeHtml でエスケープする）"
+            )
+        if _VARIABLE_EXTERNAL_ATTR_RE.search(html):
+            findings.append(
+                "外部API由来のURLを img/src または a/href に直接入れる可能性がある"
+                "（外部URLは直接読み込まず、テキスト表示または承認済みBlob経路を使う）"
+            )
+        sensitive_paths = _sensitive_state_paths(manifest.get("state_schema") or {})
+        if sensitive_paths:
+            findings.append(
+                "state_schema に外部接続の秘密情報/接続定義らしき項目が含まれる: "
+                + ", ".join(sensitive_paths[:8])
+                + "（secret・URL・認証ヘッダは connector 側に保存する）"
+            )
+        if re.search(r"create[_-]?session|createsession", html, re.I) and "password" in low and "body_template" not in low:
+            findings.append(
+                "session 発行に password を使う外部連携で body_template が無い"
+                "（保存済み secret を安全に body へ差し込めず、再接続が壊れやすい）"
+            )
+        if re.search(r"create[_-]?session|createsession", html, re.I) and re.search(
+            r"auth\s*:\s*\{\s*type\s*:\s*['\"]basic['\"]", html
+        ):
+            findings.append(
+                "session 発行用 connector が basic 認証を使っている"
+                "（App Password は connector secret に保存し、createSession は body_template の identifier/password だけで送る）"
+            )
 
     return checks, findings
 

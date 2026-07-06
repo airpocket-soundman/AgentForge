@@ -11,12 +11,14 @@ import { AppShell } from "./shell/AppShell";
 
 function LandingNav({
   user,
+  showGuestCta,
   onSignIn,
   onGuestLogin,
   onOpenApp,
   onSignOut,
 }: {
   user: User | null;
+  showGuestCta: boolean;
   onSignIn: () => void;
   onGuestLogin: () => void;
   onOpenApp: () => void;
@@ -42,7 +44,7 @@ function LandingNav({
           </>
         ) : (
           <>
-            <button className="landing-judge-nav" onClick={onGuestLogin}>審査員用ゲストログイン</button>
+            {showGuestCta && <button className="landing-judge-nav" onClick={onGuestLogin}>審査員用ゲストログイン</button>}
             <span className="landing-usericon" aria-hidden="true" />
             <button className="landing-secondary" onClick={onSignIn}>Sign in</button>
             <button className="landing-primary" onClick={onSignIn}>Sign up</button>
@@ -83,7 +85,7 @@ function LandingPage({
 
   return (
     <div className="landing">
-      <LandingNav user={user} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
+      <LandingNav user={user} showGuestCta={showGuestCta} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
 
       <main>
         <section className="landing-hero">
@@ -111,10 +113,10 @@ function LandingPage({
                 <button className="landing-primary landing-primary--large" onClick={onSignIn}>アプリを開く</button>
               )}
             </div>
-            {!user && (
+            {!user && showGuestCta && (
               <button className="landing-judge-big" onClick={onGuestLogin}>
                 審査員用ゲストログイン
-                <span>{showGuestCta ? "Google アカウントで個別のゲスト環境に入ります" : "ローカルデモ環境でアプリに入ります"}</span>
+                <span>Google アカウントで個別のゲスト環境に入ります</span>
               </button>
             )}
             {!user && (
@@ -268,7 +270,7 @@ function LandingPage({
             <div><b>UX fidelity</b><span>要求をフォームだけで代替せず、実際に使える UI とレスポンシブ性を満たすこと。</span></div>
             <div><b>Human gates</b><span>受付、設計、公開を分け、本公開・巻き戻し・削除は Control Plane と人間承認に閉じ込めること。</span></div>
             <div><b>Preview / Version</b><span>未通過の成果物は active 化せず、公開ごとのスナップショットから即時に巻き戻せること。</span></div>
-            <div><b>Deletion / Audit</b><span>削除は巻き戻し可能削除と完全削除を分け、操作証跡を監査ログに残すこと。</span></div>
+            <div><b>Deletion / Audit</b><span>削除は対象確認後に完全削除し、操作証跡を監査ログに残すこと。</span></div>
           </div>
         </section>
       </main>
@@ -777,12 +779,14 @@ function VerticalArchitectureFlowSvg() {
 
 function PipelineDetailPage({
   user,
+  showGuestCta,
   onSignIn,
   onGuestLogin,
   onOpenApp,
   onSignOut,
 }: {
   user: User | null;
+  showGuestCta: boolean;
   onSignIn: () => void;
   onGuestLogin: () => void;
   onOpenApp: () => void;
@@ -790,7 +794,7 @@ function PipelineDetailPage({
 }) {
   return (
     <div className="landing">
-      <LandingNav user={user} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
+      <LandingNav user={user} showGuestCta={showGuestCta} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
       <main className="detail-page">
         <a className="detail-back" href="#home">トップへ戻る</a>
         <section className="detail-hero">
@@ -894,7 +898,7 @@ function PipelineDetailPage({
             <div><b>Worker operability</b><span>主要操作が <code>commands</code> または <code>state_schema</code> で表現され、自然言語指示から到達できること。</span></div>
             <div><b>UX fidelity</b><span>ユーザー要求をフォームだけで代替せず、実際に使える UI とレスポンシブ性を満たすこと。</span></div>
             <div><b>Boundary</b><span>生成 HTML 内にチャット UI を作らず、アプリ表示エリアと下部アプリチャットを分離すること。</span></div>
-            <div><b>Deletion safety</b><span>削除は巻き戻し可能削除と完全削除を分け、監査ログを残すこと。</span></div>
+            <div><b>Deletion safety</b><span>削除は状態を残さず完全削除し、監査ログを残すこと。</span></div>
             <div><b>Model tier</b><span>軽い判断は FLASH、コード生成は PRO として、環境ごとに同等能力帯へマッピングすること。</span></div>
             <div><b>Preview safety</b><span>未通過の生成物、stub、検証 NG の成果物は active 化せず、ユーザー承認まで pending に留めること。</span></div>
           </div>
@@ -906,12 +910,14 @@ function PipelineDetailPage({
 
 function ArchitectureDetailPage({
   user,
+  showGuestCta,
   onSignIn,
   onGuestLogin,
   onOpenApp,
   onSignOut,
 }: {
   user: User | null;
+  showGuestCta: boolean;
   onSignIn: () => void;
   onGuestLogin: () => void;
   onOpenApp: () => void;
@@ -919,7 +925,7 @@ function ArchitectureDetailPage({
 }) {
   return (
     <div className="landing">
-      <LandingNav user={user} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
+      <LandingNav user={user} showGuestCta={showGuestCta} onSignIn={onSignIn} onGuestLogin={onGuestLogin} onOpenApp={onOpenApp} onSignOut={onSignOut} />
       <main className="detail-page">
         <a className="detail-back" href="#home">トップへ戻る</a>
         <section className="detail-hero">
@@ -1149,6 +1155,7 @@ export function App() {
     return (
       <PipelineDetailPage
         user={user}
+        showGuestCta={guestEnabled || noAuthLocal}
         onSignIn={signIn}
         onGuestLogin={guestLogin}
         onOpenApp={openApp}
@@ -1161,6 +1168,7 @@ export function App() {
     return (
       <ArchitectureDetailPage
         user={user}
+        showGuestCta={guestEnabled || noAuthLocal}
         onSignIn={signIn}
         onGuestLogin={guestLogin}
         onOpenApp={openApp}

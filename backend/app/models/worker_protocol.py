@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Intent = Literal["plan", "build", "edit", "verify", "review", "operate"]
+Intent = Literal["plan", "build", "edit", "verify", "review", "operate", "investigate"]
 ReportStatus = Literal["ok", "needs_revision", "rejected", "failed", "in_progress"]
 
 

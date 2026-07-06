@@ -88,7 +88,7 @@ def thread(task_id: str) -> list[dict]:
 # A run's kind is its task_id prefix — reliable, unlike per-message intent (the
 # inner Tester/Reviewer sub-requests share the run's task_id with intent
 # verify/review and would otherwise mislabel the whole run).
-_RUN_KIND = {"plan": "設計案", "build": "新規生成", "edit": "改変", "rev": "プレビュー修正"}
+_RUN_KIND = {"plan": "設計案", "build": "新規生成", "edit": "改変", "rev": "プレビュー修正", "investigate": "調査"}
 
 
 def list_runs(project_id: str | None = None, limit: int = 20) -> list[dict]:
@@ -165,6 +165,15 @@ def gate_report_fields(result: dict) -> dict:
     return {"status": status, "result": result, "findings": findings}
 
 
+def normalize_report_body(body: dict) -> dict:
+    """Accept legacy/simple worker replies and return valid report body fields."""
+    if "status" in body:
+        return body
+    if "report" in body:
+        return {"status": "ok", "result": {"report": body.get("report")}}
+    return body
+
+
 def dispatch(
     *,
     task_id: str,
@@ -221,7 +230,7 @@ def dispatch(
     if project_id:
         worker_status.start_worker(to, project_id, model=model, task_id=task_id)  # wake the recipient
     try:
-        body = handler(payload)
+        body = normalize_report_body(handler(payload))
         report = {"task_id": task_id, "in_reply_to": mid, "from": to, "to": sender,
                   "project_id": project_id, **body}
     except Exception as exc:  # noqa: BLE001
