@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentForge ProtoPedia 投稿原稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --paper: #ffffff;
+      --text: #172033;
+      --muted: #59657a;
+      --line: #d9e0ec;
+      --brand: #4b4ce6;
+      --brand-dark: #272a86;
+      --accent: #0e9f6e;
+      --code: #eef2ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      line-height: 1.82;
+      letter-spacing: 0;
+    }
+
+    a {
+      color: var(--brand);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    .page {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 28px 20px 72px;
+    }
+
+    .hero {
+      margin: 0 0 28px;
+      padding: 0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #15162c;
+      box-shadow: 0 18px 45px rgba(22, 30, 55, 0.18);
+    }
+
+    .hero img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .paper {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 34px;
+      box-shadow: 0 12px 28px rgba(24, 38, 70, 0.08);
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 10px;
+      border: 1px solid #ccd6ff;
+      border-radius: 999px;
+      background: #f4f6ff;
+      color: var(--brand-dark);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: clamp(32px, 5vw, 56px);
+      line-height: 1.12;
+      color: #111827;
+    }
+
+    h2 {
+      margin: 44px 0 14px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+      font-size: 28px;
+      line-height: 1.28;
+      color: #111827;
+    }
+
+    h3 {
+      margin: 30px 0 10px;
+      font-size: 21px;
+      line-height: 1.38;
+      color: #1f2937;
+    }
+
+    p {
+      margin: 0 0 16px;
+    }
+
+    ul {
+      margin: 0 0 18px;
+      padding-left: 1.2em;
+    }
+
+    li {
+      margin: 0 0 7px;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 5px;
+      background: var(--code);
+      color: #26306f;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .lead {
+      margin: 0 0 22px;
+      color: #263244;
+      font-size: 18px;
+      line-height: 1.85;
+    }
+
+    .callout {
+      margin: 22px 0;
+      padding: 18px 20px;
+      border-left: 5px solid var(--brand);
+      border-radius: 8px;
+      background: #f5f7ff;
+    }
+
+    .figure {
+      margin: 26px 0 34px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .figure figcaption {
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+      background: #fbfcff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      margin: 22px 0 28px;
+    }
+
+    .box {
+      min-width: 0;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcff;
+    }
+
+    .box h3 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    .links {
+      display: grid;
+      gap: 8px;
+      margin: 16px 0 0;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        padding: 14px 12px 44px;
+      }
+
+      .paper {
+        padding: 22px 16px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      h2 {
+        font-size: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <figure class="hero">
+      <img src="protopedia_assets/agentforge-title-880x495.png" alt="AgentForge title visual">
+    </figure>
+
+    <article class="paper">
+      <div class="meta">
+        <span class="pill">DevOps × AI Agent Hackathon 2026</span>
+        <span class="pill">findy_hackathon</span>
+        <span class="pill">Google Cloud</span>
+        <span class="pill">Gemini</span>
+        <span class="pill">Cloud Run</span>
+      </div>
+
+      <h1>AgentForge - 会話だけで自分専用アプリを育てる DevOps AI Agent Workbench</h1>
+      <p class="lead">
+        AgentForge は、非エンジニアがメインチャットで話すだけで、自分専用のミニアプリを作成・改変・公開・巻き戻しできる自己拡張型の AI ワークベンチです。
+      </p>
+
+      <section>
+        <h2>作品情報</h2>
+        <ul>
+          <li><strong>作品ステータス:</strong> 開発中</li>
+          <li><strong>作品URL:</strong> <a href="https://agentforge-devops.web.app">https://agentforge-devops.web.app</a></li>
+          <li><strong>GitHub:</strong> <a href="https://github.com/airpocket-soundman/AgentForge">https://github.com/airpocket-soundman/AgentForge</a></li>
+          <li><strong>ライセンス:</strong> 【要差し替え】例: MIT License</li>
+          <li><strong>動画:</strong> 【要差し替え】YouTube または Vimeo のデモ動画URL</li>
+          <li><strong>メンバー:</strong> 【要差し替え】チーム名・メンバー名</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>概要</h2>
+        <p>
+          電卓、タスク管理、スケジュール、メモ、家計簿、翻訳、ペイント、レタッチ、Bluesky クライアントの 9 種のデフォルトアプリを用意し、初心者はいきなり白紙から作るのではなく、既に使える道具の UI や機能を自分好みに直すところから始められます。
+        </p>
+        <p>
+          ユーザー体験は「選ぶ / 話す」「AI が直す / 作る」「確認して反映」の3ステップです。裏側では Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が役割分担し、要求整理、設計、コード生成、実行検証、規約レビュー、プレビュー、承認公開までを1本の DevOps パイプラインとして管理します。
+        </p>
+        <p>
+          生成物は見た目の HTML だけではなく、state、commands、Worker prompt、評価ケースを含む「公開後にワーカーが操作できる contract」として作ります。Safety Harness は公開前の最終安全判定を行い、Agent Harness は判断・成果物・検証結果・承認履歴を記録します。
+        </p>
+
+        <figure class="figure">
+          <img src="protopedia_assets/agentforge_concept_infographic.png" alt="AgentForge concept infographic">
+          <figcaption>アプリと AI エージェントのコンセプト。ユーザーの自然言語依頼を、検証済みのミニアプリとして育てる。</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>システム構成</h2>
+        <p>
+          AgentForge は、ユーザーが触るフロントエンド、ミニアプリ生成・承認・状態管理を行うバックエンド、そして Google Cloud / Firebase 上の実行基盤で構成しています。
+        </p>
+
+        <figure class="figure">
+          <img src="protopedia_assets/agentforge_system_architecture.png" alt="AgentForge system architecture">
+          <figcaption>システム全体構成。React / FastAPI / Cloud Run / Firebase / Firestore / Gemini API を組み合わせる。</figcaption>
+        </figure>
+
+        <div class="grid">
+          <div class="box">
+            <h3>フロントエンド</h3>
+            <p>React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供します。</p>
+          </div>
+          <div class="box">
+            <h3>バックエンド</h3>
+            <p>FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、Connector Bridge、承認・巻き戻しAPIを提供します。</p>
+          </div>
+          <div class="box">
+            <h3>AI ワーカー</h3>
+            <p>Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が、MCP 的な request/report で連携します。</p>
+          </div>
+          <div class="box">
+            <h3>実行基盤</h3>
+            <p>Cloud Run、Firebase Hosting / Auth、Firestore を組み合わせ、会話、ワーカー状態、生成ミニアプリ、承認、監査ログ、アプリ状態を保存します。</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>解決したい課題と背景</h2>
+        <p>
+          世の中には小さな便利アプリが大量にありますが、一般ユーザーにとっては「探す」「選ぶ」「広告や不要機能を避ける」「自分好みに直す」こと自体が負担になっています。単純な計算機、メモ、PDF ビューワ、タスク管理のような道具でも、ストアで探すと広告が多かったり、ほしい機能だけが微妙に足りなかったりします。
+        </p>
+        <p>
+          一方で、自分で作れば解決できると分かっていても、非エンジニアが設計、実装、テスト、デプロイ、修正、巻き戻しまで行うのは現実的ではありません。生成AIでコードだけを作れても、それを安全に動かし、確認し、公開し、壊れたら戻す DevOps の流れが抜けると、日常的に使える道具にはなりません。
+        </p>
+        <p>
+          AgentForge は、このギャップを埋めるためのアプリです。ユーザーは「計算機を作って」「テトリスを作って」のように新しく作ることも、「メモの入力欄を広くして」「スケジュールにメモ欄を足して」のように既存のデフォルトアプリを育てることもできます。
+        </p>
+      </section>
+
+      <section>
+        <h2>想定ユーザー</h2>
+        <p>
+          主な想定ユーザーは、プログラミング経験はないが、自分用の小さなアプリを持ちたい一般ユーザーです。既製アプリの広告や複雑な設定に疲れていて、「必要な機能だけの自分専用ツールがほしい」と感じている人を想定しています。
+        </p>
+        <p>
+          AgentForge は、そうした人が最初はデフォルトアプリをそのまま使い、慣れてきたら UI の見た目、項目、操作、保存データ、ワーカーの扱える機能を少しずつ自分用に変えられることを目指しています。
+        </p>
+      </section>
+
+      <section>
+        <h2>プロダクトの特徴</h2>
+        <p>
+          AgentForge の最大の特徴は、アプリの中でアプリ自身を拡張できる再帰的な構造です。ユーザーがメインチャットで依頼すると、AgentForge 自身の中に新しいミニアプリが追加されます。生成されたミニアプリには専属の Specialist Worker が付き、そのアプリの中から内容の編集や操作を依頼できます。
+        </p>
+
+        <figure class="figure">
+          <img src="protopedia_assets/agentforge_app_screen.png" alt="AgentForge app screen">
+          <figcaption>AgentForge のアプリ画面構造。メインチャット、ミニアプリ、アプリチャット、ワーカー状態を同じワークベンチで扱う。</figcaption>
+        </figure>
+
+        <h3>1. 自然言語を検証済みミニアプリへ変換する Pipeline</h3>
+        <p>
+          AgentForge は、ユーザーの発話を単発のコード生成に投げるだけではありません。意図の判定はキーワードの固定ルールではなく LLM が担い、セッションの会話文脈とアクティブな機能一覧を読んで「新規作成 / 既存改修 / 調査 / 会話」を判定します。
+        </p>
+        <p>
+          コード生成後は Tester と Reviewer の両方を通ります。Tester は実際に動くか、主要操作が動作するかを確認します。Reviewer は sandbox、保存API、操作ツール、レスポンシブ対応、チャットUIの分離などの規約に合っているかを確認します。
+        </p>
+
+        <figure class="figure">
+          <img src="protopedia_assets/agentforge_devops_flow.png" alt="AgentForge DevOps flow">
+          <figcaption>会話から公開までの DevOps フロー。検証・レビュー・承認を通過したものだけを公開する。</figcaption>
+        </figure>
+
+        <h3>2. 役割を分けた Architecture</h3>
+        <p>
+          AgentForge は、1つの AI に全権を渡す構造ではありません。ユーザーと話す Receptor、設計と生成を担う Orchestrator、実行検証の Tester、規約判定の Reviewer、公開後のミニアプリを操作する Specialist Worker を分離します。その外側で Control Plane、Safety Harness、Agent Harness、Sandbox、Version 管理が副作用を制御します。
+        </p>
+
+        <h3>3. 生成物を「操作可能な contract」として作る</h3>
+        <p>
+          AgentForge は、自然言語から見た目だけを作るのではなく、公開後に Specialist Worker が継続操作できる contract まで生成します。HTML、state、commands、Worker prompt、評価ケースを同時に設計し、受け入れ条件、Tester の検証観点、Reviewer の確認観点、Specialist Worker の操作例までを 1 つの生成単位として扱います。
+        </p>
+        <ul>
+          <li><strong>View artifact:</strong> 自己完結 HTML。外部 CDN、fetch、cookie、localStorage なしで sandbox 実行。</li>
+          <li><strong>State contract:</strong> データ中心アプリでは <code>worker_state_mode</code> と <code>state_schema</code> を生成。</li>
+          <li><strong>Command surface:</strong> <code>window.applyAgentCommand(name,args)</code> と <code>commands[]</code> を一致させる。</li>
+          <li><strong>Worker prompt pack:</strong> 役割、API 仕様、聞き返し方針、危険操作方針、自然言語例を渡す。</li>
+          <li><strong>Eval cases:</strong> 一括削除、曖昧な対象、異常値、担当外の構造変更などをテストケース化。</li>
+        </ul>
+
+        <h3>4. Safety Harness と Quality Gates</h3>
+        <p>
+          公開前には Safety Harness が最終判定します。Tester / Reviewer の合否、禁止 API、外部リソース、Worker 契約の有無、stub 生成物の有無を統合し、通過した候補だけを preview / publish に進めます。
+        </p>
+        <ul>
+          <li>Sandbox: 外部通信、cookie、localStorage、別ウィンドウに依存しないこと。</li>
+          <li>Persistence: 状態を持つアプリが <code>AF.load()</code> / <code>AF.save()</code> に接続されること。</li>
+          <li>Worker operability: 主要操作が <code>commands</code> または <code>state_schema</code> で表現されること。</li>
+          <li>External access: 外部 API 連携は Connector Bridge 経由のみ。</li>
+          <li>Deletion safety: アプリ削除は保存データも失われることをユーザーに確認し、操作証跡を監査ログに残すこと。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>開発素材</h2>
+        <p>
+          Google Cloud、Cloud Run、Gemini API、Firebase Hosting、Firebase Authentication、Firestore、FastAPI、React、TypeScript、Docker、Claude Code CLI（開発・デモ用 LLM ブリッジ）を使用しています。
+        </p>
+        <figure class="figure">
+          <img src="protopedia_assets/agentforge_handdrawn_infographic.png" alt="AgentForge handdrawn infographic">
+          <figcaption>手書き風の機能・ユースケース・制作パイプライン紹介。</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>タグ</h2>
+        <p>
+          <code>findy_hackathon</code>
+          <code>AIエージェント</code>
+          <code>DevOps</code>
+          <code>GoogleCloud</code>
+          <code>Gemini</code>
+          <code>CloudRun</code>
+          <code>Firebase</code>
+          <code>Firestore</code>
+          <code>React</code>
+          <code>FastAPI</code>
+          <code>マルチエージェント</code>
+          <code>生成AI</code>
+        </p>
+      </section>
+
+      <section>
+        <h2>関連リンク</h2>
+        <div class="links">
+          <a href="https://github.com/airpocket-soundman/AgentForge">GitHub: airpocket-soundman/AgentForge</a>
+          <a href="https://agentforge-devops.web.app">デプロイURL: agentforge-devops.web.app</a>
+        </div>
+        <p class="small">
+          説明資料はリポジトリ内 <code>docs/index.html</code> にあります。ワーカー定義・コード規約・アーキテクチャの正本ドキュメントを含みます。
+        </p>
+      </section>
+
+      <section>
+        <h2>投稿前チェックリスト</h2>
+        <ul>
+          <li>作品ステータスを「開発中」または「完成」にする。</li>
+          <li>作品タイトル、概要、デプロイ済みURLを入力する。</li>
+          <li>YouTube または Vimeo のデモ動画URLを入力する。</li>
+          <li>システム構成図を画像としてアップロードする。</li>
+          <li>タグに <code>findy_hackathon</code> を必ず入れる。</li>
+          <li>ストーリーに「課題と背景」「想定ユーザー」「プロダクトの特徴」が入っていることを確認する。</li>
+          <li>関連リンクに GitHub 公開リポジトリURL、デプロイURLを入れる。</li>
+        </ul>
+        <div class="callout">
+          <strong>差し替え箇所:</strong> ライセンス、動画URL、チーム名・メンバー名は提出前に確定値へ置き換えてください。
+        </div>
+      </section>
+    </article>
+  </main>
+</body>
+</html>

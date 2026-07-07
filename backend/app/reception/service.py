@@ -95,6 +95,24 @@ def template_catalogue_reply() -> str:
     )
 
 
+def default_template_create_key(text: str) -> str | None:
+    """Deterministically catch explicit default-app creation requests.
+
+    LLM classification only sees active/published features; bundled defaults are
+    not active yet. Without this pre-gate, a request like 「スケジュールを作って」
+    can be misread as "not currently installed" instead of "use the bundled
+    schedule default". Keep this narrow: a known template name plus a creation
+    verb, and no explicit scratch/default-decline wording.
+    """
+    from app import templates
+
+    if is_scratch(text):
+        return None
+    if not any(k in (text or "") for k in _BUILD_KEYWORDS):
+        return None
+    return templates.match_template(text)
+
+
 def feature_label(feature: str) -> str:
     return _FEATURE_LABELS.get(feature, feature)
 
@@ -931,8 +949,13 @@ def handle_request(
         conversation_id = conversation_id_for(project_id)
     except Exception:  # noqa: BLE001 — session lookup must not block classification
         conversation_id = None
-    decision = orchestrator.classify_request(
-        project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+    default_key = default_template_create_key(goal)
+    decision = (
+        {"action": "create", "feature": None, "context_note": f"用意済みデフォルトテンプレート: {default_key}"}
+        if default_key
+        else orchestrator.classify_request(
+            project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+        )
     )
     action = decision.get("action")
     feature = decision.get("feature")
@@ -1004,8 +1027,13 @@ def _handle_request_worker(
                                 model=_model_for_phase("planning"), detail="依頼を整理中")
     worker_status.record_status("Orchestrator", project_id, worker_status.STOPPED, detail=None)
     try:
-        decision = orchestrator.classify_request(
-            project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+        default_key = default_template_create_key(goal)
+        decision = (
+            {"action": "create", "feature": None, "context_note": f"用意済みデフォルトテンプレート: {default_key}"}
+            if default_key
+            else orchestrator.classify_request(
+                project_id, goal, hint_feature=hint_feature, conversation_id=conversation_id
+            )
         )
         action = decision.get("action")
         feature = decision.get("feature")
@@ -1337,6 +1365,9 @@ def _receptor_chat(
             for k, v in _states.items()
             if v == "active" and not any(k.endswith(s) for s in _meta) and k not in ("updated_at", "last_changed_feature")
         ) or "（まだ無し）"
+        from app import templates
+
+        default_catalogue = templates.catalogue_text()
         prompt = (
             f"{agents.load('reception')}\n\n"
             f"{user_context_instruction(user_call_name)}\n\n"
@@ -1347,8 +1378,12 @@ def _receptor_chat(
             "色分け、集計の追加 など）』のように、選択肢を添えて尋ねる。\n"
             "十分に具体的（作るもの/変える箇所と内容が明確）になったら、『では◯◯を作ります／直します』と確認し、"
             "ユーザーがそれで良ければ実際の作業に入る、と伝える。\n"
+            "用意済みデフォルトに含まれる機能について質問された場合は、アクティブ機能に未追加でも"
+            "『デフォルトとして用意済み』と正しく答える。\n"
             "ただの雑談・質問にはそのまま簡潔に答える。定型文の繰り返しは避ける。\n\n"
-            f"現在ある機能: {feats}\n直近の会話:\n{history}\n\nユーザー: {text}\n受付の返答:"
+            f"現在ある機能: {feats}\n"
+            f"用意済みデフォルト:\n{default_catalogue}\n"
+            f"直近の会話:\n{history}\n\nユーザー: {text}\n受付の返答:"
         )
         try:
             out = llm.generate(prompt, tier=ModelTier.FLASH).strip()

@@ -29,6 +29,14 @@ def test_detect_intent_none_without_build_keyword():
     assert service.detect_intent("今日の天気は？") is None
 
 
+def test_default_template_create_key_catches_schedule_before_llm():
+    assert service.default_template_create_key("スケジュールを作って") == "schedule"
+    assert service.default_template_create_key("予定表を作って") == "schedule"
+    assert service.default_template_create_key("家計簿がほしい") == "household_budget"
+    assert service.default_template_create_key("スケジュールはデフォルトではありませんか") is None
+    assert service.default_template_create_key("デフォルトではなくスケジュールを一から作って") is None
+
+
 def test_keyword_pre_gates_removed_from_reception():
     """Question/investigation routing is the LLM classifier's job (with context),
     not a Receptor-side word list. The light `classify` keeps only explicit
