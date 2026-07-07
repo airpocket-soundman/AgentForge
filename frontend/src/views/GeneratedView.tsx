@@ -22,9 +22,19 @@ import { MdText } from "./Markdown";
 // The change's preview + 反映 come from the shared conversation state, shown here.
 const WORKER_ACCEPTED_TEXT =
   "承知しました。ワーカーが内容を確認して、必要な編集に入っています…";
+const DEFAULT_APP_RATIO = 0.68;
+const SPLIT_SNAP_EDGE = 0.035;
 
 function msg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
+}
+
+function normalizeSplitRatio(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_APP_RATIO;
+  const v = Math.max(0, Math.min(1, value));
+  if (v <= SPLIT_SNAP_EDGE) return 0;
+  if (v >= 1 - SPLIT_SNAP_EDGE) return 1;
+  return v;
 }
 
 export function GeneratedView({
@@ -58,17 +68,21 @@ export function GeneratedView({
 
   // Draggable split between the app pane (top) and the worker chat (bottom).
   // appRatio = app pane height fraction; 1 → only app, 0 → only chat. Re-draggable
-  // either way; persisted so it's the standard layout across features/reloads.
+  // either way; persisted per feature so one app's extreme split does not break
+  // another. At either edge, the collapsed pane is hidden instead of rendered as
+  // a few unreadable pixels.
   const splitRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
-  const [appRatio, setAppRatio] = useState<number>(() => {
-    const v = parseFloat(localStorage.getItem("af_feature_split") || "");
-    return isFinite(v) && v >= 0 && v <= 1 ? v : 0.68;
-  });
+  const [appRatio, setAppRatio] = useState<number>(DEFAULT_APP_RATIO);
 
   useEffect(() => {
-    localStorage.setItem("af_feature_split", String(appRatio));
-  }, [appRatio]);
+    const perFeature = localStorage.getItem(`af_feature_split:${feature}`);
+    setAppRatio(normalizeSplitRatio(parseFloat(perFeature ?? "")));
+  }, [feature]);
+
+  useEffect(() => {
+    localStorage.setItem(`af_feature_split:${feature}`, String(appRatio));
+  }, [appRatio, feature]);
 
   function onDragStart(e: React.PointerEvent) {
     e.preventDefault();
@@ -78,7 +92,8 @@ export function GeneratedView({
   function onDragMove(e: React.PointerEvent) {
     if (!draggingRef.current || !splitRef.current) return;
     const rect = splitRef.current.getBoundingClientRect();
-    setAppRatio(Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)));
+    if (rect.height <= 0) return;
+    setAppRatio(normalizeSplitRatio((e.clientY - rect.top) / rect.height));
   }
   function onDragEnd(e: React.PointerEvent) {
     draggingRef.current = false;
@@ -97,6 +112,9 @@ export function GeneratedView({
   const sharedProgressMessages = showSharedProgress
     ? (conv?.messages ?? []).filter((m) => (m.text || "").trim()).slice(-10)
     : [];
+  const appPaneHidden = chatVisible && appRatio === 0;
+  const chatPaneHidden = !chatVisible || appRatio === 1;
+  const appPaneBasis = chatVisible ? (chatPaneHidden ? "100%" : `${appRatio * 100}%`) : "100%";
 
   function scrollDown() {
     queueMicrotask(() => threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }));
@@ -300,7 +318,10 @@ export function GeneratedView({
         // The app can hide the chat panel PER SCREEN via AF.setChatVisible(false)
         // (the worker stays attached; only the panel is hidden — no iframe remount).
         <div className="gv-split" ref={splitRef}>
-          <div className="gv-pane gv-pane--app" style={{ flexBasis: chatVisible ? `${appRatio * 100}%` : "100%" }}>
+          <div
+            className="gv-pane gv-pane--app"
+            style={appPaneHidden ? { display: "none" } : { flexBasis: appPaneBasis }}
+          >
             <AppFrame
               key={`live-${feature}-${appReloadNonce}`}
               html={manifest.html}
@@ -324,7 +345,7 @@ export function GeneratedView({
             onPointerUp={onDragEnd}
           />
 
-          <div className="gv-pane gv-pane--chat" style={chatVisible ? undefined : { display: "none" }}>
+          <div className="gv-pane gv-pane--chat" style={chatPaneHidden ? { display: "none" } : undefined}>
             <div className="feature-worker" onDrop={att.onDrop} onDragOver={(e) => e.preventDefault()}>
               {chatContext.id !== "default" && (
                 <div className="hint feature-worker__context">
