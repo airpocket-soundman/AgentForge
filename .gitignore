@@ -19,6 +19,10 @@ service-account*.json
 
 # Firebase deploy cache
 .firebase/
+firebase-debug.log
+
+# Local runtime logs
+.logs/
 
 # Local Claude Code settings (personal: permissions etc.)
 .claude/settings.local.json
