@@ -4,7 +4,7 @@
 > [docs/pages/code-conventions.html](docs/pages/code-conventions.html)（コード規約）。
 > 本ファイルは、現行コードをその仕様に寄せるための**フェーズ別チェックリスト**。
 > 実装したら各項目にチェックを入れ、必要なら正本側も更新する。
-> 最終更新: 2026-06-10
+> 最終更新: 2026-07-07
 
 ---
 
@@ -51,7 +51,7 @@
 - [x] **codegen 二重 PRO 解消**：`orchestrator/service.py` `plan_and_register` を、`generate_plan(req)`（PRO）廃止 → 決定的 `_stub_plan` 骨格 ＋ 承認済み `design_plan` から組む。PRO は `ui_designer.design` の 1 回のみ。
 - [x] **status にモデル**：providers に `model_for(tier)`、`llm/gateway.py` に `model_label(tier)`、`reception/service.py` の build 記録に `model`、`control_plane/monitor.py: running_workers` に `model` を含める。
 - [x] **タイムアウト不整合の修正（発見）**：`llm_timeout_seconds` 180→**300**（ブリッジの `CLAUDE_TIMEOUT=300` より短く、フルアプリ生成が 180s 超でブリッジ完了前に stub フォールバックしていた）。
-- [x] **テスト環境 検証**：pytest 19 passed。codegen 実走で実アプリ生成（`generated_by=claude-cli`, html~10.8KB, commands=4, ~112s）、monitor に `claude-cli:pro:sonnet` 表示。
+- [x] **テスト環境 検証**：pytest 通過。codegen 実走で実アプリ生成（`generated_by=claude-cli`, html~10.8KB, commands=4, ~112s）、monitor に `claude-cli:pro:sonnet` 表示。現在の確認済みテストは [PROGRESS.md](PROGRESS.md) の最新スナップショットを参照。
 - [ ] **本番デプロイ＋検証**：全フェーズのテスト確認完了後にまとめて実施（§5）。Phase 0 分の本番確認項目：`/health`=200・`generated_by="gemini"`・monitor に Gemini モデル名。
 
 ### Phase 1 — デプロイ前ゲート（Reviewer ＋ Tester）— ✅ テスト環境で実装・検証

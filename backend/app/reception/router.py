@@ -298,7 +298,12 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
                     "少し待ってから「これで作って」と送ってください。"
                 )
             else:
-                service.start_codegen(body.project_id, flow["goal"], flow["plan"])
+                service.start_codegen(
+                    body.project_id,
+                    flow["goal"],
+                    flow["plan"],
+                    gate_feedbacks=flow.get("gate_feedbacks") or [],
+                )
                 building = True
                 reply_text = (
                     "プランを承認しました。AIワーカーがコードを生成します。\n"

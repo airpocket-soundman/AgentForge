@@ -1,6 +1,6 @@
 # AgentForge ProtoPedia 投稿原稿
 
-作成日: 2026-06-24
+作成日: 2026-06-24 ／ 最終更新: 2026-07-06
 
 ## 公式項目メモ
 
@@ -20,11 +20,11 @@ AgentForge - 会話だけで自分専用アプリを育てる DevOps AI Agent Wo
 
 ## 作品URL
 
-【要差し替え】デプロイ済みURL
+https://agentforge-devops.web.app
 
 ## 概要
 
-AgentForge は、非エンジニアがメインチャットで話すだけで、自分専用のミニアプリを作成・改変・公開・巻き戻しできる自己拡張型の AI ワークベンチです。メモ、スケジュール、タスク管理などのデフォルトアプリも用意し、初心者はいきなり白紙から作るのではなく、既に使える道具の UI や機能を自分好みに直すところから始められます。ユーザー体験は「選ぶ / 話す」「AI が直す / 作る」「確認して反映」の3ステップですが、裏側では Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が役割分担し、要求整理、設計、コード生成、実行検証、規約レビュー、プレビュー、承認公開までを1本の DevOps パイプラインとして管理します。生成物は見た目の HTML だけではなく、state、commands、Worker prompt、評価ケースを含む「公開後にワーカーが操作できる contract」として作ります。Safety Harness は公開前の最終安全判定を行い、Agent Harness は判断・成果物・検証結果・承認履歴を記録して、ユーザーには短い進捗と承認前サマリーとして見せます。
+AgentForge は、非エンジニアがメインチャットで話すだけで、自分専用のミニアプリを作成・改変・公開・巻き戻しできる自己拡張型の AI ワークベンチです。電卓、タスク管理、スケジュール、メモ、家計簿、翻訳、ペイント、レタッチ（オブジェクト選択・背景透過対応）、Bluesky クライアントの 9 種のデフォルトアプリを用意し、初心者はいきなり白紙から作るのではなく、既に使える道具の UI や機能を自分好みに直すところから始められます。外部サービス連携も、生成アプリから直接通信させるのではなく、バックエンドが秘密情報を管理する Connector Bridge 経由で安全に行います。ユーザー体験は「選ぶ / 話す」「AI が直す / 作る」「確認して反映」の3ステップですが、裏側では Receptor / Orchestrator / Tester / Reviewer / Specialist Worker が役割分担し、要求整理、設計、コード生成、実行検証、規約レビュー、プレビュー、承認公開までを1本の DevOps パイプラインとして管理します。生成物は見た目の HTML だけではなく、state、commands、Worker prompt、評価ケースを含む「公開後にワーカーが操作できる contract」として作ります。Safety Harness は公開前の最終安全判定を行い、Agent Harness は判断・成果物・検証結果・承認履歴を記録して、ユーザーには短い進捗と承認前サマリーとして見せます。
 
 ## ライセンス
 
@@ -48,16 +48,18 @@ AgentForge は、ユーザーが触るフロントエンド、ミニアプリ生
 
 投稿用画像はすべて PNG 形式で `protopedia_assets/` に保存しています。
 
-- フロントエンド: React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。
-- バックエンド: FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、承認・巻き戻しAPIを提供。
-- AI ワーカー: Receptor / Orchestrator / Tester / Reviewer / Specialist Worker。役割ごとに文脈を分け、MCP 的な request/report で非同期に連携。
-- パイプライン: ユーザー発話を `task_id` 付きの作業単位に変換し、設計、生成、検証、レビュー、プレビュー、公開承認までを一連の流れとして扱う。修正指示、検証 NG、停滞時はそれぞれ明示的な戻り先を持つ。
+- フロントエンド: React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット（複数セッションの作成・命名・切替に対応）、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。
+- バックエンド: FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、Connector Bridge、承認・巻き戻しAPIを提供。会話履歴は閾値を超えると決定的に要約へ畳み込み（コンパクト化）、長期利用でも肥大化しない。
+- AI ワーカー: Receptor / Orchestrator / Tester / Reviewer / Specialist Worker。役割ごとに文脈を分け、MCP 的な request/report（plan / build / edit / verify / review / operate / investigate）で非同期に連携。メッセージ追記は Firestore トランザクションで並行実行に耐える。
+- 意図分類: キーワードの固定ルールに頼らず、LLM がセッションの会話文脈と機能一覧を読んで「作成 / 改修 / 調査 / 会話」を判定する。機能名の表記ゆれやタイプミスも一覧に照らして解決し、原文は改変せず補足のみ追加する。
+- パイプライン: ユーザー発話を `task_id` 付きの作業単位に変換し、設計、生成、検証、レビュー、プレビュー、公開承認までを一連の流れとして扱う。修正指示、検証 NG、停滞時はそれぞれ明示的な戻り先を持つ。コード改修を伴わない依頼は investigate（調査）として扱い、保存状態や接続設定を事実ベースで確認して報告する。
 - 生成 contract: 自己完結 HTML、`state_schema`、`commands[]`、`window.applyAgentCommand(name,args)`、Worker prompt、`worker_eval_cases`、危険操作方針、版メタデータを同時に設計する。
 - Safety Harness: Tester / Reviewer の結果、禁止 API、外部リソース、Worker 契約、stub 生成物の有無を統合して、通過した候補だけを preview / publish に進める公開前安全ゲート。
 - Agent Harness: `pipeline_runs` にワーカーの判断、進捗、生成物メタ、Tester/Reviewer/Safety Harness 結果、リトライ、承認を記録。一般ユーザーには raw trace を見せず、進捗・失敗理由・承認前サマリーに変換して表示。
-- LLM: 本番は Gemini API を想定。開発・デモでは Codex CLI ブリッジを使い、同じワーカー構造でコストを抑えて検証。
+- LLM: 本番は Gemini API（FLASH=Gemini Flash / PRO=Gemini Pro）。開発・デモでは Claude Code CLI ブリッジを使い、同じワーカー構造・同じ能力帯でコストを抑えて検証。
 - 実行基盤: Cloud Run 上でアプリ本体を実行。Firebase Hosting / Auth、Firestore を組み合わせ、会話、ワーカー状態、生成ミニアプリ、承認、監査ログ、アプリ状態を保存。
-- 安全境界: 生成ミニアプリは sandbox iframe 内で実行し、外部通信や localStorage を禁止。保存は AF.load / AF.save 経由でサーバ側に限定。
+- 安全境界: 生成ミニアプリは sandbox iframe 内で実行し、直接の外部通信・cookie・localStorage を禁止。保存は AF.load / AF.save 経由でサーバ側に限定。外部リンクはユーザーのクリック操作に応じたシェル経由（AF.openExternal）でのみ開く。
+- Connector Bridge: 外部サービス連携（例: Bluesky/AT Protocol）は、ミニアプリが `AF.defineConnector` で feature 単位の接続を登録し、登録済み action だけを `AF.api` で呼ぶ。URL・トークン・パスワードはバックエンドが管理し、保存済み secret は query/body テンプレートでサーバ側だけで差し込む（生成 HTML の state には残さない）。宛先は登録した base_url の同一オリジンに限定し、任意ホストへのプロキシ化（SSRF）を防ぐ。
 - DevOps 制御: 生成物はすぐ公開せず、Tester、Reviewer、Safety Harness のゲートを通したうえでプレビュー登録。ユーザーが「反映して」と承認したときだけ active 化し、公開ごとのスナップショットから即時巻き戻しできる。
 - Specialist Worker Eval: 生成時に `worker_eval_cases`、`clarification_policy`、`dangerous_action_policy` を作り、各ミニアプリの専門ワーカーが「削除」「一括操作」「異常値」「曖昧な対象」「担当外の構造変更」などを誤判断しにくいようにする。
 
@@ -73,7 +75,7 @@ AgentForge は、ユーザーが触るフロントエンド、ミニアプリ生
 - React
 - TypeScript
 - Docker
-- Codex CLI
+- Claude Code CLI（開発・デモ用 LLM ブリッジ）
 
 ## タグ
 
@@ -112,9 +114,11 @@ AgentForge は、このギャップを埋めるためのアプリです。ユー
 
 AgentForge の最大の特徴は、アプリの中でアプリ自身を拡張できる再帰的な構造です。ユーザーがメインチャットで依頼すると、AgentForge 自身の中に新しいミニアプリが追加されます。生成されたミニアプリには専属の Specialist Worker が付き、そのアプリの中から内容の編集や操作を依頼できます。トップページでは、初めて触る人にも分かるように「1. 選ぶ / 話す」「2. AI が直す / 作る」「3. 確認して反映」という3ステップの体験として説明しています。完全に新しいアプリを作るだけでなく、用意されたアプリを自分好みにカスタマイズしていく自由度を、日常的なユーザー体験の中心に置いています。
 
+デフォルトアプリ自体も「会話で育てた」実例になっています。たとえばレタッチスタジオは、レイヤ編集、ズーム、ブラシに加えて、クリックやおおよそのトレースで写真内のオブジェクトの境界を検出して選択し（クリック追加で選択拡大・つながった部分は自動結合）、「選択以外を透過」でワンタップの背景削除ができます。Bluesky クライアントは Connector Bridge を通じて実際の外部 SNS に安全に接続します。メインチャットは複数セッションを持て、依頼内容ごとに会話を分けて進められます。
+
 #### 1. 自然言語を検証済みミニアプリへ変換する Pipeline
 
-AgentForge は、ユーザーの発話を単発のコード生成に投げるだけではありません。Receptor が要求、質問、相談、アプリ操作を分類し、曖昧な目的語や危険操作は聞き返します。その後、依頼は `task_id` 付きの作業単位として Agent Harness に記録され、Orchestrator が画面構造、保存 state、操作 API、Specialist Worker プロンプト、受け入れ条件を設計します。
+AgentForge は、ユーザーの発話を単発のコード生成に投げるだけではありません。意図の判定はキーワードの固定ルールではなく LLM が担い、セッションの会話文脈とアクティブな機能一覧を読んで「新規作成 / 既存改修 / 調査 / 会話」を判定します。機能名の表記ゆれやタイプミスも解決し、曖昧な目的語や危険操作は聞き返します。コード改修を伴わない「保存されてる？」「接続を調べて」のような依頼は調査（investigate）として扱い、保存状態・connector 設定を事実ベースで確認して報告します。その後、制作依頼は `task_id` 付きの作業単位として Agent Harness に記録され、Orchestrator が画面構造、保存 state、操作 API、Specialist Worker プロンプト、受け入れ条件を設計します。
 
 コード生成後は Tester と Reviewer の両方を通ります。Tester は実際に動くか、主要操作が動作するかを確認します。Reviewer は sandbox、保存API、操作ツール、レスポンシブ対応、チャットUIの分離などの規約に合っているかを確認します。どちらかが NG ならコード生成に戻り、公開済み版には触りません。長時間の無音停滞は Receptor が検知し、停止、もう少し待つ、直前の成功段階から再トライをユーザーに選ばせます。
 
@@ -153,11 +157,12 @@ Quality Gates では、主に以下を確認します。
 - Worker operability: 主要操作が `commands` または `state_schema` で表現され、自然言語から到達できること。
 - UX fidelity: ユーザー要求をフォームだけで代替せず、実際に使える UI とレスポンシブ性を満たすこと。
 - Chat boundary: 生成 HTML 内にチャット UI を入れず、アプリ表示エリアと下部アプリチャットを分離すること。
-- Deletion safety: 削除は巻き戻し可能削除と完全削除を分け、監査ログを残すこと。
+- External access: 外部 API 連携は Connector Bridge 経由のみ。secret の state 保存、外部 URL の src/href 直接埋め込み、未エスケープの innerHTML を禁止すること。
+- Deletion safety: アプリ削除は「保存データも失われる」ことをユーザーに確認したうえで完全削除し、操作証跡を監査ログに残すこと（巻き戻しは別操作としてデータを保持する）。
 
 さらに、各ミニアプリの Specialist Worker には `worker_eval_cases` を持たせます。例えばスケジュールアプリなら「22日の予定を全部消して」は削除、「15:65にテスト」は即実行せず確認質問、というように、ユーザーが実際に言いそうな自然言語指示を事前に想定します。これにより、未知の新しいアプリでも「画面だけ作る」のではなく、「そのアプリを扱う専門ワーカーの運用能力」まで生成過程に含めます。
 
-ミニアプリは sandbox iframe 内で動作し、外部通信、localStorage、cookie を使わせません。状態保存は AF.load / AF.save 経由でサーバ側に限定します。これにより、画面遷移やリロード後もアプリ状態を復元でき、同時に生成コードの権限を限定できます。
+ミニアプリは sandbox iframe 内で動作し、直接の外部通信、localStorage、cookie を使わせません。状態保存は AF.load / AF.save 経由でサーバ側に限定します。これにより、画面遷移やリロード後もアプリ状態を復元でき、同時に生成コードの権限を限定できます。外部サービスと連携するアプリ（例: Bluesky クライアント）でも、生成 HTML は登録済みの connector action しか呼べず、トークンやパスワードはバックエンドだけが保持します。
 
 また、公開ごとにスナップショットを保存するため、「戻して」と言うだけで直前の公開版へ巻き戻せます。これは LLM に再生成させるのではなく、保存済みの版を復元する決定的な操作です。生成AIに任せる部分と、決定的に制御する部分を分けることで、安全に自己拡張する体験を作っています。
 
@@ -173,9 +178,9 @@ AI エージェントである必然性は、単なるコード生成ではな�
 
 ## 関連リンク
 
-- GitHub: 【要差し替え】公開リポジトリURL
-- デプロイURL: 【要差し替え】アプリURL
-- 説明資料: 【要差し替え】docs/index.html 相当の公開URL、またはリポジトリ内 docs
+- GitHub: https://github.com/airpocket-soundman/AgentForge （提出時に公開設定になっていることを確認）
+- デプロイURL: https://agentforge-devops.web.app
+- 説明資料: リポジトリ内 `docs/index.html`（ワーカー定義・コード規約・アーキテクチャの正本ドキュメント）
 
 ## メンバー
 

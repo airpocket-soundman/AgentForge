@@ -90,6 +90,18 @@ def _default_eval_cases(m: dict) -> list[dict]:
     return cases
 
 
+def _ensure_policy_defaults() -> None:
+    """Keep bundled templates gate-complete even when older modules omit new
+    Specialist Worker metadata added by the Reviewer policy."""
+    for m in TEMPLATES.values():
+        m.setdefault("worker_eval_cases", _default_eval_cases(m))
+        m.setdefault("clarification_policy", "対象・数量・日時・金額などが曖昧な場合は、実行前に短く聞き返す。")
+        m.setdefault("dangerous_action_policy", "一括削除、初期化、復元困難な変更は、実行前に確認する。")
+
+
+_ensure_policy_defaults()
+
+
 def to_manifest(key: str) -> ViewManifest | None:
     """Build a ViewManifest from a template (generated_by='template')."""
     m = TEMPLATES.get(key)

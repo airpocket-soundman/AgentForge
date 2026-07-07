@@ -27,7 +27,11 @@ class Settings(BaseSettings):
     gemini_pro_model: str = "gemini-pro-latest"
 
     # --- LLM Provider Gateway (IMPLEMENTATION_GUIDE.md §2.6) ---
-    # app_env: "prod" (default) | "local". docker-compose.dev sets "local".
+    # app_env:
+    # - "prod"  = production infrastructure and Firebase auth
+    # - "demo"  = production-like Firebase auth, local emulators/data
+    # - "local" = open local development
+    # - "test"  = unit tests; Firestore use must be explicitly stubbed/emulated
     app_env: str = "prod"
     # llm_provider: "" = auto by env (local->claude-cli, else gemini).
     # Or force one of: "gemini" | "claude-cli" | "codex" | "stub".
@@ -90,6 +94,14 @@ class Settings(BaseSettings):
     @property
     def is_local(self) -> bool:
         return self.app_env.strip().lower() == "local"
+
+    @property
+    def app_env_name(self) -> str:
+        return self.app_env.strip().lower()
+
+    @property
+    def uses_production_infra(self) -> bool:
+        return self.app_env_name == "prod"
 
 
 @lru_cache

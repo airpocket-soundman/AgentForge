@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { getFeatureStates, getMe, resetAll, rollbackFeature, setProjectId, stopAllWorkers, type Me } from "../api";
+import { clearGuestSession, getFeatureStates, getMe, resetAll, rollbackFeature, setProjectId, stopAllWorkers, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
@@ -163,7 +163,7 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
       <div className="centered">
         <h1>アクセス権限がありません</h1>
         <p className="muted">{user?.email ?? ""} はこのアプリの利用を許可されていません。</p>
-        <button className="login" onClick={() => void signOutUser()}>別のアカウントでログアウト</button>
+        <button className="login" onClick={() => { clearGuestSession(); void signOutUser(); }}>別のアカウントでログアウト</button>
       </div>
     );
   }
@@ -225,8 +225,9 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
   const isLocalDev = !isFirebaseConfigured();
   const canReset = import.meta.env.DEV || Boolean(me?.is_admin);
   const canFullscreenApp = view.kind === "feature";
-  const userLabel = user ? (me?.is_guest ? `ゲスト: ${user.email}` : user.email || "ユーザー") : "ローカルユーザー";
-  const avatarText = (userSettings.iconText || (user?.email ?? "A").slice(0, 1) || "A").slice(0, 2);
+  const userLabel = me?.is_guest ? `ゲスト: ${me.email}` : user ? user.email || "ユーザー" : "ローカルユーザー";
+  const avatarSource = me?.email || user?.email || "A";
+  const avatarText = (userSettings.iconText || avatarSource.slice(0, 1) || "A").slice(0, 2);
   function openUserSettings() {
     setAppFullscreen(false);
     setUserSettingsOpen(true);
@@ -323,13 +324,18 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
             </span>
             <span className="topbar-user-label">{userLabel}</span>
           </button>
-          {user && (
+          {(user || me?.is_guest) && (
             <button
               className="logout"
               title="現在のアカウントからログアウト"
-              data-tooltip="現在の Google アカウントからログアウトします。"
+              data-tooltip="現在のアカウントまたはゲスト環境からログアウトします。"
               aria-label="ログアウト"
-              onClick={() => void signOutUser()}
+              onClick={() => {
+                clearGuestSession();
+                void signOutUser().finally(() => {
+                  if (me?.is_guest) window.location.reload();
+                });
+              }}
             >
               ログアウト
             </button>

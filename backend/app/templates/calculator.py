@@ -37,12 +37,28 @@ button:active{transform:translateY(1px)}
   var c='0',op=null,prev=null,sub='',done=false,hist=[];
   var mainEl=document.getElementById('main'),subEl=document.getElementById('sub'),histEl=document.getElementById('hist');
   function fmt(n){if(n!==n)return 'Error';if(!isFinite(n))return n>0?'∞':'-∞';return parseFloat(n.toPrecision(12)).toString();}
+  function snapshot(){return {c:c,op:op,prev:prev,sub:sub,done:done,hist:hist};}
+  function save(){try{AF.save(snapshot());}catch(_){}}
+  function restore(s){
+    if(!s||typeof s!=='object')return;
+    c=String(s.c||'0');
+    op=(typeof s.op==='string'&&'+−×÷'.indexOf(s.op)>=0)?s.op:null;
+    prev=(s.prev===null||s.prev===undefined)?null:String(s.prev);
+    sub=String(s.sub||'');
+    done=!!s.done;
+    hist=Array.isArray(s.hist)?s.hist.slice(0,20).map(function(h){return {e:String(h.e||''),v:String(h.v||'0')};}):[];
+  }
   function draw(){mainEl.textContent=c;subEl.textContent=sub;
     var L=c.length;mainEl.style.fontSize=(L>16?'18px':L>12?'24px':L>9?'30px':'40px');}
+  function emptyHist(){
+    histEl.replaceChildren();
+    var e=document.createElement('div');e.className='h-empty';e.textContent='履歴はまだありません';histEl.appendChild(e);
+  }
   function drawHist(){
-    if(!hist.length){histEl.innerHTML='<div class="h-empty">履歴はまだありません</div>';return;}
-    histEl.innerHTML='';hist.forEach(function(h){var r=document.createElement('div');r.className='h-row';
-      r.innerHTML='<span>'+h.e+'</span><b>'+h.v+'</b>';r.onclick=function(){c=h.v;sub=h.e+' =';done=true;draw();};histEl.appendChild(r);});
+    if(!hist.length){emptyHist();return;}
+    histEl.replaceChildren();hist.forEach(function(h){var r=document.createElement('div');r.className='h-row';
+      var e=document.createElement('span');e.textContent=h.e;var v=document.createElement('b');v.textContent=h.v;
+      r.appendChild(e);r.appendChild(v);r.onclick=function(){c=h.v;sub=h.e+' =';done=true;draw();save();};histEl.appendChild(r);});
   }
   function calc(a,o,b){a=+a;b=+b;return o==='+'?a+b:o==='−'?a-b:o==='×'?a*b:o==='÷'?(b===0?NaN:a/b):NaN;}
   function key(k){
@@ -53,16 +69,28 @@ button:active{transform:translateY(1px)}
     else if(k==='='){if(op&&prev!==null){var e=sub+' '+c,r2=calc(prev,op,c),rs=fmt(r2);hist.unshift({e:e,v:rs});if(hist.length>20)hist.pop();drawHist();c=rs;sub=e+' =';op=null;prev=null;done=true;}}
     else if(k==='.'){if(done){c='0.';done=false;}else if(c.indexOf('.')<0)c+='.';}
     else{if(done||c==='0'){c=(c==='-0'?'-':'')+k;done=false;}else if(c==='Error')c=k;else c+=k;}
-    draw();
+    draw();save();
   }
+  function tokenize(input){
+    var s=String(input||'').replace(/\s+/g,'').replace(/－/g,'−').replace(/×/g,'*').replace(/÷/g,'/');
+    var out=[],i=0;
+    while(i<s.length){
+      if(s.slice(i,i+2).toUpperCase()==='AC'){out.push('AC');i+=2;continue;}
+      if(s.slice(i,i+3)==='+/-'||s.slice(i,i+2)==='±'){out.push('+/-');i+=s.slice(i,i+3)==='+/-'?3:2;continue;}
+      var ch=s[i],map={'*':'×','/':'÷','-':'−'};
+      out.push(map[ch]||ch);i+=1;
+    }
+    return out;
+  }
+  function resetNoSave(){c='0';op=null;prev=null;sub='';done=false;}
   document.querySelectorAll('button[data-k]').forEach(function(b){b.addEventListener('pointerdown',function(e){e.preventDefault();key(b.getAttribute('data-k'));});});
   // Specialist Worker content tools
   window.applyAgentCommand=function(name,args){args=args||{};
-    if(name==='press'){String(args.keys||'').split('').forEach(function(ch){
-      var map={'*':'×','/':'÷','-':'−'};key(map[ch]||ch);});}
+    if(name==='press'){tokenize(args.keys||'').forEach(key);}
     else if(name==='clear'){key('AC');}
-    else if(name==='compute'){ (String(args.expression||'')).split('').forEach(function(ch){var map={'*':'×','/':'÷','-':'−'};key(map[ch]||ch);});key('=');}
+    else if(name==='compute'){resetNoSave();tokenize(args.expression||'').forEach(key);key('=');}
   };
+  (async function(){try{restore(await AF.load());}catch(_){}drawHist();draw();})();
 })();
 </script></body></html>"""
 
@@ -80,6 +108,27 @@ MANIFEST = {
          "inputSchema": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}},
         {"name": "clear", "description": "全消去(AC)", "inputSchema": {"type": "object", "properties": {}}},
     ],
+    "worker_state_mode": "hybrid",
+    "state_schema": {
+        "type": "object",
+        "properties": {
+            "c": {"type": "string", "description": "現在表示中の値"},
+            "op": {"type": ["string", "null"], "enum": ["+", "−", "×", "÷", None], "description": "保留中の演算子"},
+            "prev": {"type": ["string", "null"], "description": "保留中の左辺値"},
+            "sub": {"type": "string", "description": "上段表示"},
+            "done": {"type": "boolean", "description": "直前操作が演算確定/演算子入力か"},
+            "hist": {
+                "type": "array",
+                "maxItems": 20,
+                "items": {
+                    "type": "object",
+                    "properties": {"e": {"type": "string"}, "v": {"type": "string"}},
+                    "required": ["e", "v"],
+                },
+            },
+        },
+        "required": ["c", "op", "prev", "sub", "done", "hist"],
+    },
     "worker_instructions": (
         "電卓操作用ワーカー。計算式の実行、キー入力、全消去を担当する。"
         "数式が含まれる依頼は compute。『押して/入力して』は press。『クリア/消して/リセット』は clear。"
@@ -90,4 +139,12 @@ MANIFEST = {
         {"user": "ACして", "command": {"name": "clear", "arguments": {}}, "reply": "電卓をクリアします。"},
         {"user": "1 2 + 3 を押して", "command": {"name": "press", "arguments": {"keys": "12+3"}}, "reply": "キーを入力します。"},
     ],
+    "worker_eval_cases": [
+        {"input": "12+3を計算して", "expected_behavior": "execute_command", "expected_state_diff": "c が 15、hist 先頭に 12 + 3 の結果が追加される", "expected_message_contains": "計算"},
+        {"input": "ACして", "expected_behavior": "execute_command", "expected_state_diff": "c が 0、op/prev が null になる", "expected_message_contains": "クリア"},
+        {"input": "ACを押してから7×8", "expected_behavior": "execute_command", "expected_state_diff": "AC を1トークンとして扱い、A/Cに分解しない", "expected_message_contains": ""},
+        {"input": "何を計算する？", "expected_behavior": "reply_or_clarify", "expected_state_diff": "", "expected_message_contains": "式"},
+    ],
+    "clarification_policy": "計算式や押すキー列が不明な場合は、実行前に計算したい式を短く聞き返す。",
+    "dangerous_action_policy": "AC/全消去は現在表示と保留演算を消すが、履歴は残る。履歴を消す操作が追加される場合は実行前に確認する。",
 }

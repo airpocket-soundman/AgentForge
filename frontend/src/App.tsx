@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import {
+  completeRedirectSignIn,
+  consumePostLoginRoute,
   isFirebaseConfigured,
   onAuthChange,
   signOutUser,
   signInWithGoogle,
 } from "./firebase";
-import { getPublicConfig } from "./api";
+import { clearGuestSession, getGuestSession, getPublicConfig, startGuestSession } from "./api";
 import { AppShell } from "./shell/AppShell";
 
 function LandingNav({
@@ -116,11 +118,11 @@ function LandingPage({
             {!user && showGuestCta && (
               <button className="landing-judge-big" onClick={onGuestLogin}>
                 審査員用ゲストログイン
-                <span>Google アカウントで個別のゲスト環境に入ります</span>
+                <span>任意のユーザー名だけで個別のゲスト環境に入ります</span>
               </button>
             )}
             {!user && (
-              <p className="landing-note">許可リスト外の Google アカウントは、ゲストとして個別環境で試せます。</p>
+              <p className="landing-note">同じユーザー名を入力すると、同じゲスト環境を再開できます。</p>
             )}
             {error && <div className="error">{error}</div>}
           </div>
@@ -1067,11 +1069,25 @@ export function App() {
   const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guestEnabled, setGuestEnabled] = useState(false);
+  const [guestActive, setGuestActive] = useState(() => Boolean(getGuestSession()));
   const [authRequired, setAuthRequired] = useState(false);
   const [publicReady, setPublicReady] = useState(false);
   const [route, setRoute] = useState(() => window.location.hash.replace(/^#/, ""));
 
-  useEffect(() => onAuthChange((u) => { setUser(u); setAuthReady(true); }), []);
+  useEffect(() => {
+    void completeRedirectSignIn().catch((e) => setError(String(e)));
+    return onAuthChange((u) => {
+      setUser(u);
+      setAuthReady(true);
+      if (u) {
+        const nextRoute = consumePostLoginRoute();
+        if (nextRoute) {
+          window.location.hash = nextRoute;
+          setRoute(nextRoute);
+        }
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const onHash = () => setRoute(window.location.hash.replace(/^#/, ""));
@@ -1109,7 +1125,7 @@ export function App() {
   const detailRoutes = new Set(["pipeline-detail", "architecture-detail"]);
   const isLandingRoute = landingRoutes.has(route);
   const isDetailRoute = detailRoutes.has(route);
-  const showHome = isLandingRoute || (isFirebaseConfigured() && authReady && !user && !isDetailRoute) || (noAuthLocal && route !== "app" && !isDetailRoute);
+  const showHome = isLandingRoute || (isFirebaseConfigured() && authReady && !user && !guestActive && !isDetailRoute) || (noAuthLocal && route !== "app" && !isDetailRoute);
   const openApp = () => {
     window.location.hash = "app";
     setRoute("app");
@@ -1119,6 +1135,8 @@ export function App() {
       openApp();
       return;
     }
+    clearGuestSession();
+    setGuestActive(false);
     void signInWithGoogle().then(openApp).catch((e) => setError(String(e)));
   };
   const guestLogin = () => {
@@ -1126,9 +1144,20 @@ export function App() {
       openApp();
       return;
     }
-    signIn();
+    const name = window.prompt("任意のユーザー名を入力してください。同じ名前で再入場すると同じゲスト環境を開きます。");
+    if (name === null) return;
+    try {
+      startGuestSession(name);
+      setGuestActive(true);
+      setError(null);
+      openApp();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
   const signOut = () => {
+    clearGuestSession();
+    setGuestActive(false);
     void signOutUser()
       .then(() => {
         window.location.hash = "home";

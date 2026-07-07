@@ -4,6 +4,47 @@ import { getIdToken } from "./firebase";
 
 export let PROJECT_ID = "default";
 
+const GUEST_SESSION_KEY = "af_guest_session";
+
+export interface GuestSession {
+  id: string;
+  name: string;
+}
+
+function guestIdFromName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `user_${(hash >>> 0).toString(36)}`;
+}
+
+export function getGuestSession(): GuestSession | null {
+  try {
+    const raw = localStorage.getItem(GUEST_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<GuestSession>;
+    if (!parsed.id || !parsed.name) return null;
+    return { id: String(parsed.id), name: String(parsed.name) };
+  } catch {
+    return null;
+  }
+}
+
+export function startGuestSession(name: string): GuestSession {
+  const cleanName = name.trim().replace(/\s+/g, " ").slice(0, 40);
+  if (!cleanName) throw new Error("ユーザー名を入力してください");
+  const next = { id: guestIdFromName(cleanName), name: cleanName };
+  localStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function clearGuestSession(): void {
+  localStorage.removeItem(GUEST_SESSION_KEY);
+}
+
 export function setProjectId(projectId: string): void {
   PROJECT_ID = projectId || "default";
 }
@@ -103,6 +144,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   const token = await getIdToken();
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (!token) {
+    const guest = getGuestSession();
+    if (guest) {
+      headers["X-AgentForge-Guest-Id"] = guest.id;
+      headers["X-AgentForge-Guest-Name"] = guest.name;
+    }
+  }
   const res = await fetch(url(path), { ...init, headers });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;

@@ -1,6 +1,6 @@
 # AgentForge 引き継ぎ資料（セッション/PC間ハンドオフ）
 
-最終更新: 2026-06-08
+最終更新: 2026-07-07
 
 このファイルは、別セッション・別PCで作業を継続するための現在地まとめ。詳細は各リンク先を参照。
 
@@ -27,7 +27,7 @@
 
 ---
 
-## 1.5 現在地スナップショット（2026-06-08 セッション終了時点・新セッション必読）
+## 1.5 現在地スナップショット（2026-07-07・新セッション必読）
 
 ### 実装済み（main = `airpocket-soundman/AgentForge`）
 - **ローカル開発**: `docker compose -f docker-compose.dev.yml up`（FastAPI reload + Firestore emulator + Vite）。詳細 [README.md](README.md)
@@ -37,31 +37,32 @@
 - **UI**: トップバー＋左ナビ（機能の目次）＋右メイン切替。タスクは表→行クリックで詳細（上=整理内容/下=タスクのワーカー会話）。トップバーに**巻き戻し**と**初期化(dev)**ボタン（人間専用）
 - **機能AIワーカー（標準仕様）**: 各機能画面に運用指示チャット（`FeatureWorkerPanel`）。`has_worker` で ON/OFF。タスクは指示でタスク生成可
 - **組み込みワーカーの指示＝リポジトリ管理ファイル**: `backend/app/agents/*.md`（policy/orchestrator/reception/ui_designer/feature_worker）をローダーが実行時に読み込みプロンプト注入。**プロンプト＝設定**
-- backend pytest 11件 green
+- backend / frontend の主要テスト green（詳細は [PROGRESS.md](PROGRESS.md)）
 
 ### デプロイURL
 - **公開Webアプリ（提出URL候補）**: https://agentforge-devops.web.app （Firebase Hosting, site=`agentforge-devops`, `/api/**`→Cloud Run rewrite）
 - **Cloud Run API**: https://agentforge-core-api-217469091476.asia-northeast1.run.app （実Gemini接続済）
 
-### ⚠️ 最重要：本番バックエンドが main より古い（要再デプロイ）
-- **Hosting（フロント）は最新**だが、**Cloud Run（バックエンド）は revision 00003（Phase 4世代）のまま**。
-- 未反映の backend 機能：**agents/ポリシー読込・タスク詳細/ワーカー・初期化(reset)・会話承認・機能ワーカーAPI**。
-- → これらは**ハードコード前提でフロントから呼ぶと 404**。**次の最初の作業＝バックエンド再デプロイ**（手順 [DEPLOY.md](DEPLOY.md) §3 / 下記）。
+### 本番/デモ現状
+- **Hosting（フロント）**: `sites/agentforge-devops/releases/1783390141966000`
+- **Cloud Run（バックエンド）**: `agentforge-core-api-00018-jc9` が 100% traffic
+- **Firebase Auth**: `authDomain=agentforge-498808.firebaseapp.com`。OAuth redirect URI `https://agentforge-devops.web.app/__/auth/handler` 登録済み。
+- **ゲスト入口**: Google アカウント不要。任意ユーザー名から決定的な `guest_<id>` project に入り、同じユーザー名なら同じゲスト環境を再開。
+- **Firestore 分離**: `APP_ENV=prod` は emulator 接続を拒否。local/demo/test は emulator 必須。
+- 再デプロイする場合の標準コマンド:
   ```bash
-  cd ~/AgentForge && git pull && cd backend
-  gcloud run deploy agentforge-core-api --source . --region=asia-northeast1 \
-    --allow-unauthenticated --min-instances=0 \
-    --set-env-vars="GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1,ALLOWED_EMAILS=yamashita.3154@gmail.com,GUEST_ACCESS_ENABLED=false" \
+  gcloud run deploy agentforge-core-api --source backend --region=asia-northeast1 \
+    --project=agentforge-498808 --allow-unauthenticated --min-instances=0 \
+    --set-env-vars="APP_ENV=prod,GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1,ALLOWED_EMAILS=yamashita.3154@gmail.com;airpocket.soundman@gmail.com,GUEST_ACCESS_ENABLED=true" \
     --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
   ```
-- **アクセス制限**: `ALLOWED_EMAILS`（`;`区切り）で**許可メールのみ利用可**。許可外は API 403／UIは「アクセス権限がありません」。空＝制限なし。審査員に見せるなら審査員メールを追加。
-- **未確認の人間作業**: Firebase Auth 承認済みドメインに `agentforge-devops.web.app` を追加（未だと本番でログイン不可 `auth/unauthorized-domain`）。
+- **アクセス制限**: 通常ログインは `ALLOWED_EMAILS`（`;`区切り）で制限。ゲスト入口は `GUEST_ACCESS_ENABLED=true` のときだけ有効。
 
 ### 環境メモ（ハマりどころ）
 - backend ローカルは host 8000（host 8080 は WSL relay 占有）。frontend `.env.local` は gitignore（Firebase web config）。
 - 本番検証は **PowerShell `Invoke-RestMethod`** が確実（Git Bash の curl は一部不安定／日本語表示が cp932 で化けるが実データは正常）。
 - Cloud Run の GFE は **空POSTでも Content-Length 必須**（curl は `--data ''`。ブラウザ fetch は自動付与）。
-- firebase CLI は host に導入済・ログイン済（`firebase deploy --only hosting` で公開）。gcloud は host 未導入＝Cloud Shell 使用。
+- firebase CLI は host に導入済。gcloud も host に導入済みで、Cloud Run デプロイと OAuth 設定確認に使用済み。
 
 ---
 
@@ -112,7 +113,7 @@ Reception(受付) → Orchestrator(判定) → UI Designer(設計案→コード
 - **方針**: 開発＝**Docker Dev Container**、本番＝Cloud Run コンテナ。バージョン全ピン留め。
 - **再現**: Docker Desktop を入れて clone → VS Code「Reopen in Container」で同一環境を自動構築。
 - **採用バージョン**: Python 3.12 / Node 24 / gcloud・firebase（コンテナ内）。詳細 [ENVIRONMENT.md](ENVIRONMENT.md)。
-- **ホスト現状（初期開発機 Win11）**: node24/npm/git あり、Python3.12導入済、firebase(npm global)導入済、Docker Desktop 導入済（本番Dockerfileのビルド＆/healthz=200 をローカル検証済み）。gcloud はホスト未導入（Cloud Shell 利用）。
+- **ホスト現状（初期開発機 Win11）**: node24/npm/git あり、Python3.12導入済、firebase(npm global)導入済、gcloud導入済、Docker Desktop 導入済。
 
 ---
 
@@ -124,17 +125,21 @@ Reception(受付) → Orchestrator(判定) → UI Designer(設計案→コード
   - Firestore Native（asia-northeast1, default, 無料枠）
   - Storage バケット: `agentforge-498808-{artifacts,uploads,snapshots,build-source}`
   - Artifact Registry: `agentforge`（docker）／ Cloud Tasks: `worker-queue`
-- **本番デプロイ済み（Phase 2 / 2026-06-08）**: Cloud Run `agentforge-core-api`
+- **本番デプロイ済み（更新: 2026-07-07）**: Firebase Hosting `agentforge-devops.web.app` + Cloud Run `agentforge-core-api`
   - URL: https://agentforge-core-api-217469091476.asia-northeast1.run.app
-  - **本リポジトリのコード**を Cloud Shell から `gcloud run deploy --source` で配置（手順 [DEPLOY.md](DEPLOY.md)）
+  - 最新 revision: `agentforge-core-api-00018-jc9`（100% traffic）
+  - Hosting 最新 release: `sites/agentforge-devops/releases/1783390141966000`
+  - **本リポジトリのコード**を `gcloud run deploy --source` で配置（手順 [DEPLOY.md](DEPLOY.md)）
   - `gemini-api-key`（Secret Manager）を `GEMINI_API_KEY` として注入。実行SAに `secretAccessor` / `datastore.user` 付与
+  - Firebase Auth: Google provider 有効。承認済みドメインと OAuth redirect URI 設定済み
+  - ゲスト入口: `GUEST_ACCESS_ENABLED=true`。任意ユーザー名による名前付きゲスト環境
   - 確認済: `/health`=200、`/api/orchestrator/plan` で `generated_by="gemini"`（実Gemini接続）
   - **🎯 必須要件（Cloud Run＋Gemini）＋公開デプロイURL を充足＝提出可能ライン到達**。後でGitHub→Cloud Build CI/CDに置換（Phase 6）
 
 ### 既知事項（対応状況）
 - **【解決済】** スモークの `/healthz` 404 は、**Cloud Run（Google Front End）が `/healthz` パスを横取り**するのが原因（応答は Server 空＋Google の HTML 404 で、コンテナに届かない）。`/health` はアプリに到達する。→ バックエンドのヘルスを **`/health`** に変更済み（[backend/app/main.py](backend/app/main.py)）。教訓メモ: memory `cloud-run-reserved-healthz`。スモーク（`af-smoke`）は使い捨てなので未修正のまま放置でよい。
 - **【検証済】** `backend/requirements.txt` はクリーンな Python 3.12 でインストール成功（fastapi/uvicorn/pydantic/google-cloud-firestore/-storage/-tasks/google-genai、依存衝突なし）。
-- まだ未実施: サービスアカウント分離＋IAM、Firebase(Hosting/Auth)初期化、Gemini APIキーの Secret Manager 登録、GitHub→Cloud Build の正式CI/CD。
+- まだ未実施: GitHub→Cloud Build の正式CI/CD、サービスアカウント分離＋IAMの本格化、ProtoPedia提出物の最終化。
 
 ---
 
@@ -166,14 +171,12 @@ HANDOFF.md              このファイル
 
 ## 6. 次にやること（再開時のTODO）
 
-実装は Phase 制（[IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) §4 / docs「実装フェーズ」）。
+詳細な現在地チェックリストは [PROGRESS.md](PROGRESS.md) を正とする。
 
-- **【済】Phase 1 の足場**: ローカル Docker 開発環境、frontend スキャフォールド（チャットUI）、reception REST（`POST /api/reception/messages`・Firestore永続化・即応）、pytest。E2E検証済み。
-1. **Phase 1 残り**: Firebase Auth（Googleログイン）連携＋ブラウザの Firestore リアルタイム購読を frontend に実装（現状は REST応答を表示するのみ）。Reception を Gemini Flash ルーティングに（現状は決定的テンプレ）。
-2. **Phase 2**: Orchestrator（ADK+Gemini）で作業計画JSON → Control Plane registry 登録（ここで必須要件＝Cloud Run＋Gemini を満たす）。
-3. **GitHub→Cloud Build の正式CI/CD**を設定（push で Cloud Run 自動デプロイ）。本リポジトリ（airpocket-soundman/AgentForge）を使う。
-4. サービスアカウント分離＋IAM、Gemini APIキーを Secret Manager 登録、Firebase 初期化。
-5. Phase 3〜7（Worker/Cloud Tasks/生成UI manifest → 承認→active→Task API → Rollback/Audit → CI/CD仕上げ → 提出物）。
+1. **本番 UI 確認**: https://agentforge-devops.web.app をハード更新し、任意ユーザー名ゲストログイン、デフォルト電卓生成、公開、リロード後状態復元を一連確認。
+2. **全デフォルトアプリの実働サンプリング**: static gate は全件通過済み。UI 上で `task_manager` / `schedule` / `memo` / `household_budget` / `translate` / `paint` / `retouch` / `bluesky` を代表操作だけ確認。
+3. **品質ループ強化**: gate 指摘の重複検出、失敗理由の構造化、テンプレート回帰テストへの自動昇格を検討。
+4. **提出準備**: ProtoPedia 記事、タイトル画像、デモ動画、アーキ図を最終化。
 
 > 詳細な現在地チェックリストは [PROGRESS.md](PROGRESS.md)。
 

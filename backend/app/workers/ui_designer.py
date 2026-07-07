@@ -212,6 +212,8 @@ _HTML_TAG_RE = re.compile(
     r"<(?:html|body|div|canvas|svg|button|form|table|main|section|header|h[1-6]|ul|ol|input|p)\b",
     re.I,
 )
+_AF_SAVE_OBJECT_RE = re.compile(r"\bAF\.save\s*\(\s*\{(?P<body>.*?)\}\s*\)", re.S)
+_JS_OBJECT_KEY_RE = re.compile(r"(?:^|[,{\s])([A-Za-z_$][\w$]*)\s*(?::|,|$)")
 
 
 def _is_valid_app_html(html: object) -> bool:
@@ -219,6 +221,80 @@ def _is_valid_app_html(html: object) -> bool:
         return False
     s = html.strip()
     return len(s) > 80 and "</" in s and bool(_HTML_TAG_RE.search(s))
+
+
+def _state_schema_property_keys(state_schema: object) -> set[str]:
+    if not isinstance(state_schema, dict):
+        return set()
+    props = state_schema.get("properties")
+    if not isinstance(props, dict):
+        return set()
+    return {str(k) for k in props.keys() if str(k).strip()}
+
+
+def _af_save_object_keys(html: str) -> set[str]:
+    """Best-effort top-level key extraction from simple AF.save({ ... }) calls.
+
+    This intentionally handles the common generated forms only. If the app saves a
+    state variable (`AF.save(state)`), the schema-to-code relation cannot be proven
+    statically here and the deploy gates remain the source of truth.
+    """
+    keys: set[str] = set()
+    for m in _AF_SAVE_OBJECT_RE.finditer(html or ""):
+        body = m.group("body") or ""
+        # Avoid parsing nested object bodies as top-level state. The regex is a
+        # guard rail for common shorthand/object-literal saves, not a JS parser.
+        if "{" in body or "}" in body:
+            continue
+        for km in _JS_OBJECT_KEY_RE.finditer(body):
+            key = km.group(1)
+            if key and key not in {"true", "false", "null", "undefined"}:
+                keys.add(key)
+    return keys
+
+
+def _manifest_consistency_findings(data: dict, goal: str = "", plan: dict | None = None,
+                                   requirements: list[str] | None = None) -> list[str]:
+    """Pre-gate mechanical checks for failure patterns LLMs commonly repeat.
+
+    Reviewer/Tester still make the final decision. This preflight exists so the
+    generator gets a specific repair prompt before we spend a full gate attempt on
+    an obviously inconsistent manifest.
+    """
+    findings: list[str] = []
+    html = str(data.get("html") or "")
+    state_mode = str(data.get("worker_state_mode") or "commands").strip().lower()
+    state_schema = data.get("state_schema") if isinstance(data.get("state_schema"), dict) else {}
+    needs_persistence = _requires_persistence(goal, plan, requirements)
+
+    if state_mode in {"state", "hybrid"}:
+        if "AF.load" not in html or "AF.save" not in html:
+            findings.append(
+                "worker_state_mode が state/hybrid なのに HTML に AF.load()/AF.save() が無い。"
+                "保存 state を初期化時に AF.load() で復元し、状態変更後に AF.save(state) で保存すること。"
+            )
+        if not _state_schema_property_keys(state_schema):
+            findings.append(
+                "worker_state_mode が state/hybrid なのに state_schema.properties が空。"
+                "AF.save する永続 state のトップレベルキーを具体的に定義すること。"
+            )
+
+    if needs_persistence and ("AF.load" not in html or "AF.save" not in html):
+        findings.append(
+            "この要求は状態保存が必須だが HTML に AF.load()/AF.save() が無い。"
+            "リロード・画面遷移後に途中状態を復元できる実装にすること。"
+        )
+
+    schema_keys = _state_schema_property_keys(state_schema)
+    save_keys = _af_save_object_keys(html)
+    missing = sorted(save_keys - schema_keys)
+    if state_mode in {"state", "hybrid"} and missing:
+        findings.append(
+            "AF.save({ ... }) のトップレベルキーが state_schema.properties に無い: "
+            + ", ".join(missing)
+            + "。HTML の保存 state 構造と state_schema を一致させること。"
+        )
+    return findings
 
 
 def _fallback_html(goal: str) -> str:
@@ -233,6 +309,41 @@ def _fallback_html(goal: str) -> str:
         f"<p>「{g}」を生成するワーカー(LLM)に到達できませんでした。</p>"
         "<p>少し待って、もう一度お試しください。</p></div></body></html>"
     )
+
+
+def _repair_manifest_json(llm, data: dict, goal: str, plan: dict | None,
+                          findings: list[str]) -> dict | None:
+    """Ask the model once to repair a generated manifest that failed preflight."""
+    try:
+        slim = dict(data)
+        if isinstance(slim.get("html"), str) and len(slim["html"]) > 70000:
+            slim["html"] = slim["html"][:70000] + "\n<!-- truncated for repair prompt -->"
+        parts = [
+            agents.load("ui_designer"),
+            agents.policy(),
+            "次の生成物 JSON は公開前の機械チェックに失敗しました。"
+            "ユーザー要求と承認済み設計を変えず、指摘だけを修正した完全な JSON を返してください。",
+            "修正必須チェック:\n" + "\n".join(f"- {f}" for f in findings),
+            "重要: worker_state_mode が state/hybrid の場合、HTML は実際に AF.load() で復元し、"
+            "状態変更後に AF.save(state) または AF.save({...}) を呼ぶこと。"
+            "state_schema.properties は AF.save する永続 state のトップレベルキーと一致させること。",
+            f"ユーザー要求: {goal}",
+        ]
+        if plan:
+            parts.append("ユーザーが承認した設計案:\n" + json.dumps(plan, ensure_ascii=False))
+        parts += [
+            "修正対象 JSON:\n" + json.dumps(slim, ensure_ascii=False),
+            _SCHEMA,
+        ]
+        raw = llm.generate("\n\n".join(parts), tier=ModelTier.PRO).strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        repaired = json.loads(raw)
+        if isinstance(repaired, dict) and _is_valid_app_html(repaired.get("html")):
+            return repaired
+    except Exception:  # noqa: BLE001 — repair is best-effort; gates still run.
+        return None
+    return None
 
 
 def plan_feature(
@@ -362,6 +473,12 @@ def design(
             if raw.startswith("```"):
                 raw = raw.strip("`").split("\n", 1)[-1]  # drop a leading ```json fence
             data = json.loads(raw)
+            if isinstance(data, dict):
+                findings = _manifest_consistency_findings(data, goal, plan, requirements)
+                if findings:
+                    repaired = _repair_manifest_json(llm, data, goal, plan, findings)
+                    if repaired is not None and not _manifest_consistency_findings(repaired, goal, plan, requirements):
+                        data = repaired
             html = data.get("html")
             if _is_valid_app_html(html):
                 # When an approved plan exists, keep its slug/title/theme so the

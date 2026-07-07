@@ -519,6 +519,7 @@ def _flow_record(fields: dict) -> dict:
         "candidate": fields.get("candidate"),  # generated ViewManifest dict (preview source)
         "template": fields.get("template"),
         "pending_images": fields.get("pending_images"),
+        "gate_feedbacks": fields.get("gate_feedbacks") or [],
         # True only right after a gate-failed codegen: the UI offers 「同じ設計で
         # 再生成」 instead of the normal 「これで作って」 (a state flag, so the
         # frontend never has to pattern-match assistant wording).
@@ -1583,7 +1584,7 @@ def retry_build(project_id: str) -> str:
     flow = get_flow(project_id)
     goal = flow.get("goal") or build.get("goal") or ""
     if phase == "codegen" and flow.get("plan"):
-        start_codegen(project_id, goal, flow["plan"])
+        start_codegen(project_id, goal, flow["plan"], gate_feedbacks=flow.get("gate_feedbacks") or [])
         return "codegen"
     if phase == "editing" and flow.get("feature"):
         start_edit(project_id, flow["feature"], goal)
@@ -1958,11 +1959,11 @@ def _run_plan(
 
 # --- Stage 2: code generation from the approved plan ------------------------
 
-def start_codegen(project_id: str, goal: str, plan: dict) -> None:
+def start_codegen(project_id: str, goal: str, plan: dict, gate_feedbacks: list | None = None) -> None:
     """Generate the real HTML app from the approved plan in the background."""
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="codegen", goal=goal, started_at=_now_iso(), model=_model_for_phase("codegen"), timeout_count=0, prompt_pending=False)
-    _spawn_pipeline_thread(conversation_id, _run_codegen, project_id, goal, plan)
+    _spawn_pipeline_thread(conversation_id, _run_codegen, project_id, goal, plan, gate_feedbacks or [])
 
 
 # --- Deploy-time gate: Tester (runs / meets intent) + Reviewer (conventions) ---
@@ -2064,7 +2065,24 @@ def _gate_feedback(gates: dict) -> str:
     return "\n".join(items) or "（指摘なし）"
 
 
-def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
+def _merge_gate_feedbacks(existing: list | None, feedback: str | None, *, limit: int = 8) -> list[str]:
+    """Keep failed gate feedback across explicit user-triggered regenerations."""
+    out: list[str] = []
+    for item in [*(existing or []), feedback]:
+        text = str(item or "").strip()
+        if text and text != "（指摘なし）" and text not in out:
+            out.append(text)
+    return out[-limit:]
+
+
+def _combined_gate_feedback(feedbacks: list | None) -> str | None:
+    items = [str(x).strip() for x in (feedbacks or []) if str(x or "").strip()]
+    if not items:
+        return None
+    return "\n\n[過去の未通過フィードバック]\n" + "\n\n".join(items[-8:])
+
+
+def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list | None = None) -> None:
     """Receptor → Orchestrator 'build' over the MCP-like bus. The handler is the
     Orchestrator's work (generate → gate → register); the bus logs the request/
     report (correlated by `corr`, same thread as the inner verify/review) and
@@ -2084,17 +2102,23 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
     plan = {k: v for k, v in (plan or {}).items() if k != "mock_svg"}
     criteria = plan.get("acceptance") or None  # user-approved acceptance list
 
+    carried_feedbacks = [str(x).strip() for x in (carried_feedbacks or []) if str(x or "").strip()]
+
     def _gen(feedback: str | None = None):
         """One generation; on a stub result (LLM unreachable/parse failure) retry
         once automatically — visible to the user, per spec (failed → auto-retry)."""
         from app.llm.gateway import get_llm
 
+        feedback_parts = list(carried_feedbacks)
+        if feedback:
+            feedback_parts = _merge_gate_feedbacks(feedback_parts, feedback)
+        combined_feedback = _combined_gate_feedback(feedback_parts)
         with _llm_heartbeat(conversation_id, "🛠 コード生成"):
-            m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+            m = orchestrator.build_app(req, design_plan=plan, feedback=combined_feedback)
         if m.generated_by == "stub" and get_llm().enabled:
             _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
             with _llm_heartbeat(conversation_id, "🛠 コード生成（リトライ）"):
-                m = orchestrator.build_app(req, design_plan=plan, feedback=feedback)
+                m = orchestrator.build_app(req, design_plan=plan, feedback=combined_feedback)
         return m
 
     def _do_build(_payload: dict) -> dict:
@@ -2148,8 +2172,10 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
         # Not verified → NOT publishable. Do not register or offer 「反映して」.
         # Stay at the plan stage so the user can retry (「同じ設計で再生成」) or
         # redirect; needs_regeneration tells the UI which button to show.
+        failed_feedback = _gate_feedback(gates)
+        feedbacks = _merge_gate_feedbacks(carried_feedbacks, failed_feedback)
         _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan,
-                  feature=manifest.feature, needs_regeneration=True)
+                  feature=manifest.feature, needs_regeneration=True, gate_feedbacks=feedbacks)
         if manifest.generated_by == "stub":
             text = (
                 "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
@@ -2157,13 +2183,13 @@ def _run_codegen(project_id: str, goal: str, plan: dict) -> None:
             )
         else:
             text = (
-                "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + _gate_feedback(gates) + "\n"
+                "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + failed_feedback + "\n"
                 "「同じ設計で再生成」を選ぶか、設計を変えたい点を返信してください。"
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         return {"status": "needs_revision",
                 "result": {"passed": False, "feature": manifest.feature},
-                "findings": [_gate_feedback(gates)]}
+                "findings": [failed_feedback]}
 
     rep = worker_bus.dispatch(
         task_id=corr, sender="Receptor", to="Orchestrator", intent="build",

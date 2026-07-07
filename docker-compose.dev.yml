@@ -15,7 +15,7 @@ services:
     command: >
       gcloud emulators firestore start
       --host-port=0.0.0.0:8080
-      --project=agentforge-498808
+      --project=agentforge-local-dev
     ports:
       - "8081:8080" # host 8081 -> emulator 8080 (keeps host 8080 free for backend)
     healthcheck:
@@ -31,7 +31,7 @@ services:
     ports:
       - "8000:8080" # host 8000 -> container 8080 (host 8080 is taken by WSL relay)
     environment:
-      GOOGLE_CLOUD_PROJECT: agentforge-498808
+      GOOGLE_CLOUD_PROJECT: agentforge-local-dev
       GOOGLE_CLOUD_REGION: asia-northeast1
       FIRESTORE_EMULATOR_HOST: firestore:8080
       CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173

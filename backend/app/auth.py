@@ -86,6 +86,20 @@ def _is_local_mode() -> bool:
     return get_settings().is_local
 
 
+def _guest_user_from_headers(guest_id: str | None, guest_name: str | None) -> CurrentUser | None:
+    if not guest_access_enabled():
+        return None
+    raw_id = (guest_id or "").strip()
+    raw_name = (guest_name or "").strip()
+    if not raw_id or not raw_name:
+        return None
+    safe_uid = re.sub(r"[^a-zA-Z0-9_-]+", "_", raw_id).strip("_")[:80]
+    safe_name = re.sub(r"[\r\n\t]+", " ", raw_name).strip()[:40]
+    if not safe_uid or not safe_name:
+        return None
+    return CurrentUser(uid=safe_uid, email=f"{safe_name} (guest)", is_admin=False, is_guest=True)
+
+
 def _with_audit_actor(user: CurrentUser) -> CurrentUser:
     set_actor_context(
         uid=user.uid,
@@ -116,6 +130,8 @@ def _verify(authorization: str | None) -> dict:
 
 def current_user(
     authorization: str | None = Header(default=None),
+    x_agentforge_guest_id: str | None = Header(default=None, alias="X-AgentForge-Guest-Id"),
+    x_agentforge_guest_name: str | None = Header(default=None, alias="X-AgentForge-Guest-Name"),
 ) -> CurrentUser:
     """Resolve the caller. Raises 401 (no/invalid token) / 403 (not allowlisted)."""
     if _is_local_mode():
@@ -123,6 +139,9 @@ def current_user(
 
     s = get_settings()
     if not authorization:
+        guest = _guest_user_from_headers(x_agentforge_guest_id, x_agentforge_guest_name)
+        if guest:
+            return _with_audit_actor(guest)
         raise HTTPException(status_code=401, detail="ログインが必要です")
 
     claims = _verify(authorization)

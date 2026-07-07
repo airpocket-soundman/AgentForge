@@ -74,9 +74,22 @@ def test_flow_record_needs_regeneration_defaults_false_and_resets():
     # Default: a fresh plan/confirm never carries the flag.
     flow = service._flow_record({"stage": "plan", "goal": "g", "plan": {}})
     assert flow["needs_regeneration"] is False
+    assert flow["gate_feedbacks"] == []
     # Set explicitly only by the gate-failed codegen path.
-    flow = service._flow_record({"stage": "plan", "needs_regeneration": True})
+    flow = service._flow_record({"stage": "plan", "needs_regeneration": True, "gate_feedbacks": ["[規約] x"]})
     assert flow["needs_regeneration"] is True
+    assert flow["gate_feedbacks"] == ["[規約] x"]
+
+
+def test_gate_feedback_history_deduplicates_and_combines():
+    merged = service._merge_gate_feedbacks(["[規約] x", "[動作] y"], "[規約] x")
+    assert merged == ["[規約] x", "[動作] y"]
+    merged = service._merge_gate_feedbacks(merged, "[安全] z")
+    combined = service._combined_gate_feedback(merged)
+    assert combined is not None
+    assert "[過去の未通過フィードバック]" in combined
+    assert "[動作] y" in combined
+    assert "[安全] z" in combined
 
 
 def test_resolve_feature_delete_accepts_slug_without_scope(monkeypatch):

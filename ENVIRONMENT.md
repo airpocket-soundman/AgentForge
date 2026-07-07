@@ -2,7 +2,7 @@
 
 > 別PCでも同一環境を再現できるよう、開発環境はすべてこのリポジトリに**コードとして記録**する。
 > 本番（Cloud Run）はコンテナ実行のため、開発もコンテナ（Dev Container）に統一して parity を担保する。
-> 最終更新: 2026-06-08
+> 最終更新: 2026-07-07
 
 ---
 
@@ -22,13 +22,15 @@ docker compose -f docker-compose.dev.yml up --build
 ```
 - frontend http://localhost:5173 / backend http://localhost:8000 / Firestore emulator localhost:8081
 - Firestore はエミュレータなので課金・認証なしで CRUD まで動く
+- `APP_ENV=local` では `FIRESTORE_EMULATOR_HOST` が必須。誤って本番 Firestore に接続しないよう、backend 起動時にガードする
+- ローカル Firestore emulator の project ID は `agentforge-local-dev`。本番 `agentforge-498808` とは名前空間も分ける
 - ホスト編集が hot reload（backend=uvicorn --reload, frontend=Vite HMR）
 - 停止: `docker compose -f docker-compose.dev.yml down`
 - backend ホストポートが 8000 なのは、ホスト 8080 が WSL relay 使用中だったため（コンテナ内部は 8080 のまま）
 
 ### (A2) 認証込みローカルデモ：Docker Compose overlay
 
-本番と同じ Firebase Google ログイン、許可リスト、ゲスト個別環境をローカルで確認する場合は、通常スタックに
+本番と同じ Firebase Google ログイン、許可リスト、名前付きゲスト個別環境をローカルで確認する場合は、通常スタックに
 `docker-compose.demo.yml` を重ねる。Firestore はローカルエミュレータのままなので本番データは触らない。
 
 ```bash
@@ -37,9 +39,9 @@ docker compose -f docker-compose.dev.yml -f docker-compose.demo.yml up --build
 ```
 
 - frontend http://localhost:5173 / admin http://localhost:5174/admin.html / backend http://localhost:8000
-- backend は `APP_ENV=prod` で動くため、API は Firebase ID token を要求する。
+- backend は `APP_ENV=demo` で動くため、API は Firebase ID token を要求するが、Firestore は emulator のまま。
 - `airpocket.soundman@gmail.com` と `yamashita.3154@gmail.com` は管理者。`airpocket.soundman@gmail.com` は通常ユーザー allowlist にも入る。
-- allowlist 外の Google アカウントは、ゲストアクセス ON 時だけ `guest_<Firebase uid>` の `project_id` に分離される。
+- ゲストアクセス ON 時は、Google アカウント不要で任意のユーザー名から `guest_<id>` の `project_id` に分離される。同じユーザー名なら同じゲスト環境を再開する。
 - 通常開発で認証を省きたい場合は overlay なしの `(A)` を使う。
 
 ### (B) ツール環境を揃える：Dev Container
@@ -63,7 +65,7 @@ MSYS_NO_PATHCONV=1 docker compose -f docker-compose.dev.yml run --rm --no-deps \
   -e APP_ENV=test -e LLM_PROVIDER=stub -e FIRESTORE_EMULATOR_HOST= -e GOOGLE_CLOUD_PROJECT= \
   backend python -m pytest /app/tests -q
 ```
-これで全件パス（現状 19 passed）。`--no-deps` なので稼働中の compose スタックや
+これで全件パス。`--no-deps` なので稼働中の compose スタックや
 エミュレータには触れない使い捨てコンテナで走る。
 
 **ハマりどころ（なぜ上記の env 上書きが必要か）:**
@@ -71,8 +73,8 @@ MSYS_NO_PATHCONV=1 docker compose -f docker-compose.dev.yml run --rm --no-deps \
   → `-v ".../backend/tests:/app/tests"` で明示マウントしないと "no tests ran"。
 - `backend` サービスは `APP_ENV=local` を注入する。local は **常に `is_admin=True`（open mode）** なので、
   prod-default 前提の admin テストが落ちる → **`APP_ENV=test`** で上書き。
-- `FIRESTORE_EMULATOR_HOST` が残ると稼働中エミュレータに接続し、保存済みフラグを読んで
-  「Firestore 不在 = デフォルト値」前提のテストが落ちる → **空に上書き**（`GOOGLE_CLOUD_PROJECT` も同様）。
+- `APP_ENV=test` で Firestore を使うテストは `FIRESTORE_EMULATOR_HOST` を明示する。Firestore 不在を前提にする単体テストでは、
+  `get_db()` が呼ばれない経路に保つか、Firestore 呼び出しを monkeypatch する。
 - `LLM_PROVIDER=stub` で LLM へ出ない（決定的・無課金）。
 - **Git Bash（Windowsホスト）**は `/app/tests` を Windows パスに変換してしまう
   → 先頭の **`MSYS_NO_PATHCONV=1`** で抑止。PowerShell/Dev Container 内では不要。
@@ -106,7 +108,7 @@ cd backend && APP_ENV=test LLM_PROVIDER=stub pytest -q
 | node / npm | ホスト実測 v22.17.0 / 10.9.2（※基準は24系。標準作業はコンテナ内なので問題なし） |
 | git | 2.51.2.windows.1（あり） |
 | python | 3.12.7（本記録時にユーザースコープで導入） |
-| gcloud | ホスト未導入（コンテナ内で利用） |
+| gcloud | ホスト導入済み（本番デプロイと OAuth 設定確認に利用） |
 | firebase | npm global で導入済み |
 | docker | **導入済み** Docker 28.0.4 / Compose v2.34.0（compose 開発スタック検証済み） |
 
@@ -140,17 +142,21 @@ Docker を使えないPCでも、以下のピン版を入れれば再現可能�
 - Cloud Tasks キュー：`worker-queue`（asia-northeast1）
 - 課金：有効（無料トライアル／無料枠）
 
-### デプロイ済みサービス / Secret（Phase 2 / 2026-06-08）
+### デプロイ済みサービス / Secret（更新: 2026-07-07）
 
 | 項目 | 値 |
 |---|---|
 | **公開Webアプリ（提出URL）** | **https://agentforge-devops.web.app**（Firebase Hosting, site=`agentforge-devops`）。`/api/**` を rewrite で Cloud Run に転送 |
 | Cloud Run サービス（API） | `agentforge-core-api`（asia-northeast1, min=0, allow-unauthenticated） |
+| Cloud Run 最新 revision | `agentforge-core-api-00018-jc9`（100% traffic） |
 | Cloud Run 直URL | https://agentforge-core-api-217469091476.asia-northeast1.run.app |
-| Hosting デプロイ | ホストで `npm run build`（frontend）→ `firebase deploy --only hosting`。設定は [firebase.json](firebase.json) |
+| Hosting 最新 release | `sites/agentforge-devops/releases/1783390141966000` |
+| Hosting デプロイ | ホストで `npm run build`（frontend）→ Firebase Hosting REST API または `firebase deploy --only hosting`。設定は [firebase.json](firebase.json) |
 | 実行サービスアカウント | `217469091476-compute@developer.gserviceaccount.com`（既定）。付与: `secretmanager.secretAccessor`（gemini-api-key）, `datastore.user` |
 | Secret | `gemini-api-key`（Secret Manager）→ Cloud Run に `GEMINI_API_KEY` として注入 |
-| デプロイ方法 | Cloud Shell から `gcloud run deploy --source`（手順は [DEPLOY.md](DEPLOY.md)）。将来 Cloud Build CI/CD に置換 |
+| デプロイ方法 | Cloud Shell または gcloud 認証済み host から `gcloud run deploy --source`（手順は [DEPLOY.md](DEPLOY.md)）。将来 Cloud Build CI/CD に置換 |
+| Firebase Auth | Google provider 有効。承認済みドメインに `agentforge-devops.web.app` を追加済み。OAuth redirect URI `https://agentforge-devops.web.app/__/auth/handler` 登録済み。 |
+| ゲスト入口 | `GUEST_ACCESS_ENABLED=true`。任意ユーザー名による名前付きゲスト環境を利用可能。 |
 
 > 動作確認: `/health`=200、`/api/orchestrator/plan` で `generated_by="gemini"`（実Gemini接続）を確認済み。
 > 提出に使う公開URLはこのサービスのURL。審査期間（〜7/24）は停止しない。

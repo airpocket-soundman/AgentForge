@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 import { getMe, type Me } from "../api";
-import { isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser } from "../firebase";
+import { completeRedirectSignIn, isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser } from "../firebase";
 import { AdminView } from "../views/AdminView";
 
 export function AdminApp() {
@@ -14,7 +14,10 @@ export function AdminApp() {
   const [meChecked, setMeChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => onAuthChange((u) => { setUser(u); setAuthReady(true); }), []);
+  useEffect(() => {
+    void completeRedirectSignIn().catch((e) => setError(String(e)));
+    return onAuthChange((u) => { setUser(u); setAuthReady(true); });
+  }, []);
 
   useEffect(() => {
     if (isFirebaseConfigured() && !user) return; // wait for login in prod

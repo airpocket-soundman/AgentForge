@@ -28,6 +28,33 @@ def test_each_template_is_a_valid_app_manifest():
             assert c.get("name")
 
 
+def test_each_template_passes_static_reviewer_and_safety_checks():
+    from app.safety_harness.service import inspect_manifest
+    from app.workers.reviewer import _static_findings
+
+    for key in EXPECTED:
+        manifest = templates.get_template(key)
+        assert _static_findings(manifest) == []
+        _checks, findings = inspect_manifest(manifest)
+        assert findings == []
+
+
+def test_calculator_template_persists_state_and_handles_ac_as_token():
+    manifest = templates.get_template("calculator")
+    html = manifest["html"]
+    assert manifest["worker_state_mode"] == "hybrid"
+    assert manifest["worker_eval_cases"]
+    assert "AF.load()" in html
+    assert "AF.save(snapshot())" in html
+    assert "function tokenize(input)" in html
+    assert "s.slice(i,i+2).toUpperCase()==='AC'" in html
+    assert "histEl.replaceChildren()" in html
+    assert "r.innerHTML" not in html
+    props = manifest["state_schema"]["properties"]
+    assert props["op"]["type"] == ["string", "null"]
+    assert props["prev"]["type"] == ["string", "null"]
+
+
 def test_matcher_maps_keywords():
     assert templates.match_template("電卓を作って") == "calculator"
     assert templates.match_template("タスク管理がほしい") == "task_manager"

@@ -49,6 +49,32 @@ def test_guest_mode_allows_google_user_with_separate_project(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_guest_mode_allows_named_guest_without_google(monkeypatch):
+    monkeypatch.setenv("GUEST_ACCESS_ENABLED", "true")
+    get_settings.cache_clear()
+    r = client.get(
+        "/api/me",
+        headers={
+            "X-AgentForge-Guest-Id": "judge_sample",
+            "X-AgentForge-Guest-Name": "Judge A",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["email"] == "Judge A (guest)"
+    assert data["is_admin"] is False
+    assert data["is_guest"] is True
+    assert data["project_id"] == "guest_judge_sample"
+    assert client.get(
+        "/api/admin/config",
+        headers={
+            "X-AgentForge-Guest-Id": "judge_sample",
+            "X-AgentForge-Guest-Name": "Judge A",
+        },
+    ).status_code == 403
+    get_settings.cache_clear()
+
+
 def test_admin_routes_registered():
     paths = {r.path for r in app.routes}
     assert {

@@ -12,7 +12,7 @@
 services:
   backend:
     environment:
-      APP_ENV: prod
+      APP_ENV: demo
       ALLOWED_EMAILS: airpocket.soundman@gmail.com
       ADMIN_EMAILS: airpocket.soundman@gmail.com;yamashita.3154@gmail.com
       GUEST_ACCESS_ENABLED: "true"

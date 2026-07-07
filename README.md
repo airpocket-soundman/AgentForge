@@ -44,7 +44,7 @@ curl http://localhost:8000/health
 
 ### 認証込みローカルデモ
 
-本番と同じ Google ログイン、許可リスト、ゲスト個別環境をローカルで確認する場合は overlay を重ねます。
+本番と同じ Google ログイン、許可リスト、名前付きゲスト個別環境をローカルで確認する場合は overlay を重ねます。
 Firestore は引き続きローカルエミュレータを使います。
 
 ```bash
@@ -55,7 +55,7 @@ docker compose -f docker-compose.dev.yml -f docker-compose.demo.yml up --build
 - ユーザー画面: http://localhost:5173
 - 管理画面: http://localhost:5174/admin.html
 - `airpocket.soundman@gmail.com` は管理者/通常ユーザーとして入れます。
-- allowlist 外の Google アカウントは、管理画面でゲストアクセスが ON のときだけ `guest_<Firebase uid>` の個別環境で入れます。
+- ゲストアクセスが ON のときは、Google アカウント不要で任意のユーザー名から `guest_<id>` の個別環境に入れます。同じユーザー名なら同じゲスト環境を再開します。
 
 ### Dev Container（同一ツール環境）
 VS Code の「Reopen in Container」（`.devcontainer/`）で Python 3.12 / Node 24 / gcloud / firebase を揃えた開発シェルに入れます。上の compose はアプリ実行用、Dev Container はツール環境用で役割が異なります。
@@ -65,8 +65,11 @@ VS Code の「Reopen in Container」（`.devcontainer/`）で Python 3.12 / Node
 ## テスト
 
 ```bash
-# backend（dev イメージ内で実行）
-docker run --rm -v "$PWD/backend:/app" -w /app agentforge-backend:latest pytest -q
+# backend（PowerShell / host python）
+$env:PYTHONPATH='backend'; python -m pytest backend/tests -q
+
+# backend（Docker Compose dev イメージ内）
+docker compose -f docker-compose.dev.yml run --rm --no-deps backend python -m pytest /app/tests -q
 
 # frontend 型チェック＋ビルド
 cd frontend && npm run build
