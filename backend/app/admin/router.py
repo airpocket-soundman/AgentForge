@@ -57,7 +57,11 @@ class FeatureFlagsIn(BaseModel):
 @router.get("/public/config")
 def public_config() -> dict:
     """Unauthenticated browser bootstrap settings."""
-    return {"guest_access_enabled": guest_access_enabled(), "auth_required": not get_settings().is_local}
+    s = get_settings()
+    return {
+        "guest_access_enabled": s.is_local or guest_access_enabled(),
+        "auth_required": not s.is_local,
+    }
 
 
 @router.get("/me")

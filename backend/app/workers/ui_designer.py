@@ -49,6 +49,8 @@ _PLAN_SCHEMA = '''ユーザーの要求から「設計案」だけをJSONで出�
 - acceptance: 完成品で Tester が1つずつ検証する。曖昧な表現（「使いやすい」等）でなく、動作として判定できる文にする。
 - 外部API連携アプリでは、画像サムネイルや外部リンクを直接表示できると安易に約束しない。
   生成HTMLは外部URLを `src` / `href` で読めないため、外部画像は「画像あり」「alt」「件数」などのテキスト表示を基本にする。
+  外部リンクが必要な場合はリンク風のボタンを使い、表示名はURLそのものではなくタイトル、店名、サービス名、
+  「公式サイト」「地図を開く」「詳細を見る」など意味が分かる短いラベルにする。
   画像実体を表示する設計にするのは、承認済みの backend/Blob 取得経路がある場合だけ。
 - スラッグは英小文字。テーマは内容に近いもの（曖昧なら default）。'''
 
@@ -96,6 +98,18 @@ commands の要件（重要・標準仕様 / MCP形式のツール契約）:
 - APIは「ユーザーが自然に言いそうな依頼」から逆算して設計する。
   作成/追加、更新/変更/移動、削除/消去/一括削除、完了/未完了、並べ替え、絞り込み、メモ追記、
   設定変更、初期化/クリア、Undo など、そのアプリ領域で起こりやすい操作を具体的に想定する。
+  既存フィールドへ文章を入れる操作（例: 「メモに〜を記入」「本文に〜を書いて」「詳細に〜を追記」）は
+  すべてのデータ中心アプリで標準的に扱えるよう、set/update と append のどちらか、または state_schema 直接編集で表現する。
+  「〜を探してメモに入れて」「最新情報を調べて本文にまとめて」のような依頼は、生成HTMLから直接fetchせず、
+  Specialist Worker が backend のリアルタイムWeb検索ツールで検索結果を要約し、その本文を state/command に反映する前提で設計する。
+  1つの自然文に複数操作が含まれる依頼（例: 「予定を追加して、そのメモに調査結果を入れて」
+  「タスクを作って、詳細に要点を書いて、締切も設定して」）は標準的に起こる。
+  create / update / append / set_field などの小さな操作へ分解して順に処理できる command / state_schema にする。
+  データ中心アプリでは commands の粒度不足で「できません」と返さないよう、state/hybrid と schema 直接編集を併用する。
+  決定的なルールは確信できる場合の補助に留め、固定文言に合わないだけで聞き返さない。
+  対象が一意、または現在開いている詳細 context で一意なら実行し、危険操作・対象不明・異常値だけ確認する。
+  本文/メモ/詳細へ入れる内容は単なる転記にしない。短い断片でも、必要に応じてラベル、箇条書き、確認事項、
+  持ち物、場所、TODO などに整理し、ユーザーが後で読みやすい形で保存する。
   例: スケジュールなら「22日の予定を全部消して」に対応する delete_event{date, all:true} のように、
   タイトル指定だけでは表せない自然な依頼もAPI化する。
 - worker_instructions には、専門ワーカーが迷わずAPIを選べるように以下を書く:
@@ -107,8 +121,11 @@ commands の要件（重要・標準仕様 / MCP形式のツール契約）:
   6. ユーザー送信直後の「作業に入っています」表示はシェルのアプリチャット標準で出るため、生成HTML内に受付中表示を作らず、最終返答では完了内容・聞き返し・取次内容を短く具体的に返す方針。
 - worker_examples には、そのアプリで実際に来そうな指示を8〜12件入れる。
   正常系だけでなく、削除、一括操作、曖昧な対象、異常値、確認質問への返答も含める。
+  本文/メモ欄へ「探して記入」「調べて追記」する例、追加と本文更新を同時に頼む複合命令の例も必ず含める
+  （断片的依頼を整理して保存する例、検索できない場合は確認事項を添える例も含める）。
 - worker_eval_cases には、その専門ワーカーが誤りやすい自然言語テストを5〜8件入れる。
   追加/更新/削除/一括削除/曖昧な対象/異常値/確認質問/担当外の構造変更を含める。
+  既存フィールドへの本文記入・追記、断片的依頼の整理、Web検索結果の要約記入、複合命令の分解処理も含める。
   例（スケジュール）: 「22日の予定を全部消して」→ delete、「15:65にテスト」→ ask_clarification。
 - clarification_policy と dangerous_action_policy には、聞き返しと危険操作確認の方針を具体的に書く。
 - 操作が無いミニアプリ（純粋表示のみ等）は空配列でよい。
@@ -172,6 +189,10 @@ html の要件（重要）:
     `safeText()` のように String 化するだけでは HTML エスケープにならない。
     外部画像URLやリンクURLを `<img src="${...}">` / `<a href="${...}">` / `element.src = url` / `element.href = url`
     として直接使わない。リンクを開く必要がある場合は、ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。
+    表示上は `<button type="button">` 等を下線・リンク色でスタイルしてリンク風に見せてよいが、
+    ボタンの表示名はURLそのものではなく、検索結果タイトル、記事タイトル、店名、サービス名、
+    または「公式サイト」「地図を開く」「詳細を見る」のようなユーザーに意味が伝わる短いラベルを優先する。
+    URLしか分からない場合だけ、ホスト名など短く読める形に省略して表示する。
     画像は原則として「画像あり」「alt」「URL文字列」などのテキストで表示する。
     画像実体を扱う場合は承認済み backend/Blob 経路で取得し、`AF.loadBlob()` が null のときは
     「画像データがこの端末にありません」「再取得が必要です」のような欠落表示を必ず出す。
@@ -351,6 +372,7 @@ def plan_feature(
     feedback: str | None = None,
     previous: dict | None = None,
     images: list[dict] | None = None,
+    web_context: str = "",
 ) -> DesignPlan:
     """Produce a lightweight design proposal (no code yet) for review.
 
@@ -366,11 +388,15 @@ def plan_feature(
             parts = [
                 agents.load("ui_designer"),
                 agents.policy(),
+                "必要な現在情報は、Orchestrator が渡す読み取り専用の Web検索/閲覧コンテキストだけを参照する。"
+                "生成HTMLには fetch / 外部URL直アクセス / 外部画像src を入れない。",
                 "完成済みの『デフォルトテンプレート』が次のとおり存在する。要求がこれらに当てはまる/近い場合は、"
                 "ゼロから考えず、その実績ある構成を土台に設計する（基本機能は踏襲し、要求の差分だけ上乗せ）:\n"
                 + templates.catalogue_text(),
                 f"ユーザー要求: {goal}",
             ]
+            if web_context:
+                parts.insert(3, "[Orchestrator Web検索/閲覧コンテキスト]\n" + web_context)
             if previous and feedback:
                 parts.append("前回の設計案:\n" + json.dumps(previous, ensure_ascii=False))
                 parts.append(
@@ -422,6 +448,7 @@ def design(
     current_html: str | None = None,
     images: list[dict] | None = None,
     requirements: list[str] | None = None,
+    web_context: str = "",
 ) -> ViewManifest:
     """Build a real, self-contained HTML app that implements `goal`.
 
@@ -440,6 +467,8 @@ def design(
                 parts = [
                     agents.load("ui_designer"),
                     agents.policy(),
+                    "必要な現在情報は、Orchestrator が渡す読み取り専用の Web検索/閲覧コンテキストだけを参照する。"
+                    "生成HTMLには fetch / 外部URL直アクセス / 外部画像src を入れない。",
                     "既存のアプリを、ユーザーの指示どおりに修正してください。指示された箇所だけを的確に直し、"
                     "それ以外の機能・UI・状態保存(AF.load/AF.save)は壊さないこと。",
                     "既存アプリの全コード:\n" + current_html,
@@ -450,12 +479,18 @@ def design(
                 if requirements:
                     parts.insert(3, "この機能で過去に確定した要求（修正後も必ず維持すること）:\n"
                                  + "\n".join(f"・{r}" for r in requirements[:30]))
+                if web_context:
+                    parts.insert(3, "[Orchestrator Web検索/閲覧コンテキスト]\n" + web_context)
             else:
                 parts = [
                     agents.load("ui_designer"),
                     agents.policy(),
+                    "必要な現在情報は、Orchestrator が渡す読み取り専用の Web検索/閲覧コンテキストだけを参照する。"
+                    "生成HTMLには fetch / 外部URL直アクセス / 外部画像src を入れない。",
                     f"次の機能を作ってください。\nユーザー要求: {goal}",
                 ]
+                if web_context:
+                    parts.append("[Orchestrator Web検索/閲覧コンテキスト]\n" + web_context)
                 if plan:
                     parts.append(
                         "ユーザーが承認した設計案（これに忠実に実装すること）:\n"
@@ -630,6 +665,7 @@ def design_patch(
     current: dict,
     feedback: str | None = None,
     requirements: list[str] | None = None,
+    web_context: str = "",
 ) -> ViewManifest | None:
     """Patch-based edit of an existing app manifest. Returns the updated manifest,
     or None when patching isn't possible (LLM off, model chose full_rewrite, a
@@ -642,9 +678,13 @@ def design_patch(
         parts = [
             agents.load("ui_designer"),
             agents.policy(),
+            "必要な現在情報は、Orchestrator が渡す読み取り専用の Web検索/閲覧コンテキストだけを参照する。"
+            "生成HTMLには fetch / 外部URL直アクセス / 外部画像src を入れない。",
             "既存アプリの全コード:\n" + html,
             f"ユーザーの修正指示: {goal}",
         ]
+        if web_context:
+            parts.insert(3, "[Orchestrator Web検索/閲覧コンテキスト]\n" + web_context)
         if requirements:
             parts.append("この機能で過去に確定した要求（修正後も必ず維持すること）:\n"
                          + "\n".join(f"・{r}" for r in requirements[:30]))

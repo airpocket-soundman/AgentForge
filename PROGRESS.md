@@ -1,17 +1,18 @@
 # AgentForge 進捗トラッキング
 
 > 実装の現在地。各 Phase の「ゴール」は [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md) §4 準拠。
-> 最終更新: 2026-07-07
+> 最終更新: 2026-07-09
 
 凡例: ✅ 完了 / 🚧 着手中 / ⬜ 未着手
 
 ---
 
-## 最新スナップショット（2026-07-07）
+## 最新スナップショット（2026-07-09）
 
 - ✅ **本番/デモ公開中**: Firebase Hosting `agentforge-devops.web.app` → Cloud Run `agentforge-core-api`
-- ✅ **Cloud Run 最新 revision**: `agentforge-core-api-00018-jc9`（100% traffic）
-- ✅ **Firebase Hosting 最新 release**: `sites/agentforge-devops/releases/1783390141966000`
+- ✅ **Cloud Run 最新 revision**: `agentforge-core-api-00020-rtd`（100% traffic）
+- ✅ **Firebase Hosting 最新 release**: `sites/agentforge-devops/channels/live/releases/1783582058547000`
+- ✅ **本番デプロイ手順を整理**: [DEPLOY.md](DEPLOY.md) に本番制約、Cloud Run 手順、Firebase Hosting CLI/REST API 手順、確認・ロールバック手順を集約
 - ✅ **Google ログイン修正済み**:
   - `authDomain` は標準 `agentforge-498808.firebaseapp.com` を使用
   - OAuth redirect URI に `https://agentforge-devops.web.app/__/auth/handler` を追加済み
@@ -77,7 +78,7 @@
 - ✅ 承認API（[backend/app/control_plane/approvals.py](backend/app/control_plane/approvals.py)）: approve で api_registry/ui_view_registry を active化＋feature_states フラグ＋task_run active＋監査
 - ✅ Task API（[backend/app/generated_app/tasks.py](backend/app/generated_app/tasks.py)）: 一覧/追加/更新の決定的CRUD（Firestore `app_tasks`）。**feature が active でないと 409**（承認の意味付け）
 - ✅ E2E（emulator）: 承認前=409 → 承認 → 作成200 → 一覧 → done=true、全部確認。pytest 10件 green
-- ✅ **本番（公開URL）でもE2E実証**: 当時 revision 00003 で、計画→承認前409→承認→作成200→一覧→done=true→rollback後409 を確認。現在の本番 revision は `agentforge-core-api-00018-jc9`
+- ✅ **本番（公開URL）でもE2E実証**: 当時 revision 00003 で、計画→承認前409→承認→作成200→一覧→done=true→rollback後409 を確認。現在の本番 revision は `agentforge-core-api-00020-rtd`
 - ⬜ フロントに承認ボタン＋Task UI（次：UI連携）
 
 ## Phase 5: Rollback + Audit + SA分離 🚧

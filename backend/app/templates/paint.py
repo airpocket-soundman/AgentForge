@@ -19,8 +19,11 @@ body{background:var(--bg);font-family:system-ui,sans-serif;color:var(--fg);displ
 .tool{border:1px solid var(--bd);background:#fff;border-radius:7px;padding:7px 9px;cursor:pointer;font-size:13px;color:var(--fg);white-space:nowrap}
 .tool.on{background:var(--ac);color:#fff;border-color:var(--ac)}.tool.icon{min-width:72px;text-align:center}
 .sizebox{display:grid;grid-template-columns:auto 104px 34px;gap:6px;align-items:center}.sizebox output{font-size:12px;color:var(--mut);text-align:right}
-input[type=range]{width:104px}.actions{justify-content:flex-end}.wrap{flex:1;position:relative;background:#d8dbe6;padding:12px}
-canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block;border:1px solid #cfd3df;box-shadow:0 1px 4px rgba(30,34,50,.08);cursor:crosshair}
+input[type=range]{width:104px}.actions{justify-content:flex-end}.wrap{flex:1;position:relative;background:#d8dbe6;padding:12px;overflow:auto}
+.canvasbox{position:relative;display:inline-block;line-height:0;min-width:160px;min-height:120px}
+canvas{touch-action:none;background:#fff;display:block;border:1px solid #cfd3df;box-shadow:0 1px 4px rgba(30,34,50,.08);cursor:crosshair}
+.resize-handle{position:absolute;width:16px;height:16px;border:2px solid #fff;background:var(--ac);box-shadow:0 1px 4px rgba(30,34,50,.24);z-index:2;touch-action:none}
+.resize-handle.tr{right:-8px;top:-8px;cursor:nesw-resize}.resize-handle.br{right:-8px;bottom:-8px;cursor:nwse-resize}.resize-handle.bl{left:-8px;bottom:-8px;cursor:nesw-resize}
 @media(max-width:760px){.bar{grid-template-columns:1fr}.group{flex-wrap:wrap}.palette{grid-template-columns:repeat(8,22px)}.actions{justify-content:flex-start}}
 </style></head><body>
 <div class="bar">
@@ -49,21 +52,54 @@ canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block;bo
     <button class="tool" id="save">PNGダウンロード</button>
   </div>
 </div>
-<div class="wrap"><canvas id="cv"></canvas></div>
+<div class="wrap"><div class="canvasbox" id="box"><canvas id="cv"></canvas><span class="resize-handle tr" data-corner="tr" title="画像サイズを変更"></span><span class="resize-handle br" data-corner="br" title="画像サイズを変更"></span><span class="resize-handle bl" data-corner="bl" title="画像サイズを変更"></span></div></div>
 <script>
 (function(){
-  var cv=document.getElementById('cv'),ctx=cv.getContext('2d');
-  var color='#222222',prevColor='#ffffff',size=5,tool='pen',drawing=false,last=null,lastDir=null,brushWidth=0,undoStack=[];
+  var cv=document.getElementById('cv'),ctx=cv.getContext('2d'),box=document.getElementById('box');
+  var color='#222222',prevColor='#ffffff',size=5,tool='pen',canvasW=900,canvasH=560,drawing=false,last=null,lastDir=null,brushWidth=0,undoStack=[];
   var PALETTE=[
     '#000000','#404040','#808080','#c0c0c0','#ffffff','#7f1d1d','#dc2626','#f97316','#facc15','#16a34a','#0891b2','#2563eb',
     '#1f2937','#5b6472','#9ca3af','#e5e7eb','#fef2f2','#991b1b','#ef4444','#fb923c','#fde047','#22c55e','#06b6d4','#3b82f6',
     '#312e81','#6d28d9','#a855f7','#ec4899','#f43f5e','#854d0e','#a16207','#4d7c0f','#15803d','#0f766e','#0369a1','#1d4ed8'
   ];
-  function fit(){
-    var r=cv.parentNode.getBoundingClientRect(),old=document.createElement('canvas'),o=old.getContext('2d');
-    old.width=cv.width||1;old.height=cv.height||1;o.drawImage(cv,0,0);
-    cv.width=Math.max(320,Math.floor(r.width-24));cv.height=Math.max(220,Math.floor(r.height-24));
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);try{ctx.drawImage(old,0,0);}catch(_){}
+  function applyCanvasSize(w,h,preserve,source){
+    w=Math.max(160,Math.min(4000,Math.round(+w||canvasW)));
+    h=Math.max(120,Math.min(4000,Math.round(+h||canvasH)));
+    var old=source||null;
+    if(preserve&&cv.width&&cv.height){
+      old=document.createElement('canvas');old.width=cv.width;old.height=cv.height;
+      old.getContext('2d').drawImage(cv,0,0);
+    }
+    canvasW=w;canvasH=h;cv.width=w;cv.height=h;cv.style.width=w+'px';cv.style.height=h+'px';
+    box.style.width=w+'px';box.style.height=h+'px';
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+    if(old){try{ctx.drawImage(old,0,0);}catch(_){}}
+  }
+  function resizeCanvas(w,h){pushUndo();applyCanvasSize(w,h,true);persistCanvas();persistPrefs();}
+  function setupResize(){
+    var resizing=null;
+    document.querySelectorAll('.resize-handle').forEach(function(h){
+      h.addEventListener('pointerdown',function(e){
+        e.preventDefault();e.stopPropagation();
+        var src=document.createElement('canvas');src.width=cv.width;src.height=cv.height;src.getContext('2d').drawImage(cv,0,0);
+        resizing={corner:h.getAttribute('data-corner'),x:e.clientX,y:e.clientY,w:canvasW,h:canvasH,src:src};
+        pushUndo();h.setPointerCapture(e.pointerId);
+      });
+      h.addEventListener('pointermove',function(e){
+        if(!resizing)return;
+        e.preventDefault();e.stopPropagation();
+        var dx=e.clientX-resizing.x,dy=e.clientY-resizing.y,nw=resizing.w,nh=resizing.h;
+        if(resizing.corner==='br'){nw=resizing.w+dx;nh=resizing.h+dy;}
+        else if(resizing.corner==='tr'){nw=resizing.w+dx;nh=resizing.h-dy;}
+        else if(resizing.corner==='bl'){nw=resizing.w-dx;nh=resizing.h+dy;}
+        applyCanvasSize(nw,nh,false,resizing.src);
+      });
+      h.addEventListener('pointerup',function(e){
+        if(!resizing)return;
+        e.preventDefault();e.stopPropagation();resizing=null;persistCanvas();persistPrefs();
+      });
+      h.addEventListener('pointercancel',function(){resizing=null;persistCanvas();persistPrefs();});
+    });
   }
   function normalizeHex(v){v=String(v||'').trim();if(/^#[0-9a-fA-F]{6}$/.test(v))return v.toLowerCase();return null;}
   function hexToRgba(hex,a){var n=parseInt(hex.slice(1),16);return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')';}
@@ -161,7 +197,7 @@ canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block;bo
   function end(){if(!drawing)return;brushFlick();drawing=false;last=null;lastDir=null;brushWidth=0;persistCanvas();}
   var saveCanvasT,savePrefsT;
   function persistCanvas(){clearTimeout(saveCanvasT);saveCanvasT=setTimeout(function(){try{AF.saveBlob('canvas',cv.toDataURL('image/png'));}catch(_){}},500);}
-  function persistPrefs(){clearTimeout(savePrefsT);savePrefsT=setTimeout(function(){try{AF.save({color:color,prevColor:prevColor,size:size,tool:tool});}catch(_){}},200);}
+  function persistPrefs(){clearTimeout(savePrefsT);savePrefsT=setTimeout(function(){try{AF.save({color:color,prevColor:prevColor,size:size,tool:tool,canvasW:canvasW,canvasH:canvasH});}catch(_){}},200);}
   function clearAll(){pushUndo();ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);persistCanvas();}
   function undo(){var d=undoStack.pop();if(!d)return;var im=new Image();im.onload=function(){ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);ctx.drawImage(im,0,0);persistCanvas();};im.src=d;}
   var swEl=document.getElementById('sw');PALETTE.forEach(function(c){var s=document.createElement('button');s.type='button';s.className='swatch';s.setAttribute('data-color',c);s.title=c;s.style.background=c;s.onclick=function(){setColor(c);};swEl.appendChild(s);});
@@ -179,18 +215,19 @@ canvas{width:100%;height:100%;touch-action:none;background:#fff;display:block;bo
     }catch(_){}
   }
   document.getElementById('save').onclick=function(){downloadPng();persistCanvas();persistPrefs();};
-  cv.addEventListener('pointerdown',start);cv.addEventListener('pointermove',move);window.addEventListener('pointerup',end);window.addEventListener('resize',fit);
+  cv.addEventListener('pointerdown',start);cv.addEventListener('pointermove',move);window.addEventListener('pointerup',end);setupResize();
   window.applyAgentCommand=function(name,args){args=args||{};
     if(name==='set_color'){setColor(args.color);}
     else if(name==='set_size'){setSize(args.size);}
     else if(name==='set_tool'){setTool(args.tool);}
+    else if(name==='set_canvas_size'){resizeCanvas(args.width,args.height);}
     else if(name==='clear'){clearAll();}
     else if(name==='undo'){undo();}
   };
-  fit();syncUi();
+  applyCanvasSize(canvasW,canvasH,false);syncUi();
   (async function(){
-    try{var prefs=await AF.load();if(prefs){color=normalizeHex(prefs.color)||color;prevColor=normalizeHex(prefs.prevColor)||prevColor;size=Math.max(1,Math.min(48,+prefs.size||size));if(prefs.tool)setTool(prefs.tool);syncUi();}}catch(_){}
-    try{var d=await AF.loadBlob('canvas');if(d){var im=new Image();im.onload=function(){ctx.drawImage(im,0,0,cv.width,cv.height);};im.src=d;}}catch(_){}
+    try{var prefs=await AF.load();if(prefs){canvasW=Math.max(160,Math.min(4000,+prefs.canvasW||canvasW));canvasH=Math.max(120,Math.min(4000,+prefs.canvasH||canvasH));applyCanvasSize(canvasW,canvasH,false);color=normalizeHex(prefs.color)||color;prevColor=normalizeHex(prefs.prevColor)||prevColor;size=Math.max(1,Math.min(48,+prefs.size||size));if(prefs.tool)setTool(prefs.tool);syncUi();}}catch(_){}
+    try{var d=await AF.loadBlob('canvas');if(d){var im=new Image();im.onload=function(){if(!prefs||!prefs.canvasW||!prefs.canvasH)applyCanvasSize(im.naturalWidth||canvasW,im.naturalHeight||canvasH,false);ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);ctx.drawImage(im,0,0);};im.src=d;}}catch(_){}
   })();
 })();
 </script></body></html>"""
@@ -209,20 +246,24 @@ MANIFEST = {
          "inputSchema": {"type": "object", "properties": {"size": {"type": "number"}}, "required": ["size"]}},
         {"name": "set_tool", "description": "pen / pencil / marker / spray / eraser を切替",
          "inputSchema": {"type": "object", "properties": {"tool": {"type": "string"}}, "required": ["tool"]}},
+        {"name": "set_canvas_size", "description": "画像サイズを変更。width/height はピクセル単位",
+         "inputSchema": {"type": "object", "properties": {"width": {"type": "number"}, "height": {"type": "number"}}, "required": ["width", "height"]}},
         {"name": "clear", "description": "全消去", "inputSchema": {"type": "object", "properties": {}}},
         {"name": "undo", "description": "ひとつ戻す", "inputSchema": {"type": "object", "properties": {}}},
     ],
     "worker_instructions": (
         "ペイント操作用ワーカー。描画ツールの色、太さ、ペン種類（pen/pencil/marker/spray/eraser）、"
-        "Undo、全消去を担当する。『赤にして/青で描く』は set_color。『太く/細く』は set_size。"
+        "画像サイズ、Undo、全消去を担当する。『赤にして/青で描く』は set_color。『太く/細く』は set_size。"
         "『鉛筆/マーカー/スプレー/消しゴム』は set_tool。『戻して』は undo。"
-        "『全部消して/クリア』は clear。実際に絵を描く線そのものはユーザーの操作対象。"
+        "『画像サイズを横900縦600にして』は set_canvas_size。『全部消して/クリア』は clear。"
+        "実際に絵を描く線そのものはユーザーの操作対象。"
     ),
     "worker_examples": [
         {"user": "赤にして", "command": {"name": "set_color", "arguments": {"color": "#ef4444"}}, "reply": "ペン色を赤にします。"},
         {"user": "マーカーにして", "command": {"name": "set_tool", "arguments": {"tool": "marker"}}, "reply": "マーカーに切り替えます。"},
         {"user": "スプレーを使いたい", "command": {"name": "set_tool", "arguments": {"tool": "spray"}}, "reply": "スプレーに切り替えます。"},
         {"user": "消しゴムにして", "command": {"name": "set_tool", "arguments": {"tool": "eraser"}}, "reply": "消しゴムに切り替えます。"},
+        {"user": "画像サイズを900x600にして", "command": {"name": "set_canvas_size", "arguments": {"width": 900, "height": 600}}, "reply": "画像サイズを900x600pxに変更します。"},
         {"user": "全部消して", "command": {"name": "clear", "arguments": {}}, "reply": "キャンバスを全消去します。"},
         {"user": "ひとつ戻して", "command": {"name": "undo", "arguments": {}}, "reply": "ひとつ戻します。"},
     ],

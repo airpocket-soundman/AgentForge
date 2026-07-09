@@ -88,7 +88,10 @@ input,select{min-width:0;padding:10px;border:1px solid var(--bd);border-radius:9
   $('prev').onclick=function(){shown.setMonth(shown.getMonth()-1);render();};
   $('next').onclick=function(){shown.setMonth(shown.getMonth()+1);render();};
   window.applyAgentCommand=function(name,args){args=args||{};
-    if(name==='add_transaction'){upsert({date:args.date,type:args.type||'expense',category:args.category||'その他',memo:args.memo||'',amount:args.amount});}
+    if(name==='add_transaction'){
+      if(Array.isArray(args.items)){args.items.forEach(function(it){it=it||{};upsert({date:it.date,type:it.type||'expense',category:it.category||'その他',memo:it.memo||'',amount:it.amount});});}
+      else{upsert({date:args.date,type:args.type||'expense',category:args.category||'その他',memo:args.memo||'',amount:args.amount});}
+    }
     else if(name==='delete_transaction'){tx=tx.filter(function(x){if(args.id)return x.id!==args.id;if(args.date&&x.date!==args.date)return true;if(args.category&&x.category!==args.category)return true;if(args.memo&&String(x.memo||'').indexOf(args.memo)<0)return true;return false;});save();render();}
     else if(name==='update_transaction'){tx.forEach(function(x){if((args.id&&x.id===args.id)||(!args.id&&(!args.date||x.date===args.date)&&(!args.memo||String(x.memo||'').indexOf(args.memo)>=0))){if(args.new_date)x.date=args.new_date;if(args.type)x.type=args.type;if(args.category)x.category=args.category;if(args.new_memo!==undefined)x.memo=args.new_memo;if(args.amount!==undefined)x.amount=Number(args.amount);}});save();render();}
     else if(name==='clear_month'){var m=args.month||ym(shown);tx=tx.filter(function(x){return String(x.date||'').slice(0,7)!==m;});save();render();}
@@ -105,8 +108,8 @@ MANIFEST = {
     "theme": "forest",
     "html": _HTML,
     "commands": [
-        {"name": "add_transaction", "description": "支出または収入を追加",
-         "inputSchema": {"type": "object", "properties": {"date": {"type": "string"}, "type": {"type": "string", "description": "expense または income"}, "category": {"type": "string"}, "memo": {"type": "string"}, "amount": {"type": "number"}}, "required": ["date", "amount"]}},
+        {"name": "add_transaction", "description": "支出または収入を追加。複数明細は items に配列で渡せる",
+         "inputSchema": {"type": "object", "properties": {"date": {"type": "string"}, "type": {"type": "string", "description": "expense または income"}, "category": {"type": "string"}, "memo": {"type": "string"}, "amount": {"type": "number"}, "items": {"type": "array", "items": {"type": "object", "properties": {"date": {"type": "string"}, "type": {"type": "string"}, "category": {"type": "string"}, "memo": {"type": "string"}, "amount": {"type": "number"}}, "required": ["date", "amount"]}}}, "required": []}},
         {"name": "delete_transaction", "description": "日付・カテゴリ・メモ・idで明細を削除。複数一致なら複数削除",
          "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}, "date": {"type": "string"}, "category": {"type": "string"}, "memo": {"type": "string"}}}},
         {"name": "update_transaction", "description": "明細を更新",
@@ -142,12 +145,15 @@ MANIFEST = {
         "『ランチ800円』『昨日コンビニ450円』のような自然文は支出として transactions に追加する。"
         "『給料25万円』などは収入として追加する。日付がなければ今日、年がなければ今年を使う。"
         "カテゴリは食費、日用品、交通、交際、趣味、住居、給与、その他から自然に推定する。"
+        "『ランチ800円と電車代320円を入れて』のような複数明細を1文で頼まれた場合は、"
+        "それぞれ別 transaction として分解して処理する。追加と修正/削除が混ざる場合は、対象が一意な操作だけ実行し、曖昧なものは確認する。"
         "削除や修正で対象が曖昧な場合は、日付・金額・メモなどを聞き返す。"
         "月次合計やカテゴリ別合計を聞かれたら state を見て回答し、データ変更はしない。"
     ),
     "worker_examples": [
         {"user": "今日ランチ800円", "command": {"name": "add_transaction", "arguments": {"date": "YYYY-MM-DD", "type": "expense", "category": "食費", "memo": "ランチ", "amount": 800}}, "reply": "食費として追加します。"},
         {"user": "昨日、電車代320円を交通費で入れて", "command": {"name": "add_transaction", "arguments": {"date": "YYYY-MM-DD", "type": "expense", "category": "交通", "memo": "電車代", "amount": 320}}, "reply": "交通費として追加します。"},
+        {"user": "今日ランチ800円と電車代320円を入れて", "command": {"name": "add_transaction", "arguments": {"items": [{"date": "YYYY-MM-DD", "type": "expense", "category": "食費", "memo": "ランチ", "amount": 800}, {"date": "YYYY-MM-DD", "type": "expense", "category": "交通", "memo": "電車代", "amount": 320}]}}, "reply": "2件の明細として追加します。"},
         {"user": "給料25万円を入れて", "command": {"name": "add_transaction", "arguments": {"date": "YYYY-MM-DD", "type": "income", "category": "給与", "memo": "給料", "amount": 250000}}, "reply": "収入として追加します。"},
         {"user": "今日のランチを900円に直して", "command": {"name": "update_transaction", "arguments": {"date": "YYYY-MM-DD", "memo": "ランチ", "amount": 900}}, "reply": "該当する明細を更新します。"},
         {"user": "昨日のコンビニを消して", "command": {"name": "delete_transaction", "arguments": {"date": "YYYY-MM-DD", "memo": "コンビニ"}}, "reply": "該当する明細を削除します。"},

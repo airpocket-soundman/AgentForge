@@ -75,6 +75,45 @@ def test_guest_mode_allows_named_guest_without_google(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_local_mode_named_guest_uses_guest_project(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("GUEST_ACCESS_ENABLED", "false")
+    get_settings.cache_clear()
+    r = client.get(
+        "/api/me",
+        headers={
+            "X-AgentForge-Guest-Id": "local_guest",
+            "X-AgentForge-Guest-Name": "Local Guest",
+        },
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["email"] == "Local Guest (guest)"
+    assert data["is_admin"] is False
+    assert data["is_guest"] is True
+    assert data["project_id"] == "guest_local_guest"
+    assert client.get(
+        "/api/admin/config",
+        headers={
+            "X-AgentForge-Guest-Id": "local_guest",
+            "X-AgentForge-Guest-Name": "Local Guest",
+        },
+    ).status_code == 403
+    get_settings.cache_clear()
+
+
+def test_local_public_config_exposes_guest_entry(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
+    monkeypatch.setenv("GUEST_ACCESS_ENABLED", "false")
+    get_settings.cache_clear()
+    r = client.get("/api/public/config")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["auth_required"] is False
+    assert data["guest_access_enabled"] is True
+    get_settings.cache_clear()
+
+
 def test_admin_routes_registered():
     paths = {r.path for r in app.routes}
     assert {

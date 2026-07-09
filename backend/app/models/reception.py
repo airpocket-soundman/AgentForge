@@ -63,5 +63,6 @@ class ReceptionReply(BaseModel):
     activated_feature: str | None = None
     disabled_feature: str | None = None
     deleted_feature: str | None = None
+    deleted_features: list[str] = Field(default_factory=list)
     # True when a background design was kicked off; the browser then polls /state.
     building: bool = False

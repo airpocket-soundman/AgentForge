@@ -185,45 +185,56 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
     activated_feature: str | None = None
     disabled_feature: str | None = None
     deleted_feature: str | None = None
+    deleted_features: list[str] = []
     building = False
     dispatched_bg = False  # set when the substantive request is handed to the bg worker
 
-    delete_feature = service.resolve_feature_delete(body.project_id, body.text)
+    delete_features = service.resolve_feature_deletes(body.project_id, body.text)
+    delete_feature = delete_features[0] if delete_features else None
     worker_toggle = service.worker_toggle_intent(body.text)
 
     # === Pending app deletion confirmation ====================================
     if stage == "confirm" and flow.get("mode") == "delete":
+        features = [f for f in (flow.get("features") or []) if isinstance(f, str) and f]
         feature = flow.get("feature")
-        title = service.feature_title(body.project_id, feature) if feature else "対象アプリ"
+        if not features and feature:
+            features = [feature]
+        titles = [service.feature_title(body.project_id, f) for f in features]
+        title = "、".join(f"「{t}」" for t in titles) if titles else "対象アプリ"
         if service.is_cancel(body.text) or service.is_rejection(body.text):
             service.clear_flow(body.project_id)
             reply_text = "削除をキャンセルしました。"
-        elif not feature:
+        elif not features:
             service.clear_flow(body.project_id)
             reply_text = "削除対象が見つかりませんでした。もう一度、対象アプリ名を添えて依頼してください。"
         elif service.delete_confirmed(body.text):
-            res = approvals.disable_feature(body.project_id, feature)
-            deleted_feature = feature
-            deleted = res.get("deleted") or {}
+            total_deleted = 0
+            for feat in features:
+                res = approvals.disable_feature(body.project_id, feat)
+                deleted_features.append(feat)
+                deleted = res.get("deleted") or {}
+                total_deleted += sum(int(v) for v in deleted.values() if isinstance(v, int))
+            deleted_feature = deleted_features[0] if deleted_features else None
             service.clear_flow(body.project_id)
             reply_text = (
-                f"「{title}」を削除しました。アプリ内で保存したデータも削除されています。"
-                f"（削除対象: {sum(int(v) for v in deleted.values() if isinstance(v, int))}件）"
+                f"{title}を削除しました。アプリ内で保存したデータも削除されています。"
+                f"（削除対象: {total_deleted}件）"
             )
         else:
             reply_text = (
-                f"「{title}」を削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
+                f"{title}を削除すると、各アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
                 "実行する場合は「削除する」、やめる場合は「キャンセル」と返信してください。"
             )
 
     # === Explicit app deletion: confirm irreversible deletion before doing it ==
-    elif delete_feature and stage in ("idle", "confirm"):
+    elif delete_features and stage in ("idle", "confirm"):
         if stage == "confirm":
             service.clear_flow(body.project_id)
-        title = service.feature_title(body.project_id, delete_feature)
-        service.start_delete_confirm(body.project_id, delete_feature, body.text)
+        titles = [service.feature_title(body.project_id, f) for f in delete_features]
+        title = "、".join(f"「{t}」" for t in titles)
+        service.start_delete_confirm_many(body.project_id, delete_features, body.text)
         reply_text = (
-            f"「{title}」を削除すると、アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
+            f"{title}を削除すると、各アプリ内で保存したデータもすべて失われます。よろしいですか？\n"
             "実行する場合は「削除する」、やめる場合は「キャンセル」と返信してください。"
         )
 
@@ -440,5 +451,6 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
         activated_feature=activated_feature,
         disabled_feature=disabled_feature,
         deleted_feature=deleted_feature,
+        deleted_features=deleted_features,
         building=building,
     )

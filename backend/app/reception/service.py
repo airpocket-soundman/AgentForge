@@ -23,6 +23,7 @@ from app.control_plane.worker_context import append_messages_compacted, summary_
 from app.firestore import get_db
 from app.models.generated import DesignPlan
 from app.models.reception import ChatMessage
+from app.tools import web_search as web_search_tool
 
 # Conversation documents live under: conversations/{conversation_id}
 #   conversations/{id}.messages : ordered list of {role, text, created_at}
@@ -532,6 +533,7 @@ def _flow_record(fields: dict) -> dict:
         "goal": fields.get("goal"),
         "plan": fields.get("plan"),
         "feature": fields.get("feature"),
+        "features": fields.get("features") or [],
         "approval_id": fields.get("approval_id"),
         "run_id": fields.get("run_id"),
         "candidate": fields.get("candidate"),  # generated ViewManifest dict (preview source)
@@ -593,8 +595,8 @@ def worker_toggle_intent(text: str) -> bool | None:
     return None
 
 
-def resolve_feature_delete(project_id: str, text: str) -> str | None:
-    """Detect explicit app deletion, not content deletion inside an app.
+def resolve_feature_deletes(project_id: str, text: str) -> list[str]:
+    """Detect explicit app deletion targets, not content deletion inside an app.
 
     Requires a delete word and an active feature title/slug/known template alias.
     When the target is only an alias (e.g. 「タスク管理」 rather than task_manager),
@@ -603,18 +605,23 @@ def resolve_feature_delete(project_id: str, text: str) -> str | None:
     """
     t = (text or "").strip()
     if not t or not any(w in t for w in _APP_DELETE_WORDS):
-        return None
+        return []
     states = _active_features(project_id)
     actives = [
         k for k, v in states.items()
         if v == "active" and not any(k.endswith(s) for s in ("_worker", "_theme", "_title")) and k != "updated_at"
     ]
     has_scope = any(w in t for w in _APP_DELETE_SCOPE_WORDS)
+    matched: list[str] = []
+
+    def add(feature: str) -> None:
+        if feature in actives and feature not in matched:
+            matched.append(feature)
 
     for feature in actives:
         title = str(states.get(f"{feature}_title") or "").strip()
         if feature in t or (title and title in t):
-            return feature
+            add(feature)
 
     if has_scope:
         try:
@@ -623,21 +630,30 @@ def resolve_feature_delete(project_id: str, text: str) -> str | None:
             for feature in actives:
                 manifest = templates.get_template(feature) or {}
                 candidates = [manifest.get("title"), feature_label(feature)]
-                if any(c and str(c) in t for c in candidates):
-                    return feature
-                if templates.match_template(t) == feature:
-                    return feature
+                if any(c and str(c) in t for c in candidates) or templates.match_template(t) == feature:
+                    add(feature)
         except Exception:  # noqa: BLE001 - deletion detection should degrade safely
             pass
-    return None
+    return matched
+
+
+def resolve_feature_delete(project_id: str, text: str) -> str | None:
+    targets = resolve_feature_deletes(project_id, text)
+    return targets[0] if targets else None
 
 
 def start_delete_confirm(project_id: str, feature: str, instruction: str) -> None:
+    start_delete_confirm_many(project_id, [feature], instruction)
+
+
+def start_delete_confirm_many(project_id: str, features: list[str], instruction: str) -> None:
+    unique = [f for i, f in enumerate(features) if f and f not in features[:i]]
     _set_flow(
         conversation_id_for(project_id),
         stage=_STAGE_CONFIRM,
         mode="delete",
-        feature=feature,
+        feature=unique[0] if unique else None,
+        features=unique,
         goal=instruction,
     )
 
@@ -716,6 +732,7 @@ def _run_edit(
         cur_html = cur.get("html") or None
 
         reqs = registry.get_requirements(project_id, feature)  # pinned past requirements
+        base_web_context = web_search_tool.worker_web_context(instruction)
 
         def _build(extra: str | None = None):
             from app.llm.gateway import get_llm
@@ -728,17 +745,31 @@ def _run_edit(
             # skip straight to the full rewrite. Any patch miss falls back too.
             if cur_html and not images:
                 with _llm_heartbeat(conversation_id, "✏️ 差分修正"):
-                    m = ui_designer.design_patch(instr, cur, requirements=reqs)
+                    m = ui_designer.design_patch(instr, cur, requirements=reqs, web_context=base_web_context)
                 if m is not None:
                     _progress(conversation_id, "🧩 差分パッチを適用しました")
                     return m
                 _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
             with _llm_heartbeat(conversation_id, "✏️ 修正版生成"):
-                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
+                m = ui_designer.design(
+                    instr,
+                    plan=plan,
+                    current_html=cur_html,
+                    images=images,
+                    requirements=reqs,
+                    web_context=base_web_context,
+                )
             if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once (visible)
                 _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
                 with _llm_heartbeat(conversation_id, "✏️ 修正版生成（リトライ）"):
-                    m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
+                    m = ui_designer.design(
+                        instr,
+                        plan=plan,
+                        current_html=cur_html,
+                        images=images,
+                        requirements=reqs,
+                        web_context=base_web_context,
+                    )
             return m
 
         manifest = _build()
@@ -841,6 +872,7 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
         plan = {"feature": feature, "title": cand.get("title") or feature, "theme": cand.get("theme", "default")}
         cur_html = cand.get("html") or None
         reqs = registry.get_requirements(project_id, feature) if feature else []
+        base_web_context = web_search_tool.worker_web_context(instruction)
 
         def _build(extra: str | None = None):
             instr = instruction if not extra else (
@@ -848,17 +880,31 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
             )
             if cur_html and not images:  # patch-first (see _run_edit)
                 with _llm_heartbeat(conversation_id, "✏️ 差分修正"):
-                    m = ui_designer.design_patch(instr, cand, requirements=reqs)
+                    m = ui_designer.design_patch(instr, cand, requirements=reqs, web_context=base_web_context)
                 if m is not None:
                     _progress(conversation_id, "🧩 差分パッチを適用しました")
                     return m
                 _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
             with _llm_heartbeat(conversation_id, "✏️ 修正版生成"):
-                m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
+                m = ui_designer.design(
+                    instr,
+                    plan=plan,
+                    current_html=cur_html,
+                    images=images,
+                    requirements=reqs,
+                    web_context=base_web_context,
+                )
             if m.generated_by == "stub" and get_llm().enabled:  # failed → auto-retry once
                 _progress(conversation_id, "⚠️ 生成に失敗しました → 自動リトライします…")
                 with _llm_heartbeat(conversation_id, "✏️ 修正版生成（リトライ）"):
-                    m = ui_designer.design(instr, plan=plan, current_html=cur_html, images=images, requirements=reqs)
+                    m = ui_designer.design(
+                        instr,
+                        plan=plan,
+                        current_html=cur_html,
+                        images=images,
+                        requirements=reqs,
+                        web_context=base_web_context,
+                    )
             return m
 
         manifest = _build()
@@ -1293,7 +1339,12 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
         feedback = _gate_feedback(gates)
         _progress(conversation_id, f"↩️ デフォルトテンプレートの指摘を反映して小さく修正しています…（{attempts}回目）")
         with _llm_heartbeat(conversation_id, "🛠 デフォルトテンプレート差分修正"):
-            patched = ui_designer.design_patch(goal, manifest.model_dump(mode="json"), feedback=feedback)
+            patched = ui_designer.design_patch(
+                goal,
+                manifest.model_dump(mode="json"),
+                feedback=feedback,
+                web_context=web_search_tool.worker_web_context(goal),
+            )
         if patched is not None:
             _progress(conversation_id, "🧩 デフォルトテンプレートへ差分パッチを適用しました")
             manifest = patched
@@ -1947,7 +1998,13 @@ def _run_plan(
     def _do_plan(_payload: dict) -> dict:
         _progress(conversation_id, "📝 設計案を作成しています…")
         with _llm_heartbeat(conversation_id, "📝 設計案作成"):
-            plan = ui_designer.plan_feature(goal, feedback=feedback, previous=previous, images=images)
+            plan = ui_designer.plan_feature(
+                goal,
+                feedback=feedback,
+                previous=previous,
+                images=images,
+                web_context=web_search_tool.worker_web_context(goal),
+            )
         plan_dict = plan.model_dump(mode="json")
         harness.attach_artifact(corr, "design_plan", {"project_id": project_id, **plan_dict})
         # Screen mock (SVG) at the PLAN stage: the user reviews/corrects the look
@@ -2169,8 +2226,12 @@ def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list
             # no unrelated regressions); fall back to a full regeneration.
             _progress(conversation_id, f"↩️ 指摘を反映して修正しています…（{attempts}回目・まず差分パッチ）")
             with _llm_heartbeat(conversation_id, "🛠 差分修正"):
-                patched = ui_designer.design_patch(goal, manifest.model_dump(mode="json"),
-                                                   feedback=_gate_feedback(gates))
+                patched = ui_designer.design_patch(
+                    goal,
+                    manifest.model_dump(mode="json"),
+                    feedback=_gate_feedback(gates),
+                    web_context=web_search_tool.worker_web_context(goal),
+                )
             if patched is not None:
                 _progress(conversation_id, "🧩 差分パッチを適用しました")
                 manifest = patched

@@ -111,6 +111,8 @@ function LandingPage({
             <div className="landing-actions">
               {user ? (
                 <button className="landing-primary landing-primary--large" onClick={onOpenApp}>アプリ画面へ</button>
+              ) : showGuestCta ? (
+                <button className="landing-primary landing-primary--large" onClick={onGuestLogin}>ゲストでアプリを開く</button>
               ) : (
                 <button className="landing-primary landing-primary--large" onClick={onSignIn}>アプリを開く</button>
               )}
@@ -1140,10 +1142,6 @@ export function App() {
     void signInWithGoogle().then(openApp).catch((e) => setError(String(e)));
   };
   const guestLogin = () => {
-    if (noAuthLocal) {
-      openApp();
-      return;
-    }
     const name = window.prompt("任意のユーザー名を入力してください。同じ名前で再入場すると同じゲスト環境を開きます。");
     if (name === null) return;
     try {

@@ -49,6 +49,11 @@
       外部 API 由来の文字列は <code>innerHTML</code> に直接入れず、<code>textContent</code> / <code>createTextNode</code> /
       HTML エスケープ関数で扱う。外部画像 URL やリンク URL を <code>src</code> / <code>href</code> に直接入れない。
       リンクを開く必要がある場合は、ユーザーのクリック操作で <code>AF.openExternal(url)</code> を呼ぶ。
+      表示上は <code>&lt;button type="button"&gt;</code> 等を下線・リンク色でスタイルしてリンク風に見せてよいが、
+      外部遷移の実処理は必ず <code>AF.openExternal</code> に集約し、<code>href</code> / <code>window.open</code> /
+      <code>element.href = url</code> は使わない。リンク風ボタンの表示テキストは URL 文字列そのものではなく、
+      検索結果タイトル、記事タイトル、店名、サービス名、または「公式サイト」「地図を開く」「詳細を見る」のような
+      ユーザーに意味が伝わる短いラベルを優先する。URL しか分からない場合だけ、ホスト名など短く読める形に省略して表示する。
       画像実体を扱う場合は承認済み backend/Blob 経路と <code>AF.loadBlob()</code> 欠落表示を用意する。</li>
     <li>状態保存は<strong><code>AF.load()</code> / <code>AF.save()</code> のみ</strong>（サーバ側にミニアプリ単位で永続化）。
       画面遷移・リロード・別メニューへ移動して戻った後も途中状態を復元するのがミニアプリの基本仕様。
@@ -67,6 +72,18 @@
     <li><strong>自然言語の想定から逆算して API を設計する</strong>。作成/追加だけでなく、更新/変更、
       削除/消去、一括操作、対象指定、メモ追記、設定変更、初期化/クリア、Undo など、そのアプリで
       ユーザーが言いそうな依頼を具体的に想定してツール化する。</li>
+    <li><strong>既存フィールドへの文章記入・追記を標準操作にする。</strong>
+      「メモに〜を記入」「本文に〜を書いて」「詳細に〜を追記」のような依頼は、
+      set/update と append、または state 直接編集で扱えるようにする。
+      「探して/調べて/最新情報をまとめて本文に入れて」は、生成 HTML から直接 <code>fetch</code> せず、
+      Specialist Worker の backend Web検索ツールが検索結果を要約して state/command に反映する設計にする。
+      保存する本文は単なる転記にせず、短い断片でもラベル、箇条書き、確認事項、持ち物、場所、TODO などに整理する。</li>
+    <li><strong>複合命令を標準対応にする。</strong>
+      「予定を追加して、そのメモに調査結果を入れて」「タスクを作って、詳細に要点を書いて、締切も設定して」のような
+      1文内の複数操作は、<code>create -&gt; update/append -&gt; set_field</code> のような小さな操作列に分解して処理できるようにする。
+      データ中心アプリは <code>commands</code> の粒度不足で「できません」と返さないよう、
+      <code>worker_state_mode</code> と <code>state_schema</code> による直接編集も併用する。
+      決定的ルールは確信できる場合の補助に留め、固定文言に一致しないだけで聞き返さない。</li>
     <li><strong>データ中心アプリは state 直接編集をパイプラインに含める</strong>。予定、タスク、メモ、在庫、
       家計簿、日記、CRM、台帳、フォーム等は、<code>commands</code> だけに閉じ込めず、
       <code>worker_state_mode</code> を <code>state</code> または <code>hybrid</code> にし、
@@ -76,7 +93,8 @@
       お絵描き・ゲーム・電卓のように UI 操作 API が自然なものは <code>commands</code> を選んでよい。</li>
     <li>生成 manifest には <code>worker_instructions</code> と <code>worker_examples</code> を含め、
       Specialist Worker が役割・利用可能 API・state_schema の編集方針・自然言語から操作への対応・曖昧な場合の聞き返し方を
-      アプリごとに理解できるようにする。</li>
+      アプリごとに理解できるようにする。例には本文/メモ欄への記入・追記、断片的依頼の整理、Web検索結果の要約記入、
+      追加と本文更新を同時に頼む複合命令も含める。</li>
     <li>生成 manifest には <code>worker_eval_cases</code>、<code>clarification_policy</code>、<code>dangerous_action_policy</code> も含める。
       追加/更新/削除/一括操作/曖昧な対象/異常値/担当外の構造変更など、Specialist Worker が誤りやすい自然言語指示を
       アプリごとに具体的に想定し、Tester が検証できる材料にする。</li>

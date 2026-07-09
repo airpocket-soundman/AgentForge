@@ -22,6 +22,7 @@ from app.models.orchestrator import (
     PlanStep,
     WorkPlan,
 )
+from app.tools import web_search as web_search_tool
 
 _FEATURE_KEYWORDS = {
     "task": ("タスク", "todo", "task"),
@@ -342,6 +343,7 @@ def investigate_request(project_id: str, goal: str, user_uid: str | None = None,
         )
 
     facts = "\n".join(lines)
+    web_context = web_search_tool.worker_web_context(goal)
     # Interpretation is the LLM's job (service-agnostic — no per-service special
     # cases here): it answers the user's actual question FROM the verified facts.
     # Deterministic fallback: return the facts alone when no model is reachable.
@@ -355,7 +357,9 @@ def investigate_request(project_id: str, goal: str, user_uid: str | None = None,
             "- 一般的な仕組みの補足（例: ログイン用 secret と access token 用 connector の違い）は、"
             "事実と矛盾しない範囲で簡潔に添えてよい。\n"
             "- 3〜8行の日本語。前置きや復唱は不要。\n\n"
-            f"調査依頼: {goal}\n\n確認した事実:\n{facts}\n\n回答:"
+            f"調査依頼: {goal}\n\n確認した事実:\n{facts}\n\n"
+            + (f"参考Web情報:\n{web_context}\n\n" if web_context else "")
+            + "回答:"
         )
         try:
             answer = llm.generate(prompt, tier=ModelTier.FLASH).strip()
@@ -457,8 +461,20 @@ def _build_plan_prompt(goal: str) -> str:
     """Assemble the Orchestrator prompt from repo-managed instruction files."""
     from app import agents
 
+    web_context = web_search_tool.worker_web_context(goal)
     return "\n\n".join(
-        [agents.load("orchestrator"), agents.policy(), f"ユーザー要求: {goal}", _SCHEMA]
+        [
+            agents.load("orchestrator"),
+            agents.policy(),
+            (
+                "[Orchestrator Web閲覧権限]\n"
+                "必要な現在情報は backend の読み取り専用 Web検索/閲覧ツールの結果だけを参照する。"
+                "生成HTMLに fetch / 外部URL直アクセスを入れてはいけない。"
+            ),
+            web_context,
+            f"ユーザー要求: {goal}",
+            _SCHEMA,
+        ]
     )
 
 
@@ -540,7 +556,7 @@ def build_app(req: PlanRequest, design_plan: dict | None = None, feedback: str |
     goal = req.goal
     if feedback:
         goal = f"{req.goal}\n\n[前回の検証・レビュー指摘（必ず修正すること）]\n{feedback}"
-    return ui_designer.design(goal, plan=design_plan)
+    return ui_designer.design(goal, plan=design_plan, web_context=web_search_tool.worker_web_context(goal))
 
 
 def register_app(req: PlanRequest, manifest, safety_result: dict | None = None, run_id: str | None = None) -> PlanResponse:

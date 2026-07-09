@@ -95,6 +95,7 @@ export interface ReceptionReply {
   activated_feature: string | null;
   disabled_feature: string | null;
   deleted_feature: string | null;
+  deleted_features?: string[];
   building: boolean;
 }
 

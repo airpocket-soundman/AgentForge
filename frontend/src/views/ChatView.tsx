@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  PROJECT_ID,
   getCandidate,
   getConversationState,
   listMainChatContexts,
@@ -22,6 +23,12 @@ const WELCOME: ChatMessage = {
   text: "AgentForge へようこそ。追加したい機能を自然言語で伝えてください（例：「お絵描きツールを作って」「タスク管理を追加して」）。\nまず設計案をお見せします → 修正できます → 「これで作って」でコード生成 → プレビュー確認 → 「反映して」で公開、の流れです。",
   created_at: "",
 };
+const AUTO_SCROLL_THRESHOLD = 80;
+
+function isNearBottom(el: HTMLElement | null): boolean {
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= AUTO_SCROLL_THRESHOLD;
+}
 
 // The chat is BACKEND-DRIVEN and follows a two-stage flow:
 //   idle → (依頼) → plan(設計案レビュー) → (これで作って) → built(プレビュー) → (反映して) → 公開
@@ -50,6 +57,7 @@ export function ChatView({
   // assistant wording, so message-text changes can never break the button.
   const [needsRegeneration, setNeedsRegeneration] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const att = useAttachments();
   // The CURRENT session id, readable from long-lived closures. The poll interval
   // and the visibilitychange/focus resync listeners capture loadState from an
@@ -60,8 +68,12 @@ export function ChatView({
   chatContextRef.current = chatContext;
 
   function scrollDown() {
-    queueMicrotask(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
+    requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
   }
+
+  useLayoutEffect(() => {
+    if (shouldAutoScrollRef.current) scrollDown();
+  }, [messages.length, building, stage, preview?.html]);
 
   async function loadState() {
     const ctx = chatContextRef.current;
@@ -70,6 +82,7 @@ export function ChatView({
       // Drop stale responses: the user may have switched sessions while this
       // request was in flight (or a late response arrives out of order).
       if (chatContextRef.current !== ctx || (s.context_id && s.context_id !== ctx)) return null;
+      shouldAutoScrollRef.current = isNearBottom(listRef.current);
       setMessages(s.messages.length ? s.messages : [WELCOME]);
       setBuilding(s.building);
       setStage(s.stage);
@@ -90,7 +103,6 @@ export function ChatView({
       } else {
         setPreview(null);
       }
-      scrollDown();
       return s;
     } catch {
       return null;
@@ -144,15 +156,21 @@ export function ChatView({
     setError(null);
     setSending(true);
     const note = attachments.length ? `${text}　📎${attachments.length}件` : text;
+    shouldAutoScrollRef.current = true;
     setMessages((prev) => [...prev, { role: "user", text: note, created_at: new Date().toISOString() }]);
     scrollDown();
     try {
       const res = await sendMessage(text, attachments, undefined, chatContext);
       if (res.building) setBuilding(true);
       if (res.activated_feature) onFeatureActivated(res.activated_feature);
-      if (res.deleted_feature) {
-        await deleteFeatureBlobs(res.deleted_feature).catch(() => 0);
-        onFeatureDisabled(res.deleted_feature);
+      const deletedFeatures = res.deleted_features?.length
+        ? res.deleted_features
+        : res.deleted_feature
+          ? [res.deleted_feature]
+          : [];
+      for (const feature of deletedFeatures) {
+        await deleteFeatureBlobs(feature).catch(() => 0);
+        onFeatureDisabled(feature);
       }
       if (res.disabled_feature) {
         onFeatureDisabled(res.disabled_feature);
@@ -257,7 +275,7 @@ export function ChatView({
               {mode === "edit" ? "プレビュー（修正版・未反映）" : "プレビュー（未公開）"}
             </div>
             {preview.html ? (
-              <AppFrame html={preview.html} feature={pendingFeature ?? "preview"} title={preview.title} live={false} />
+              <AppFrame html={preview.html} feature={pendingFeature ?? "preview"} projectId={PROJECT_ID} title={preview.title} live={false} />
             ) : (
               <div className="chat-preview__data">
                 <div className="chat-preview__title">{preview.title}</div>

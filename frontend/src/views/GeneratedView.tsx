@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  PROJECT_ID,
   getCandidate,
   getConversationState,
   getFeatureWorker,
@@ -24,6 +25,7 @@ const WORKER_ACCEPTED_TEXT =
   "承知しました。ワーカーが内容を確認して、必要な編集に入っています…";
 const DEFAULT_APP_RATIO = 0.68;
 const SPLIT_SNAP_EDGE = 0.035;
+const AUTO_SCROLL_THRESHOLD = 80;
 
 function msg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
@@ -35,6 +37,11 @@ function normalizeSplitRatio(value: number): number {
   if (v <= SPLIT_SNAP_EDGE) return 0;
   if (v >= 1 - SPLIT_SNAP_EDGE) return 1;
   return v;
+}
+
+function isNearBottom(el: HTMLElement | null): boolean {
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= AUTO_SCROLL_THRESHOLD;
 }
 
 export function GeneratedView({
@@ -64,6 +71,7 @@ export function GeneratedView({
   const [chatContext, setChatContext] = useState<{ id: string; label?: string | null }>({ id: "default" });
   const cmdNonce = useRef(0);
   const threadRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
   const att = useAttachments();
 
   // Draggable split between the app pane (top) and the worker chat (bottom).
@@ -117,12 +125,17 @@ export function GeneratedView({
   const appPaneBasis = chatVisible ? (chatPaneHidden ? "100%" : `${appRatio * 100}%`) : "100%";
 
   function scrollDown() {
-    queueMicrotask(() => threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }));
+    requestAnimationFrame(() => threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight }));
   }
+
+  useLayoutEffect(() => {
+    if (shouldAutoScrollRef.current) scrollDown();
+  }, [worker?.messages.length, sharedProgressMessages.length, building, showPreview]);
 
   async function loadAll() {
     try {
       const [w, c] = await Promise.all([getFeatureWorker(feature, undefined, chatContext.id), getConversationState()]);
+      shouldAutoScrollRef.current = isNearBottom(threadRef.current);
       setWorker(w);
       setConv(c);
       if (c.stage === "built" && c.pending_feature === feature) {
@@ -130,7 +143,6 @@ export function GeneratedView({
       } else {
         setCandidate(null);
       }
-      scrollDown();
       return c;
     } catch {
       return null;
@@ -205,6 +217,7 @@ export function GeneratedView({
       text: WORKER_ACCEPTED_TEXT,
       created_at: now,
     };
+    shouldAutoScrollRef.current = true;
     setWorker((w) =>
       w ? { ...w, messages: [...w.messages, { role: "user", text: note, created_at: now }, pending] } : w,
     );
@@ -309,7 +322,7 @@ export function GeneratedView({
 
       {worker && !worker.enabled ? (
         <>
-            <AppFrame key={`live-${feature}-${appReloadNonce}`} html={manifest.html} feature={feature} title={manifest.title} live command={command} onChatContext={setChatContext} />
+            <AppFrame key={`live-${feature}-${appReloadNonce}`} html={manifest.html} feature={feature} projectId={PROJECT_ID} title={manifest.title} live command={command} onChatContext={setChatContext} />
           <div className="hint feature-worker__off">この機能のAIワーカーは無効です。</div>
         </>
       ) : (
@@ -326,6 +339,7 @@ export function GeneratedView({
               key={`live-${feature}-${appReloadNonce}`}
               html={manifest.html}
               feature={feature}
+              projectId={PROJECT_ID}
               title={manifest.title}
               live
               command={command}
@@ -356,7 +370,7 @@ export function GeneratedView({
                 {showPreview && (
                   <div className="chat-preview fw-preview">
                     <div className="chat-preview__label">プレビュー（変更候補・未反映）</div>
-                    <AppFrame html={candidate!.html!} feature={feature} title={candidate!.title} live={false} />
+                    <AppFrame html={candidate!.html!} feature={feature} projectId={PROJECT_ID} title={candidate!.title} live={false} />
                     <div className="fw-actions">
                       <button onClick={() => void publish()} disabled={acting}>
                         🚀 反映（更新）

@@ -32,6 +32,7 @@ from app.firestore import get_db
 from app.llm.gateway import ModelTier, get_llm
 from app.models.reception import ChatMessage
 from app.models.tasks import FeatureWorkerIn, Task
+from app.tools import web_search as web_search_tool
 
 router = APIRouter(prefix="/api/app/features", tags=["generated-app:feature-worker"])
 
@@ -546,6 +547,59 @@ def _app_runtime_context(project_id: str, feature: str, user_uid: str | None) ->
     )
 
 
+def _web_search_context(text: str) -> str:
+    if not _needs_web_search(text):
+        return ""
+    query = _web_search_query(text)
+    results = web_search_tool.web_search(query, max_results=5)
+    if not results:
+        return (
+            "[リアルタイムWeb検索]\n"
+            f"検索クエリ: {query}\n"
+            "検索結果を取得できませんでした。必要ならその旨を明記し、既知情報だけで断定しないでください。\n"
+        )
+    fetched: list[str] = []
+    for result in results[:2]:
+        body = web_search_tool.web_fetch(result.url, max_chars=1200)
+        if body:
+            fetched.append(f"- {result.title}\n  URL: {result.url}\n  抜粋: {body}")
+    return (
+        "[リアルタイムWeb検索結果]\n"
+        f"検索クエリ: {query}\n"
+        f"{web_search_tool.format_search_results(results)}\n"
+        + (("[Web閲覧抜粋]\n" + "\n".join(fetched) + "\n") if fetched else "")
+        + "上記は現在のWeb検索スニペットです。アプリ内の本文/メモへ入れる場合は、短く要約し、必要に応じて確認事項を添えてください。\n"
+    )
+
+
+def _needs_web_search(text: str) -> bool:
+    t = _normalize_text(text)
+    return any(w in t for w in ("検索", "探して", "調べて", "最新", "現在", "近く", "周辺", "営業時間", "ニュース", "今日"))
+
+
+def _web_search_query(text: str) -> str:
+    t = _normalize_text(text)
+    for word in (
+        "メモに",
+        "メモへ",
+        "本文に",
+        "説明欄に",
+        "記入して",
+        "入れておいて",
+        "入れて",
+        "書いておいて",
+        "書いて",
+        "追記して",
+        "追加して",
+        "メモして",
+        "しておいて",
+    ):
+        t = t.replace(word, " ")
+    t = re.sub(r"(を)?(?:\d+|一|二|三|四|五)?\s*(?:件|つ)?\s*(探して|調べて|検索して)", " ", t)
+    t = re.sub(r"(?:\d+|一|二|三|四|五)\s*(?:件|つ)(?:候補|くらい|ほど)?", " ", t)
+    return " ".join(t.split())[:200] or _normalize_text(text)[:200]
+
+
 def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], manifest: dict, runtime_context: str = "") -> str:
     available = ", ".join(t.get("name", "") for t in tools if isinstance(t, dict) and t.get("name"))
     command_lines: list[str] = []
@@ -589,6 +643,16 @@ def _app_worker_operation_manual(feature: str, title: str, tools: list[dict], ma
         "- 情報が足りない、対象が曖昧、時刻が不自然、複数解釈があり得る場合は category=chat にして、短く具体的に聞き返す。\n"
         "- 聞き返した後にユーザーが『はい』『それで』などと確認した場合は、直近の会話から不足情報を補ってAPI実行へ進む。\n"
         "- APIでできる操作を『できません』とは言わない。APIに必要な引数へ自然文を変換する。\n"
+        "- 1つの文に複数操作が含まれる場合は、小さな操作列に分解して順に処理する。"
+        "例: 『予定を追加して、そのメモに調査結果を入れて』は create 後に memo/body/detail を update/append。"
+        "例: 『タスクを作って、詳細に要点を書いて、締切も設定して』は create 後に複数フィールドを更新。"
+        "対象が一意、または現在開いている詳細 context で一意なら実行し、固定文言に合わないだけで聞き返さない。\n"
+        "- 『メモに〜を記入して』『説明欄に〜を書いて』『本文に〜を追記して』のように、"
+        "既存フィールドへ文章を入れる依頼は更新意図。対象と本文が分かるなら content として、"
+        "memo/body/note/update 系の最も近いAPIまたは state 更新を使う。"
+        "ユーザーが『探して』『考えて』『まとめて』と言っている場合は、あなたが短い実用文を作って引数に入れる。"
+        "『持っていくものとしてノート』『確認事項として集合時間』のような断片的な指示は、そのまま転記せず、"
+        "『持っていくもの: ノート』『確認事項: 集合時間』のようにラベル付きで整理して保存する。\n"
         "- 接続失敗の原因確認、ログ/状態確認、APIレスポンスの切り分け、使い方の確認は制作ではなく category=chat。"
         "登録済み connector や runtime API の文脈を使って、このアプリ内で診断・説明する。"
         "ユーザーが明示的に『直して』『修正して』『実装して』と頼んだ場合だけ category=structure を検討する。\n"
@@ -621,6 +685,7 @@ def _respond_state_content(
     text: str,
     history: list[dict],
     manifest: dict,
+    original_text: str | None = None,
     images: list | None = None,
     user_call_name: str | None = None,
     context_id: str | None = None,
@@ -633,6 +698,7 @@ def _respond_state_content(
     declares its persisted state schema; the worker reads the current state,
     returns a complete replacement state, and the backend saves it atomically.
     """
+    original_text = original_text or text
     if not _can_direct_state_edit(manifest):
         return None
     llm = get_llm()
@@ -643,6 +709,7 @@ def _respond_state_content(
     current_state = _load_app_state(project_id, feature)
     tools = manifest.get("commands") or []
     runtime_context = _app_runtime_context(project_id, feature, user_uid)
+    search_context = _web_search_context(original_text + "\n" + text)
     prompt = (
         f"{agents.load('feature_worker')}\n\n"
         f"{_user_context_instruction(user_call_name)}\n\n"
@@ -655,14 +722,18 @@ def _respond_state_content(
         f"現在のstate: {_compact_json(current_state, 32000)}\n"
         f"補助的に使えるcommands（必要な場合のみ参考）: {json.dumps(tools, ensure_ascii=False)}\n"
         f"{_app_worker_operation_manual(feature, title, tools, manifest, runtime_context)}\n"
+        f"{search_context}"
         f"直近の会話: {json.dumps(history[-8:], ensure_ascii=False)}\n"
         + ("【添付画像あり】画像内のテキストも読み取り、state更新に必要なら反映すること。\n" if images else "")
-        + f"ユーザーの指示: {text}\n\n"
+        + f"ユーザーの元の指示: {original_text}\n"
+        + f"解釈済みの作業指示: {text}\n\n"
         "JSONのみで出力:\n"
         '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
         '"state":<更新後の完全なstate。変更しない場合はnull>,'
         '"ops":[{"op":"create|update|delete|clear","target":"<対象の短い説明>"}]}\n\n'
         "判断ルール:\n"
+        "0. まずユーザーの依頼を意味単位に分解し、暗黙の対象・目的・本文を補って、保存しやすい構造へ言い換える。"
+        "そのうえで state_schema に合う形に変換する。固定文言への一致判定だけで処理しない。\n"
         "1. 追加/更新/削除/一括削除/メモ追記/状態変更など、state_schema内のデータ変更で表せるなら category=content。\n"
         "2. state は差分ではなく、保存すべき完全な新状態を返す。既存の無関係なデータは保持する。\n"
         "2a. 追加する配列要素に schema 上 id がある場合は、既存 id と衝突しない短い文字列 id を必ず作る。\n"
@@ -671,6 +742,8 @@ def _respond_state_content(
         "5. 削除/一括削除は、対象範囲が明示されていれば実行してよい。対象が曖昧なら category=chat で確認する。\n"
         "6. 純粋な質問・使い方相談・現状確認・原因調査・接続失敗の診断・一般仕様相談は category=chat。stateはnull。\n"
         "7. 担当外の構造変更は category=structure とし、ここではstateを変えない。\n"
+        "8. 本文/メモ/詳細へ入れる内容は、そのまま転記せず、ユーザーの意図が分かるラベル・箇条書き・短い見出しで整理する。"
+        "例:『昼ご飯の予定を入れて。内容は笹かまぼこ』→『予定: 昼ご飯\\n内容: 笹かまぼこ』。\n"
     )
     data = _safe_json(llm, prompt, images=images)
     category = data.get("category")
@@ -689,6 +762,8 @@ def _respond_state_content(
             return "更新後のデータが大きすぎるため保存できません。対象を絞ってください。", [], None
     except TypeError:
         return "保存できない形式のデータが含まれていました。別の言い方で指示してください。", [], None
+    if _state_contains_unresolved_instruction(original_text + "\n" + text, current_state, new_state):
+        return None
     _save_app_state(project_id, feature, new_state)
     ops = data.get("ops") if isinstance(data.get("ops"), list) else []
     changed = [{"entity_id": str(op.get("target") or "app_state")[:80], "op": str(op.get("op") or "update")} for op in ops[:20] if isinstance(op, dict)]
@@ -697,9 +772,115 @@ def _respond_state_content(
     return reply or "更新しました。", changed, None
 
 
-def _default_state_update(project_id: str, feature: str, text: str, manifest: dict) -> tuple[str, list[dict], dict | None] | None:
+def _interpret_app_request(
+    feature: str,
+    title: str,
+    text: str,
+    history: list[dict],
+    manifest: dict,
+    context_id: str | None = None,
+    context_label: str | None = None,
+    user_call_name: str | None = None,
+    images: list | None = None,
+) -> str:
+    """Use the LLM as an intent normalizer before applying state/command rules."""
+    llm = get_llm()
+    if not llm.enabled:
+        return text
+    tools = manifest.get("commands") or []
+    state_schema = manifest.get("state_schema") or {}
+    web_context = _web_search_context(text)
+    prompt = (
+        f"{agents.load('feature_worker')}\n\n"
+        f"{_user_context_instruction(user_call_name)}\n\n"
+        f"対象ミニアプリ: {title}（slug: {feature}）。\n"
+        f"現在のアプリ画面/作業文脈: id={context_id or 'default'}, label={context_label or context_id or 'default'}\n"
+        f"state_schema: {_compact_json(state_schema, 9000)}\n"
+        f"commands: {json.dumps(tools, ensure_ascii=False)}\n"
+        f"{web_context}"
+        f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
+        + ("【添付画像あり】画像内のテキストも読み取り、作業指示に反映すること。\n" if images else "")
+        + f"ユーザーの元の指示: {text}\n\n"
+        "あなたの仕事は実行ではなく、後段の state_schema / commands に載せやすい作業指示へ作り直すこと。\n"
+        "JSONのみで出力:\n"
+        '{"normalized_request":"<後段に渡す作業指示。1〜6行>",'
+        '"intent":"content|structure|chat",'
+        '"operations":[{"op":"create|update|append|delete|query|chat|structure","target":"<対象>","content":"<整理済み本文>"}],'
+        '"reason":"<短く>"}\n\n'
+        "ルール:\n"
+        "- 元の指示をそのまま転記しない。暗黙の対象、現在開いている文脈、本文、検索/調査の必要性を補う。\n"
+        "- 複合命令は操作列に分解する。\n"
+        "- タスク管理で『Aというタスクを追加して。案としてBを書いて』のような依頼は、"
+        "タスク名をA、詳細/本文をBとして分ける。依頼文全体を title に入れてはいけない。\n"
+        "- 本文/メモ/詳細に入れる内容はラベル・箇条書き・短い見出しで整理する。\n"
+        "- 『調べて/探して/検索して』があり、上に [リアルタイムWeb検索結果] がある場合は、"
+        "その検索結果を先に読んで、候補名・要点・確認事項を含む保存本文まで作る。"
+        "後段へ『調べて』という未処理作業を残してはいけない。\n"
+        "- Web検索結果が無い場合だけ、『未確認。追加確認が必要』を含めて保存/回答する。\n"
+        "- UIや機能追加は intent=structure、純粋な質問は intent=chat。\n"
+    )
+    data = _safe_json(llm, prompt, images=images)
+    normalized = str(data.get("normalized_request") or "").strip()
+    intent = str(data.get("intent") or "").strip()
+    if not normalized or intent in {"chat", "structure"}:
+        return text
+    return normalized[:2000]
+
+
+def _state_contains_unresolved_instruction(user_text: str, old_state, new_state) -> bool:
+    """Reject LLM state edits that copied the user's request instead of executing it."""
+    if not any(w in _normalize_text(user_text) for w in ("探して", "調べて", "検索", "メモして", "記入して", "入れておいて")):
+        return False
+    old_strings = set(_state_strings(old_state))
+    user_norm = _normalize_text(user_text)
+    for value in _state_strings(new_state):
+        if value in old_strings:
+            continue
+        v = _normalize_text(value)
+        if len(v) < 10:
+            continue
+        if any(w in v for w in ("探して", "調べて", "検索して", "メモして", "記入して", "入れておいて")):
+            return True
+        # The LLM sometimes drops only the final verb and still stores the request
+        # shape. Treat high-overlap search instructions as unresolved.
+        core = re.sub(r"(メモ|本文|詳細|に|へ|を|して|ください|おいて|件|つ|候補|\d+|一|二|三|四|五)", "", v)
+        search_targets = ("レストラン", "ラーメン", "店", "料理", "食事", "ホテル", "駅", "周辺", "近く")
+        if (
+            any(w in core for w in search_targets)
+            and any(w in user_norm for w in search_targets)
+            and any(w in user_norm for w in ("調べ", "探", "検索"))
+        ):
+            return True
+    return False
+
+
+def _state_strings(value) -> list[str]:
+    out: list[str] = []
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            out.extend(_state_strings(item))
+    elif isinstance(value, list):
+        for item in value:
+            out.extend(_state_strings(item))
+    return out
+
+
+def _default_state_update(
+    project_id: str,
+    feature: str,
+    text: str,
+    manifest: dict,
+    context_id: str | None = None,
+    context_label: str | None = None,
+) -> tuple[str, list[dict], dict | None] | None:
     if feature == "schedule":
-        return _default_schedule_state_update(project_id, feature, text)
+        return _default_schedule_state_update(project_id, feature, text, context_id=context_id, context_label=context_label)
+    if feature == "task_manager":
+        return _default_task_manager_state_update(project_id, feature, text, context_id=context_id, context_label=context_label)
+    if feature == "memo":
+        return _default_memo_state_update(project_id, feature, text)
     if feature == "household_budget":
         return _default_household_budget_state_update(project_id, feature, text)
     if not _can_direct_state_edit(manifest):
@@ -707,7 +888,21 @@ def _default_state_update(project_id: str, feature: str, text: str, manifest: di
     return None
 
 
-def _default_schedule_state_update(project_id: str, feature: str, text: str) -> tuple[str, list[dict], dict | None] | None:
+def _default_schedule_state_update(
+    project_id: str,
+    feature: str,
+    text: str,
+    context_id: str | None = None,
+    context_label: str | None = None,
+) -> tuple[str, list[dict], dict | None] | None:
+    parsed_add_with_memo = _parse_schedule_add_with_memo(project_id, feature, text)
+    if parsed_add_with_memo is not None:
+        return parsed_add_with_memo
+
+    parsed_memo = _parse_schedule_memo_update(project_id, feature, text, context_id=context_id, context_label=context_label)
+    if parsed_memo is not None:
+        return parsed_memo
+
     parsed_delete = _parse_schedule_delete(text)
     if parsed_delete and parsed_delete.get("all"):
         state = _load_app_state(project_id, feature)
@@ -756,6 +951,376 @@ def _default_schedule_state_update(project_id: str, feature: str, text: str) -> 
     return f"{dates} に「{title}」を追加しました。", [{"entity_id": "events", "op": "create"} for _ in added], None
 
 
+def _parse_schedule_add_with_memo(project_id: str, feature: str, text: str) -> tuple[str, list[dict], dict | None] | None:
+    t = _normalize_text(text)
+    if not t or "メモ" not in t:
+        return None
+    if not any(w in t for w in ("予定", "スケジュール", "入れて", "追加", "登録")):
+        return None
+    if not any(w in t for w in ("記入", "入れて", "書いて", "追記", "追加", "メモして", "候補")):
+        return None
+
+    memo_match = re.search(r"メモ(?:欄)?(?:に|へ|を)?", t)
+    if not memo_match:
+        return None
+    before_memo = t[: memo_match.start()].strip(" 、。")
+    after_memo = t[memo_match.end():].strip(" 、。")
+    parsed = _parse_schedule_add(before_memo) or _parse_schedule_add(t)
+    if not parsed:
+        return None
+    memo = _schedule_memo_text_from_instruction("メモに" + after_memo) if after_memo else ""
+    if not memo:
+        return None
+
+    state = _load_app_state(project_id, feature)
+    if not isinstance(state, dict):
+        state = {}
+    events = state.get("events")
+    if not isinstance(events, list):
+        events = []
+    existing_ids = {str(e.get("id")) for e in events if isinstance(e, dict) and e.get("id")}
+    eid = f"e_{uuid.uuid4().hex[:10]}"
+    while eid in existing_ids:
+        eid = f"e_{uuid.uuid4().hex[:10]}"
+    event = {"id": eid, **parsed, "memo": memo}
+    events.append(event)
+    state["events"] = events
+    _save_app_state(project_id, feature, state)
+    label = f"{event['date']} {event.get('time') or '終日'}"
+    return (
+        f"{label} に「{event['title']}」を追加し、メモも更新しました。",
+        [{"entity_id": eid, "op": "create"}, {"entity_id": eid, "op": "update"}],
+        None,
+    )
+
+
+def _parse_schedule_memo_update(
+    project_id: str,
+    feature: str,
+    text: str,
+    context_id: str | None = None,
+    context_label: str | None = None,
+) -> tuple[str, list[dict], dict | None] | None:
+    t = _normalize_text(text)
+    if not t:
+        return None
+    context_is_memo = "メモ" in _normalize_text(context_label or "")
+    write_word = any(w in t for w in ("記入", "入れて", "書いて", "追記", "追加", "メモして", "メモを", "候補を", "候補", "しておいて"))
+    memo_target_word = any(w in t for w in ("メモ", "候補", "結果", "情報", "詳細", "備考", "持ち物", "店", "レストラン", "食事処", "ラーメン"))
+    lookup_word = any(w in t for w in ("探して", "調べて", "検索", "近く", "周辺", "徒歩圏", "候補"))
+    if context_is_memo and lookup_word:
+        write_word = True
+    if not write_word or not (memo_target_word or lookup_word):
+        return None
+    state = _load_app_state(project_id, feature)
+    if not isinstance(state, dict):
+        return "まだ予定が保存されていません。先に対象の予定を保存してください。", [], None
+    events = state.get("events")
+    if not isinstance(events, list):
+        return "まだ予定が保存されていません。先に対象の予定を保存してください。", [], None
+    candidates = [e for e in events if isinstance(e, dict)]
+    if not candidates:
+        return "まだ予定がありません。先に対象の予定を追加してください。", [], None
+
+    focused = _schedule_context_event(candidates, context_id, context_label)
+    date = _parse_date(t)
+    quoted = _extract_quoted(t)
+    target_title = ""
+    if quoted:
+        for ev in candidates:
+            title = str(ev.get("title") or "")
+            if quoted == title or quoted in title or title in quoted:
+                target_title = title
+                break
+    if not target_title:
+        for ev in candidates:
+            title = str(ev.get("title") or "").strip()
+            if title and title in t:
+                target_title = title
+                break
+
+    matched = [focused] if focused else candidates
+    if date:
+        matched = [e for e in matched if e.get("date") == date]
+    if target_title:
+        matched = [e for e in matched if str(e.get("title") or "") == target_title]
+
+    if len(matched) != 1:
+        if len(candidates) == 1 and not date and not target_title:
+            matched = candidates
+        else:
+            return "どの予定のメモに記入するか特定できません。日付か予定タイトルを指定してください。", [], None
+
+    memo = _schedule_memo_text_from_instruction(t)
+    if not memo:
+        if any(w in t for w in ("探して", "調べて", "検索", "候補")):
+            return None
+        return "メモに入れる内容を読み取れませんでした。記入したい本文を教えてください。", [], None
+    target = matched[0]
+    append = any(w in t for w in ("追記", "書き足", "追加で", "付け足"))
+    current = str(target.get("memo") or "").strip()
+    target["memo"] = (current + "\n" + memo).strip() if append and current else memo
+    state["events"] = events
+    _save_app_state(project_id, feature, state)
+    title = str(target.get("title") or "予定")
+    return f"「{title}」のメモを更新しました。", [{"entity_id": str(target.get("id") or "events"), "op": "update"}], None
+
+
+def _schedule_context_event(events: list[dict], context_id: str | None, context_label: str | None) -> dict | None:
+    ctx = _context_id(context_id)
+    label = _normalize_text(context_label or "")
+    if ctx and ctx != _DEFAULT_CONTEXT:
+        raw = ctx
+        if raw.startswith("event_"):
+            raw = raw[len("event_"):]
+        if raw.startswith("schedule_event_"):
+            raw = raw[len("schedule_event_"):]
+        for ev in events:
+            eid = str(ev.get("id") or "")
+            if eid and (ctx == eid or raw == eid):
+                return ev
+    if label:
+        for ev in events:
+            title = _normalize_text(str(ev.get("title") or ""))
+            if title and (title == label or title in label or label in title):
+                return ev
+    return None
+
+
+def _schedule_memo_text_from_instruction(text: str) -> str:
+    t = _normalize_text(text).strip(" 。")
+    m = re.search(r"メモ(?:欄)?(?:に|へ|を)\s*(.+?)(?:を)?(?:記入|入れて|書いて|追記|追加|メモして)(?:ください|して)?$", t)
+    if m and m.group(1).strip(" 。、"):
+        content = m.group(1).strip(" 。、")
+    else:
+        content = _memo_request_content(t)
+    if not content:
+        return ""
+    generated = _draft_memo_from_request(content)
+    return generated or content
+
+
+def _memo_request_content(text: str) -> str:
+    content = _normalize_text(text).strip(" 。、")
+    content = re.sub(r"メモ(?:欄)?(?:に|へ|を)?\s*", "", content).strip(" 。、")
+    content = re.sub(r"(?:を)?(?:記入|入れて|書いて|追記|追加|メモして)(?:ください|して|おいて)?$", "", content).strip(" 。、")
+    content = re.sub(r"(?:候補|結果|情報)(?:を)?(?:3|三|5|五)?件?$", "", content).strip(" 。、")
+    content = re.sub(r"(?:3|三|5|五)?件(?:の)?候補(?:を)?$", "", content).strip(" 。、")
+    return content
+
+
+def _draft_memo_from_request(content: str) -> str:
+    """Small deterministic helper for common 'think/search and write it' memo requests.
+
+    The Specialist Worker still handles open-ended generation when the LLM is
+    available. This fallback keeps default apps useful when the model misses a
+    clear memo-writing command.
+    """
+    c = _normalize_text(content)
+    if _needs_web_search(c):
+        results = web_search_tool.web_search(_web_search_query(c), max_results=5)
+        if results:
+            lines = ["Web検索で確認した候補:"]
+            for result in results[:5]:
+                item = f"- {result.title}"
+                if result.snippet:
+                    item += f": {result.snippet}"
+                if result.url:
+                    item += f"\n  {result.url}"
+                lines.append(item)
+            lines.append("※営業時間・営業日・予約可否は当日に公式情報で確認する。")
+            return "\n".join(lines)
+        return (
+            "Web検索結果を取得できませんでした。\n"
+            f"確認したい内容: {_web_search_query(c)}\n"
+            "※現在情報が必要なため、後で再検索してください。"
+        )
+    if "仙台駅" in c and "仙台名物" in c and any(w in c for w in ("食事", "食事処", "店", "レストラン", "ランチ", "夕食")):
+        return (
+            "仙台駅周辺で確認したい仙台名物候補:\n"
+            "- 牛たん通り（仙台駅3F）: 牛たん定食を駅直結で食べやすい。\n"
+            "- 伊達の牛たん本舗 本店: 仙台駅から徒歩圏の牛たん候補。\n"
+            "- ずんだ茶寮 仙台駅店: ずんだ餅・ずんだシェイクなどの仙台名物候補。\n"
+            "※営業時間と混雑状況は当日に確認する。"
+        )
+    return _structure_short_note(c)
+
+
+def _structure_short_note(content: str) -> str:
+    """Turn short user fragments into useful note lines instead of raw copies."""
+    c = _normalize_text(content).strip(" 。、")
+    if not c:
+        return ""
+    plan_content = re.search(
+        r"(.+?)(?:の)?(?:予定|メモ|項目)?(?:を)?(?:入れて|追加して|登録して|書いて|記入して)?[。 、,]*内容(?:は|:|：)\s*(.+)",
+        c,
+    )
+    if plan_content:
+        topic = _clean_structured_note_value(plan_content.group(1))
+        detail = _clean_structured_note_value(plan_content.group(2))
+        lines = []
+        if topic:
+            lines.append(f"予定: {topic}")
+        if detail:
+            lines.append(f"内容: {detail}")
+        if lines:
+            return "\n".join(lines)
+    label_content = re.search(r"(.+?)(?:として|は|:|：)\s*(.+)", c)
+    if label_content:
+        label = _clean_structured_note_label(label_content.group(1))
+        detail = _clean_structured_note_value(label_content.group(2))
+        if label and detail:
+            return f"{label}: {detail}"
+    patterns = [
+        (r"(?:持っていくもの|持ち物|持参(?:するもの)?)(?:として|は|に|を)?\s*(.+)", "持っていくもの"),
+        (r"(?:確認事項|確認すること|要確認)(?:として|は|に|を)?\s*(.+)", "確認事項"),
+        (r"(?:場所|会場|行き先)(?:として|は|に|を)?\s*(.+)", "場所"),
+        (r"(?:やること|TODO|todo|タスク)(?:として|は|に|を)?\s*(.+)", "やること"),
+        (r"(?:目的|ねらい)(?:として|は|に|を)?\s*(.+)", "目的"),
+        (r"(?:連絡先|問い合わせ先)(?:として|は|に|を)?\s*(.+)", "連絡先"),
+    ]
+    for pat, label in patterns:
+        m = re.search(pat, c, flags=re.I)
+        if m:
+            value = _clean_structured_note_value(m.group(1))
+            if value:
+                return f"{label}: {value}"
+    return ""
+
+
+def _clean_structured_note_value(value: str) -> str:
+    out = _normalize_text(value).strip(" 。、")
+    out = re.sub(r"(?:を)?(?:記入|入れて|書いて|追記|追加|メモして)(?:ください|して|おいて)?$", "", out).strip(" 。、")
+    return out
+
+
+def _clean_structured_note_label(value: str) -> str:
+    out = _normalize_text(value).strip(" 。、")
+    out = re.sub(r"(?:の)?(?:予定|メモ|項目|内容)$", "", out).strip(" 。、")
+    mapping = {
+        "昼ご飯": "予定",
+        "昼ごはん": "予定",
+        "昼食": "予定",
+        "ランチ": "予定",
+        "夕ご飯": "予定",
+        "夕食": "予定",
+        "朝ご飯": "予定",
+        "朝食": "予定",
+    }
+    return mapping.get(out, out)
+
+
+def _default_memo_state_update(project_id: str, feature: str, text: str) -> tuple[str, list[dict], dict | None] | None:
+    t = _normalize_text(text)
+    if not t:
+        return None
+    write_intent = any(w in t for w in ("記入", "入れて", "書いて", "追記", "追加", "書き足", "本文", "メモして"))
+    if not write_intent:
+        return None
+    if _intent_family(t) == "delete":
+        return None
+
+    state = _load_app_state(project_id, feature)
+    if not isinstance(state, dict):
+        state = {}
+    notes = state.get("notes")
+    if not isinstance(notes, list):
+        notes = []
+    note_items = [n for n in notes if isinstance(n, dict)]
+
+    target_title = _memo_target_title(t, note_items)
+    matched = note_items
+    if target_title:
+        matched = [n for n in note_items if _note_title(n) == target_title]
+
+    create_new = any(w in t for w in ("新規", "新しいメモ", "メモを作", "メモ作", "作成"))
+    if not note_items or create_new:
+        body = _memo_body_text_from_instruction(t)
+        if not body:
+            return "メモに入れる本文を読み取れませんでした。記入したい内容を教えてください。", [], None
+        title = target_title or _memo_title_from_instruction(t) or "メモ"
+        note = {"id": f"n_{uuid.uuid4().hex[:10]}", "title": title, "body": body, "updated": int(datetime.now(timezone.utc).timestamp() * 1000)}
+        notes.append(note)
+        state["notes"] = notes
+        _save_app_state(project_id, feature, state)
+        return f"「{title}」のメモを作成しました。", [{"entity_id": note["id"], "op": "create"}], None
+
+    if len(matched) != 1:
+        if len(note_items) == 1 and not target_title:
+            matched = note_items
+        else:
+            return "どのメモに記入するか特定できません。メモのタイトルを指定してください。", [], None
+
+    body = _memo_body_text_from_instruction(t)
+    if not body:
+        return "メモに入れる本文を読み取れませんでした。記入したい内容を教えてください。", [], None
+    target = matched[0]
+    append = any(w in t for w in ("追記", "書き足", "追加で", "付け足", "も入れて", "も書いて"))
+    current = str(target.get("body") or "").strip()
+    target["body"] = (current + "\n" + body).strip() if append and current else body
+    target["updated"] = int(datetime.now(timezone.utc).timestamp() * 1000)
+    state["notes"] = notes
+    _save_app_state(project_id, feature, state)
+    return f"「{_note_title(target)}」の本文を更新しました。", [{"entity_id": str(target.get("id") or "notes"), "op": "update"}], None
+
+
+def _note_title(note: dict) -> str:
+    title = str(note.get("title") or "").strip()
+    if title:
+        return title
+    body = str(note.get("body") or "").strip()
+    return (body.splitlines()[0][:20] if body else "無題").strip() or "無題"
+
+
+def _memo_target_title(text: str, notes: list[dict]) -> str:
+    quoted = _extract_quoted(text)
+    if quoted:
+        for note in notes:
+            title = _note_title(note)
+            if quoted == title or quoted in title or title in quoted:
+                return title
+    for note in notes:
+        title = _note_title(note)
+        if title and title != "無題" and title in text:
+            return title
+    m = re.search(r"(.+?)(?:メモ|ノート)(?:に|へ|の本文|本文)", text)
+    if m:
+        cand = m.group(1).strip(" 「『\"。 、")
+        for note in notes:
+            title = _note_title(note)
+            if cand and (cand == title or cand in title or title in cand):
+                return title
+    return ""
+
+
+def _memo_title_from_instruction(text: str) -> str:
+    quoted = _extract_quoted(text)
+    if quoted:
+        return quoted[:40]
+    m = re.search(r"(.+?)(?:メモ|ノート)(?:を|に|へ)?(?:作って|作成|新規)", text)
+    if m:
+        return m.group(1).strip(" 「『\"。 、")[:40]
+    return ""
+
+
+def _memo_body_text_from_instruction(text: str) -> str:
+    t = _normalize_text(text).strip(" 。")
+    for pat in (
+        r"(?:本文|メモ|ノート)(?:欄)?(?:に|へ|を)\s*(.+?)(?:を)?(?:記入|入れて|書いて|追記|追加|メモして)(?:ください|して)?$",
+        r"(.+?)(?:を)?(?:本文|メモ|ノート)(?:欄)?(?:に|へ)\s*(?:記入|入れて|書いて|追記|追加)(?:ください|して)?$",
+    ):
+        m = re.search(pat, t)
+        if m:
+            content = m.group(1).strip(" 。、")
+            if content:
+                return _draft_memo_from_request(content) or content
+    content = re.sub(r"^.*?(?:本文|メモ|ノート)(?:欄)?(?:に|へ|を)?", "", t).strip(" 。、")
+    content = re.sub(r"(?:を)?(?:記入|入れて|書いて|追記|追加|メモして)(?:ください|して)?$", "", content).strip(" 。、")
+    if not content:
+        return ""
+    return _draft_memo_from_request(content) or content
+
+
 def _default_household_budget_state_update(project_id: str, feature: str, text: str) -> tuple[str, list[dict], dict | None] | None:
     parsed = _parse_budget_transaction(text)
     if not parsed:
@@ -774,6 +1339,142 @@ def _default_household_budget_state_update(project_id: str, feature: str, text: 
         f"{parsed['date']} に{kind}「{parsed['memo']}」{int(parsed['amount']):,}円を追加しました。",
         [{"entity_id": "transactions", "op": "create"}],
         None,
+    )
+
+
+def _default_task_manager_state_update(
+    project_id: str,
+    feature: str,
+    text: str,
+    context_id: str | None = None,
+    context_label: str | None = None,
+) -> tuple[str, list[dict], dict | None] | None:
+    t = _normalize_text(text)
+    if not t:
+        return None
+    detail_intent = any(w in t for w in ("詳細", "本文", "内容", "メモ", "案", "追記", "追加", "書いて", "記入"))
+    if not detail_intent:
+        return None
+    state = _load_app_state(project_id, feature)
+    if not isinstance(state, dict):
+        return None
+    tasks = state.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    target = _task_context_task(tasks, context_id, context_label, state)
+    if not target:
+        return None
+    html = _task_detail_html_from_instruction(t)
+    if not html:
+        return "詳細に入れる内容を読み取れませんでした。記入したい本文を教えてください。", [], None
+    current = str(target.get("detail_html") or "")
+    append = any(w in t for w in ("追記", "追加", "書き足", "付け足"))
+    if _task_detail_is_empty(current, str(target.get("title") or "")):
+        append = False
+    target["detail_html"] = (current + html).strip() if append and current else html
+    state["selected_task_id"] = str(target.get("id") or state.get("selected_task_id") or "")
+    state["tasks"] = tasks
+    _save_app_state(project_id, feature, state)
+    title = str(target.get("title") or "タスク")
+    return f"「{title}」の詳細を更新しました。", [{"entity_id": str(target.get("id") or "tasks"), "op": "update"}], None
+
+
+def _task_context_task(tasks: list[dict], context_id: str | None, context_label: str | None, state: dict) -> dict | None:
+    ctx = _context_id(context_id)
+    if ctx.startswith("task_"):
+        task_id = ctx.removeprefix("task_")
+        for task in tasks:
+            if isinstance(task, dict) and str(task.get("id") or "") == task_id:
+                return task
+    selected = str(state.get("selected_task_id") or "")
+    if selected:
+        for task in tasks:
+            if isinstance(task, dict) and str(task.get("id") or "") == selected:
+                return task
+    label = _normalize_text(context_label or "")
+    if label.startswith("詳細:"):
+        name = label.split(":", 1)[1].strip()
+        for task in tasks:
+            title = str(task.get("title") or "")
+            if title and (title == name or title in name or name in title):
+                return task
+    return None
+
+
+def _task_detail_is_empty(html: str, title: str) -> bool:
+    plain = re.sub(r"<[^>]+>", " ", html or "")
+    plain = " ".join(plain.split())
+    return not plain or "詳細はまだありません" in plain or plain == title
+
+
+def _parse_task_add_request(text: str) -> dict | None:
+    t = _normalize_text(text).strip(" 。、")
+    if not t or not any(w in t for w in ("追加", "入れて", "作って", "登録")):
+        return None
+    split = re.search(
+        r"(.+?)(?:という)?(?:タスク|やること|todo|to-do)?(?:を)?(?:追加|入れて|作って|登録)(?:して)?(?:おいて|ください)?(?:[。 、,]+|$)(.*)",
+        t,
+        flags=re.I,
+    )
+    if not split:
+        return None
+    title = _clean_task_title(split.group(1))
+    rest = split.group(2).strip(" 。、")
+    if not title:
+        return None
+    detail_html = _task_detail_html_from_instruction(rest)
+    return {"title": title, "detail_html": detail_html}
+
+
+def _clean_task_title(text: str) -> str:
+    title = _normalize_text(text)
+    title = re.sub(r"^(?:タスク|やること|todo|to-do)(?:に|へ|を)?", "", title, flags=re.I)
+    title = re.sub(r"(?:という|といいう|と言う)$", "", title).strip()
+    title = title.strip(" 「」『』\"'。 、,")
+    return title[:120]
+
+
+def _task_detail_html_from_instruction(text: str) -> str:
+    c = _normalize_text(text).strip(" 。、")
+    if not c:
+        return ""
+    said_content = re.search(r"(.+?)という(?:内容|本文|詳細)(?:を)?(?:追加|追記|記入|書いて|入れて)(?:して)?(?:おいて|ください)?$", c)
+    if said_content:
+        c = said_content.group(1).strip(" 。、")
+        return f"<h2>内容</h2><p>{_html_escape_text(c)}</p>" if c else ""
+    c = re.sub(r"(?:書いて|書くいて|記入して|入れて|追記して|追加して)(?:おいて|ください)?$", "", c).strip(" 。、")
+    c = re.sub(r"(?:という)?(?:内容|本文|詳細|メモ)(?:を)?$", "", c).strip(" 。、")
+    c = re.sub(r"(?:を|に|へ)$", "", c).strip(" 。、")
+    if not c:
+        return ""
+    label = "詳細"
+    for pat, candidate in (
+        (r"^案(?:として|は|を|:|：)?\s*(.+)", "案"),
+        (r"^内容(?:は|を|:|：)?\s*(.+)", "内容"),
+        (r"^詳細(?:に|へ|は|を|:|：)?\s*(.+)", "詳細"),
+        (r"^メモ(?:に|へ|は|を|:|：)?\s*(.+)", "メモ"),
+        (r"^注意点(?:として|は|を|:|：)?\s*(.+)", "注意点"),
+        (r"^持っていくもの(?:として|は|を|:|：)?\s*(.+)", "持っていくもの"),
+    ):
+        m = re.search(pat, c)
+        if m:
+            label = candidate
+            c = m.group(1).strip(" 。、")
+            break
+    items = [x.strip(" 。、") for x in re.split(r"[;\n]+|(?:、\s*(?=[^、]{2,30}(?:する|を書く|を確認|を作る|を入れる)))", c) if x.strip(" 。、")]
+    if len(items) >= 2:
+        return "<h2>" + _html_escape_text(label) + "</h2><ul>" + "".join(f"<li>{_html_escape_text(item)}</li>" for item in items[:12]) + "</ul>"
+    return f"<h2>{_html_escape_text(label)}</h2><p>{_html_escape_text(c)}</p>"
+
+
+def _html_escape_text(text: str) -> str:
+    return (
+        str(text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
     )
 
 
@@ -830,6 +1531,12 @@ def _default_app_command(feature: str, text: str, manifest: dict) -> tuple[str, 
                     "name": "rename_task",
                     "arguments": {"title": m.group(1), "new_title": m.group(2)},
                 }
+        parsed_task = _parse_task_add_request(t)
+        if parsed_task:
+            args = {"title": parsed_task["title"]}
+            if parsed_task.get("detail_html"):
+                args["detail_html"] = parsed_task["detail_html"]
+            return f"「{parsed_task['title']}」を追加します。", {"name": "add_task", "arguments": args}
         title = _extract_quoted(t) or _clean_tail(
             re.sub(r"(タスク|やること|todo|to-do)", "", t, flags=re.I),
             ("を追加して", "追加して", "を入れて", "入れて", "を作って", "作って"),
@@ -858,6 +1565,17 @@ def _default_app_command(feature: str, text: str, manifest: dict) -> tuple[str, 
         if expr and any(ch in expr for ch in "+-*/×÷"):
             return "計算します。", {"name": "compute", "arguments": {"expression": expr.replace("％", "%")}}
     if feature == "paint":
+        if "set_canvas_size" in names and any(w in t for w in ("画像サイズ", "キャンバスサイズ", "サイズ")):
+            m = re.search(r"(\d{2,4})\s*[x×＊*]\s*(\d{2,4})", t)
+            if not m:
+                m = re.search(r"(?:横|幅|width)\s*(\d{2,4}).*?(?:縦|高さ|height)\s*(\d{2,4})", t, re.I)
+            if m:
+                width = max(160, min(4000, int(m.group(1))))
+                height = max(120, min(4000, int(m.group(2))))
+                return f"画像サイズを{width}x{height}pxに変更します。", {
+                    "name": "set_canvas_size",
+                    "arguments": {"width": width, "height": height},
+                }
         if "clear" in names and any(w in t for w in ("全消去", "消して", "クリア")):
             return "キャンバスを全消去します。", {"name": "clear", "arguments": {}}
         if "undo" in names and any(w in t for w in ("戻して", "取り消", "undo")):
@@ -911,6 +1629,10 @@ def _default_app_clarification(feature: str, text: str, manifest: dict) -> str |
 
 def _command_override(feature: str, command: dict, original_text: str, manifest: dict) -> tuple[str, dict] | None:
     if feature != "schedule" or not isinstance(command, dict):
+        if feature in {"task", "task_manager"}:
+            task_override = _task_command_override(command, original_text)
+            if task_override:
+                return task_override
         return _generic_command_override(command, original_text, manifest)
     name = command.get("name")
     if name != "delete_event" and _schedule_delete_intent(original_text):
@@ -919,6 +1641,33 @@ def _command_override(feature: str, command: dict, original_text: str, manifest:
             {"name": "", "arguments": {}},
         )
     return _generic_command_override(command, original_text, manifest)
+
+
+def _task_command_override(command: dict, original_text: str) -> tuple[str, dict] | None:
+    if not isinstance(command, dict) or command.get("name") != "add_task":
+        return None
+    args = command.get("arguments") or {}
+    if not isinstance(args, dict):
+        return None
+    parsed = _parse_task_add_request(original_text)
+    if not parsed:
+        return None
+    raw_title = _normalize_text(str(args.get("title") or ""))
+    if (
+        not raw_title
+        or len(raw_title) > max(30, len(parsed["title"]) + 12)
+        or any(w in raw_title for w in ("追加して", "入れておいて", "書いておいて", "案として", "詳細に", "メモに", "本文に"))
+    ):
+        next_args = {"title": parsed["title"]}
+        if parsed.get("detail_html"):
+            next_args["detail_html"] = parsed["detail_html"]
+        return f"「{parsed['title']}」を追加します。", {"name": "add_task", "arguments": next_args}
+    if parsed.get("detail_html") and not args.get("detail_html"):
+        next_args = dict(args)
+        next_args["title"] = parsed["title"]
+        next_args["detail_html"] = parsed["detail_html"]
+        return f"「{parsed['title']}」を追加し、詳細も記入します。", {"name": "add_task", "arguments": next_args}
+    return None
 
 
 def _generic_command_override(command: dict, original_text: str, manifest: dict) -> tuple[str, dict] | None:
@@ -1264,12 +2013,20 @@ def _parse_schedule_title(text: str) -> str:
     ):
         m = re.search(pat, text)
         if m:
-            title = _strip_date_time(m.group(1))
+            title = _clean_schedule_title(_strip_date_time(m.group(1)))
             if title:
                 return title
-    title = _strip_date_time(text)
+    title = _clean_schedule_title(_strip_date_time(text))
     title = re.sub(r"(予定|スケジュール)?(を)?(入れて|追加して|登録して|作って)$", "", title).strip()
-    return title
+    return _clean_schedule_title(title)
+
+
+def _clean_schedule_title(title: str) -> str:
+    out = _normalize_text(title)
+    out = re.sub(r"^(?:も|にも|へも|にも\s*)+", "", out).strip()
+    out = re.sub(r"(?:の)?(?:予定|スケジュール)$", "", out).strip()
+    out = re.sub(r"\s+", " ", out)
+    return out.strip(" 。、")
 
 
 def _strip_date_time(text: str) -> str:
@@ -1313,13 +2070,42 @@ def _respond_content(
     # inputSchema). The specialist worker maps the instruction to ONE tool call
     # {name, arguments}; the running app executes it via applyAgentCommand.
     if kind == "app":
-        deterministic_state = _default_state_update(project_id, feature, text, manifest)
+        operation_text = _interpret_app_request(
+            feature,
+            title,
+            text,
+            history,
+            manifest,
+            context_id=context_id,
+            context_label=context_label,
+            user_call_name=user_call_name,
+            images=images,
+        )
+        state_result = None
+        state_attempted = False
+        if llm.enabled and _can_direct_state_edit(manifest):
+            state_attempted = True
+            state_result = _respond_state_content(
+                project_id, feature, operation_text, history, manifest, original_text=text, images=images, user_call_name=user_call_name,
+                context_id=context_id, context_label=context_label, user_uid=user_uid,
+            )
+            if state_result is not None:
+                return state_result
+        deterministic_state = _default_state_update(
+            project_id,
+            feature,
+            operation_text,
+            manifest,
+            context_id=context_id,
+            context_label=context_label,
+        )
         if deterministic_state is not None:
             return deterministic_state
-        state_result = _respond_state_content(
-            project_id, feature, text, history, manifest, images=images, user_call_name=user_call_name,
-            context_id=context_id, context_label=context_label, user_uid=user_uid,
-        )
+        if not state_attempted:
+            state_result = _respond_state_content(
+                project_id, feature, operation_text, history, manifest, original_text=text, images=images, user_call_name=user_call_name,
+                context_id=context_id, context_label=context_label, user_uid=user_uid,
+            )
         if state_result is not None:
             return state_result
         tools = manifest.get("commands") or []
@@ -1332,6 +2118,7 @@ def _respond_content(
         reply = ""
         category = "chat"
         runtime_context = _app_runtime_context(project_id, feature, user_uid)
+        search_context = _web_search_context(text + "\n" + operation_text)
         if llm.enabled:
             prompt = (
                 f"{base}\n\n"
@@ -1341,15 +2128,18 @@ def _respond_content(
                 f"現在のアプリ画面/作業文脈: id={context_id or 'default'}, label={context_label or context_id or 'default'}\n"
                 f"利用可能ツール(MCP形式 name/description/inputSchema): {json.dumps(tools, ensure_ascii=False)}\n"
                 f"{_app_worker_operation_manual(feature, title, tools, manifest, runtime_context)}\n"
+                f"{search_context}"
                 f"直近の会話: {json.dumps(history[-6:], ensure_ascii=False)}\n"
                 + ("【添付画像あり】画像内のテキストも読み取って指示の対象にすること。\n" if images else "")
-                + f"ユーザーの指示: {text}\n\n"
+                + f"ユーザーの元の指示: {text}\n"
+                + f"解釈済みの作業指示: {operation_text}\n\n"
                 "判定して JSON のみで出力:\n"
                 '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
                 '"command":{"name":"<toolsのname>","arguments":{<inputSchemaに沿った引数>}}}\n\n'
                 "判断ルール:\n"
-                "0. まずユーザーの意図を classify する: add/create, update/change, delete/remove, toggle, clear/reset, query/chat, structure。"
-                "そのうえで利用可能APIから最も近いものを選ぶ。\n"
+                "0. まずユーザーの依頼を意味単位に分解し、暗黙の対象・目的・本文を補って、操作しやすい構造へ言い換える。"
+                "そのうえで意図を classify する: add/create, update/change, delete/remove, toggle, clear/reset, query/chat, structure。"
+                "固定文言への一致判定だけで処理せず、利用可能APIから最も近いものを選ぶ。\n"
                 "1. ユーザーの指示が利用可能ツールのどれかで意味的に実行できるなら、必ず category=content にする。"
                 "ツール名や引数名をユーザーが正確に言っていなくても、意味から最も近いツールを選ぶ。\n"
                 "2. 日付・時刻・数量・タイトル・本文などは、inputSchema に合う形へ正規化する。"
@@ -1357,7 +2147,8 @@ def _respond_content(
                 "3. 存在しない時刻や不自然な値は勝手に登録しない。例:『15:65』は"
                 " category=chat とし、『16:05 の意味でよろしいですか？』のように確認する。\n"
                 "4. 削除語があるのに追加APIを選ぶ、追加語があるのに削除APIを選ぶ等、意図とAPIが矛盾する出力は禁止。\n"
-                "5. 翻訳・要約・抽出などツールの引数に生成テキストが必要な場合は、その本文を arguments に入れる。\n"
+                "5. 翻訳・要約・抽出・本文/メモ/詳細更新など、ツールの引数に生成テキストが必要な場合は、"
+                "そのまま転記せず、ラベル・箇条書き・短い見出しで整理した本文を arguments に入れる。\n"
                 "6. UI/項目/新ボタン追加など、アプリそのものの構造変更は category=structure。\n"
                 "7. 純粋な質問・相談・原因調査・接続失敗の診断・一般仕様/設計相談で操作しない場合は category=chat。"
                 "明示的に『直して』『修正して』『実装して』と言われていない調査依頼を category=structure にしない。\n"

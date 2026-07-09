@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     gemini_flash_model: str = "gemini-flash-latest"
     gemini_pro_model: str = "gemini-pro-latest"
 
+    # --- Worker tools ---
+    # Server-side web search for Specialist Workers. Generated HTML must still
+    # not fetch arbitrary URLs; workers may use this controlled read-only tool to
+    # gather current public info and write summaries into app state.
+    web_search_enabled: bool = True
+    web_search_user_agent: str = "AgentForge/0.1 (+https://agentforge-devops.web.app)"
+
     # --- LLM Provider Gateway (IMPLEMENTATION_GUIDE.md §2.6) ---
     # app_env:
     # - "prod"  = production infrastructure and Firebase auth

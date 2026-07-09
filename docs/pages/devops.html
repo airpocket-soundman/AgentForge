@@ -14,13 +14,14 @@
   <h2>① 本体のデプロイ（現状）</h2>
   <table class="tbl">
     <tr><th>対象</th><th>手順</th><th>状態</th></tr>
-    <tr><td>backend（core-api）</td><td>Cloud Shell で <code>gcloud run deploy --source</code>（内部で Cloud Build / Artifact Registry を使用）。手順書 <code>DEPLOY.md</code></td><td>✅ 手動（検証済み手順）</td></tr>
-    <tr><td>frontend</td><td><code>npm run build</code> → <code>firebase deploy --only hosting</code></td><td>✅ 手動</td></tr>
+    <tr><td>backend（core-api）</td><td><code>gcloud run deploy --source</code>（内部で Cloud Build / Artifact Registry を使用）。本番制約と手順は <code>DEPLOY.md</code></td><td>✅ 手動（検証済み手順）</td></tr>
+    <tr><td>frontend</td><td><code>npm run build</code> → <code>firebase deploy --only hosting</code>。Firebase CLI が認証できない場合は <code>DEPLOY.md</code> の REST API 手順</td><td>✅ 手動</td></tr>
     <tr><td>push 起点の CI/CD（GitHub → Cloud Build → Cloud Run）</td><td>トリガー設定で自動化</td><td>⬜ 計画（MIGRATION）</td></tr>
   </table>
   <div class="callout warn">
     <strong>方針：本番反映は、全フェーズをテスト環境（Docker：pytest＋本番相当エミュレータ実走）で確認してから一括で行う。</strong>
-    審査期間（〜7/24）は提出 URL を落とさない。問題時は Cloud Run のリビジョン切替で即ロールバック。
+    Cloud Run backend と Firebase Hosting frontend は別デプロイで、両方更新して本番反映完了。審査期間（〜7/24）は提出 URL を落とさない。
+    問題時は Cloud Run のリビジョン切替または Hosting release rollback で戻す。詳細は <code>DEPLOY.md</code>。
   </div>
 
   <h2>② 生成ミニアプリのデリバリー（AI が毎回まわす本作の核）</h2>

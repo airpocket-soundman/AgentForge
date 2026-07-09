@@ -86,8 +86,13 @@ def _is_local_mode() -> bool:
     return get_settings().is_local
 
 
-def _guest_user_from_headers(guest_id: str | None, guest_name: str | None) -> CurrentUser | None:
-    if not guest_access_enabled():
+def _guest_user_from_headers(
+    guest_id: str | None,
+    guest_name: str | None,
+    *,
+    require_feature_flag: bool = True,
+) -> CurrentUser | None:
+    if require_feature_flag and not guest_access_enabled():
         return None
     raw_id = (guest_id or "").strip()
     raw_name = (guest_name or "").strip()
@@ -135,6 +140,13 @@ def current_user(
 ) -> CurrentUser:
     """Resolve the caller. Raises 401 (no/invalid token) / 403 (not allowlisted)."""
     if _is_local_mode():
+        guest = _guest_user_from_headers(
+            x_agentforge_guest_id,
+            x_agentforge_guest_name,
+            require_feature_flag=False,
+        )
+        if guest:
+            return _with_audit_actor(guest)
         return _with_audit_actor(CurrentUser(uid="local", email="local@dev", is_admin=True))
 
     s = get_settings()

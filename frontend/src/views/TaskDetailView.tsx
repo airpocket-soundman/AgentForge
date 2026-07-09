@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getTask,
   sendTaskMessage,
@@ -6,6 +6,13 @@ import {
   type ChatMessage,
   type TaskDetail,
 } from "../api";
+
+const AUTO_SCROLL_THRESHOLD = 80;
+
+function isNearBottom(el: HTMLElement | null): boolean {
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= AUTO_SCROLL_THRESHOLD;
+}
 
 export function TaskDetailView({ taskId, onBack }: { taskId: string; onBack: () => void }) {
   const [task, setTask] = useState<TaskDetail | null>(null);
@@ -15,6 +22,15 @@ export function TaskDetailView({ taskId, onBack }: { taskId: string; onBack: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+
+  function scrollDown() {
+    requestAnimationFrame(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }));
+  }
+
+  useLayoutEffect(() => {
+    if (shouldAutoScrollRef.current) scrollDown();
+  }, [messages.length, busy]);
 
   useEffect(() => {
     void (async () => {
@@ -34,17 +50,18 @@ export function TaskDetailView({ taskId, onBack }: { taskId: string; onBack: () 
     if (!text || busy) return;
     setBusy(true);
     setError(null);
+    shouldAutoScrollRef.current = true;
     setMessages((m) => [...m, { role: "user", text, created_at: new Date().toISOString() }]);
     setInput("");
     try {
       const res = await sendTaskMessage(taskId, text);
+      shouldAutoScrollRef.current = isNearBottom(chatRef.current);
       setMessages((m) => [...m, res.reply]);
       setSummary(res.summary);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
-      queueMicrotask(() => chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight }));
     }
   }
 

@@ -55,6 +55,35 @@ def test_calculator_template_persists_state_and_handles_ac_as_token():
     assert props["prev"]["type"] == ["string", "null"]
 
 
+def test_schedule_template_uses_separate_detail_view():
+    manifest = templates.get_template("schedule")
+    html = manifest["html"]
+    assert 'id="calendarView"' in html
+    assert 'id="detailView" class="view hidden"' in html
+    assert 'id="backb"' in html
+    assert "function openNewDetail(date)" in html
+    assert "cell.onclick=function(date)" in html
+    assert "openNewDetail(date)" in html
+    assert "evt.stopPropagation();openDetail(id);" in html
+    assert "if(!e){e={id:uid(),date:ed.value||draftDate||iso(new Date())" in html
+    assert "grid-template-columns:minmax(140px,180px) minmax(96px,120px) minmax(220px,1fr)" in html
+    assert 'label class="titlefield">タイトル' in html
+    assert 'label class="memowrap">メモ<textarea id="em"' in html
+    assert "grid-template-rows:auto minmax(220px,1fr) auto" in html
+    assert ".detail textarea{height:100%;min-height:0;resize:none" in html
+    assert 'id="links" class="links"' in html
+    assert "function renderLinks()" in html
+    assert "em.addEventListener('input',renderLinks);" in html
+    assert "AF.openExternal(url)" in html
+    assert "new URL(url)" in html
+    assert "linksEl.replaceChildren()" in html
+    assert "calendarView.classList.add('hidden');detailView.classList.remove('hidden');" in html
+    assert "detailView.classList.add('hidden');calendarView.classList.remove('hidden');" in html
+    assert "AF.setChatContext('event_'+e.id" in html
+    assert "AF.setChatContext('new_'+date" in html
+    assert "AF.setChatContext('default','スケジュール')" in html
+
+
 def test_matcher_maps_keywords():
     assert templates.match_template("電卓を作って") == "calculator"
     assert templates.match_template("タスク管理がほしい") == "task_manager"
@@ -70,6 +99,22 @@ def test_matcher_maps_keywords():
 def test_matcher_returns_none_for_unrelated():
     assert templates.match_template("在庫管理を作って") is None
     assert templates.match_template("こんにちは") is None
+
+
+def test_paint_template_resizes_canvas_with_corner_handles():
+    manifest = templates.get_template("paint")
+    html = manifest["html"]
+    command_names = {c["name"] for c in manifest["commands"]}
+    assert "set_canvas_size" in command_names
+    assert 'class="resize-handle tr"' in html
+    assert 'class="resize-handle br"' in html
+    assert 'class="resize-handle bl"' in html
+    assert "function applyCanvasSize(w,h,preserve,source)" in html
+    assert "function setupResize()" in html
+    assert "data-corner" in html
+    assert "canvasW:canvasW,canvasH:canvasH" in html
+    assert "window.addEventListener('resize'" not in html
+    assert "canvas{width:100%;height:100%" not in html
 
 
 def test_catalogue_has_no_html():

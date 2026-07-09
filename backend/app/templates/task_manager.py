@@ -204,13 +204,18 @@ MANIFEST = {
         "『名前を変えて/リネーム』は rename_task。『消して/削除』は delete_task、"
         "『完了済みを全部消して』は clear_done。『詳細を書いて/本文を作って/追記/HTMLで整えて』は "
         "state の該当 tasks[].detail_html を直接更新するか update_task_detail_html / append_task_detail_html を使う。"
+        "『タスクを作って、詳細に〜を書いて』『タスクを追加して締切や注意点も入れて』のような複合命令は、"
+        "タスク作成と detail_html/関連フィールド更新に分解して処理する。現在開いているタスクが一意なら対象として使う。"
+        "断片的な詳細依頼はそのまま転記せず、見出し・箇条書き・ラベルを付けて整理する。"
         "対象タスクが不明なら聞き返す。詳細HTMLを置換するのか追記するのか曖昧な場合は、既存内容を活かして追記または整理する。"
     ),
     "worker_examples": [
         {"user": "買い物を追加して", "command": {"name": "add_task", "arguments": {"title": "買い物"}}, "reply": "タスクを追加します。"},
+        {"user": "仙台出張準備を追加して、詳細に持ち物と確認事項を書いて", "command": {"name": "add_task", "arguments": {"title": "仙台出張準備", "detail_html": "<h2>持ち物と確認事項</h2><ul><li>持ち物を確認する</li><li>移動時間と予約を確認する</li></ul>"}}, "reply": "タスクを追加し、詳細も記入します。"},
         {"user": "買い物は終わった", "command": {"name": "toggle_task", "arguments": {"title": "買い物", "done": True}}, "reply": "完了にします。"},
         {"user": "買い物の詳細に、牛乳と卵を買うと書いて", "command": {"name": "update_task_detail_html", "arguments": {"title": "買い物", "detail_html": "<h2>買い物メモ</h2><ul><li>牛乳を買う</li><li>卵を買う</li></ul>"}}, "reply": "詳細をHTMLで更新します。"},
         {"user": "このタスクに注意点を追記して", "command": {"name": "append_task_detail_html", "arguments": {"detail_html": "<h3>注意点</h3><p>必要な確認事項を追記します。</p>"}}, "reply": "開いているタスクの詳細に追記します。"},
+        {"user": "持っていくものとしてノートを詳細に追記して", "command": {"name": "append_task_detail_html", "arguments": {"detail_html": "<h3>持っていくもの</h3><ul><li>ノート</li></ul>"}}, "reply": "詳細に整理して追記します。"},
         {"user": "買い物を消して", "command": {"name": "delete_task", "arguments": {"title": "買い物"}}, "reply": "タスクを削除します。"},
         {"user": "完了済みを全部消して", "command": {"name": "clear_done", "arguments": {}}, "reply": "完了済みタスクを削除します。"},
     ],

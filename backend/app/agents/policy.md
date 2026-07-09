@@ -16,11 +16,23 @@
    機能AIワーカーに委ねる（境界LLM＋決定的API＋動的UI）。
    - APIはユーザーが言いそうな自然文から逆算して設計する。単純な追加だけでなく、削除、更新、
      一括操作、対象指定、Undo/クリア、メモ追記、設定変更などを具体的に想定する。
+     既存フィールドへ文章を入れる依頼（「メモに〜を記入」「本文に〜を書いて」「詳細に〜を追記」）は、
+     set/update と append、または state 直接編集で標準的に扱えるようにする。
+     「探して/調べて/最新情報をまとめて本文に入れて」は、生成HTMLから直接fetchせず、
+     Specialist Worker の backend Web検索ツールが検索結果を要約して state/command に反映する前提で設計する。
+     「予定を追加して、そのメモに〜を入れて」「タスクを作って、詳細に〜を書いて」のように
+     1文に複数の操作が含まれる依頼は、可能なら `create -> update/append` のように小さな操作列へ分解して順に処理する。
+     コマンドだけで表現しにくいデータ中心アプリは state 直接編集を使い、1回の応答で複数 entity / 複数 field を安全に更新できる設計にする。
+     決定的なルールは「確信できる場合の近道」とし、過剰に固定文言へ縛って処理を止めない。
+     対象や危険操作が曖昧な場合だけ聞き返し、本文生成・検索要約・軽い補完は Specialist Worker に判断させる。
+     本文/メモ/詳細へ入れる内容は単なる転記にしない。短い断片でも、必要に応じてラベル、箇条書き、確認事項、
+     持ち物、場所、TODO などに整理して、ユーザーが後で読みやすい形で保存する。
    - データ中心アプリは commands だけに閉じ込めず、`worker_state_mode`（`state` / `hybrid`）と
      `state_schema` を manifest に含める。専門ワーカーは現在の `AF.load()/AF.save()` state を
      schema に沿って直接編集でき、未知の新アプリにも個別API追加なしで対応できる。
    - 生成manifestには専門ワーカー用の `worker_instructions` と `worker_examples` を含め、
      API/state の使い分け、誤分類しやすい表現、情報不足時の聞き返し方をアプリごとに明記する。
+     例には本文/メモ欄への記入・追記、Web検索結果の要約記入、断片的依頼の整理、追加と更新を組み合わせた複合命令を含める。
    - 生成manifestには `worker_eval_cases`、`clarification_policy`、`dangerous_action_policy` も含める。
      `worker_eval_cases` は追加/更新/削除/一括操作/曖昧な対象/異常値/担当外の構造変更など、
      専門ワーカーが誤りやすい自然言語指示を具体的に想定する。
@@ -50,7 +62,12 @@
    外部 API 由来の投稿本文・表示名・URL・alt 等を DOM に入れる場合、`innerHTML` へ未エスケープ文字列を連結しない。
    `textContent` / `createTextNode` か、`& < > " '` を処理する `escapeHtml()` を使う。
    外部画像 URL やリンク URL を `src` / `href` に直接入れない。リンクを開く必要がある場合は
-   ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。画像実体が必要な場合は承認済み
+   ユーザーのクリック操作で `AF.openExternal(url)` を呼ぶ。表示上は `<button type="button">` 等を
+   下線・リンク色でスタイルしてリンク風に見せてよいが、外部遷移の実処理は必ず `AF.openExternal`
+   に集約し、`href` / `window.open` / `element.href = url` は使わない。リンク風ボタンの表示名は
+   URL 文字列そのものではなく、検索結果タイトル、記事タイトル、店名、サービス名、または
+   「公式サイト」「地図を開く」「詳細を見る」のようなユーザーに意味が伝わる短いラベルを優先する。
+   URL しか分からない場合だけ、ホスト名など短く読める形に省略して表示する。画像実体が必要な場合は承認済み
    backend/Blob 経路と `AF.loadBlob()` 欠落表示を用意する。
    Bluesky/AT Protocol の App Password は Bearer token ではない。App Password は connector secret として保存し、
    ログイン用 connector の `auth.type` は `none` にし、Basic 認証ヘッダを出さない。

@@ -130,6 +130,38 @@ def test_resolve_feature_delete_accepts_template_name_with_app_scope(monkeypatch
     assert service.resolve_feature_delete("default", "予定を削除してください") is None
 
 
+def test_resolve_feature_deletes_returns_multiple_targets(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "_active_features",
+        lambda _project_id: {
+            "retouch": "active",
+            "retouch_title": "レタッチスタジオ",
+            "paint": "active",
+            "paint_title": "ペイント",
+            "schedule": "active",
+            "schedule_title": "スケジュール",
+        },
+    )
+
+    targets = service.resolve_feature_deletes("default", "レタッチスタジオとペイントを削除して")
+
+    assert targets == ["retouch", "paint"]
+    assert service.resolve_feature_delete("default", "レタッチスタジオとペイントを削除して") == "retouch"
+
+
+def test_delete_flow_record_keeps_multiple_targets():
+    flow = service._flow_record({
+        "stage": "confirm",
+        "mode": "delete",
+        "feature": "retouch",
+        "features": ["retouch", "paint"],
+    })
+
+    assert flow["feature"] == "retouch"
+    assert flow["features"] == ["retouch", "paint"]
+
+
 def test_delete_confirmation_is_exact_match_only():
     assert service.delete_confirmed("削除する")
     assert service.delete_confirmed("完全に削除")

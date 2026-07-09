@@ -1,6 +1,6 @@
 # AgentForge 引き継ぎ資料（セッション/PC間ハンドオフ）
 
-最終更新: 2026-07-07
+最終更新: 2026-07-09
 
 このファイルは、別セッション・別PCで作業を継続するための現在地まとめ。詳細は各リンク先を参照。
 
@@ -27,7 +27,7 @@
 
 ---
 
-## 1.5 現在地スナップショット（2026-07-07・新セッション必読）
+## 1.5 現在地スナップショット（2026-07-09・新セッション必読）
 
 ### 実装済み（main = `airpocket-soundman/AgentForge`）
 - **ローカル開発**: `docker compose -f docker-compose.dev.yml up`（FastAPI reload + Firestore emulator + Vite）。詳細 [README.md](README.md)
@@ -44,18 +44,14 @@
 - **Cloud Run API**: https://agentforge-core-api-217469091476.asia-northeast1.run.app （実Gemini接続済）
 
 ### 本番/デモ現状
-- **Hosting（フロント）**: `sites/agentforge-devops/releases/1783390141966000`
-- **Cloud Run（バックエンド）**: `agentforge-core-api-00018-jc9` が 100% traffic
+- **Hosting（フロント）**: `sites/agentforge-devops/channels/live/releases/1783582058547000`
+- **Cloud Run（バックエンド）**: `agentforge-core-api-00020-rtd` が 100% traffic
 - **Firebase Auth**: `authDomain=agentforge-498808.firebaseapp.com`。OAuth redirect URI `https://agentforge-devops.web.app/__/auth/handler` 登録済み。
 - **ゲスト入口**: Google アカウント不要。任意ユーザー名から決定的な `guest_<id>` project に入り、同じユーザー名なら同じゲスト環境を再開。
 - **Firestore 分離**: `APP_ENV=prod` は emulator 接続を拒否。local/demo/test は emulator 必須。
-- 再デプロイする場合の標準コマンド:
-  ```bash
-  gcloud run deploy agentforge-core-api --source backend --region=asia-northeast1 \
-    --project=agentforge-498808 --allow-unauthenticated --min-instances=0 \
-    --set-env-vars="APP_ENV=prod,GOOGLE_CLOUD_PROJECT=agentforge-498808,GOOGLE_CLOUD_REGION=asia-northeast1,ALLOWED_EMAILS=yamashita.3154@gmail.com;airpocket.soundman@gmail.com,GUEST_ACCESS_ENABLED=true" \
-    --set-secrets="GEMINI_API_KEY=gemini-api-key:latest"
-  ```
+- 再デプロイする場合の標準手順: [DEPLOY.md](DEPLOY.md)
+  - Cloud Run backend と Firebase Hosting frontend は別デプロイ。両方更新して本番反映完了。
+  - Firebase CLI が認証できない場合は、[DEPLOY.md](DEPLOY.md) の Hosting REST API 手順を使う。
 - **アクセス制限**: 通常ログインは `ALLOWED_EMAILS`（`;`区切り）で制限。ゲスト入口は `GUEST_ACCESS_ENABLED=true` のときだけ有効。
 
 ### 環境メモ（ハマりどころ）
@@ -125,11 +121,11 @@ Reception(受付) → Orchestrator(判定) → UI Designer(設計案→コード
   - Firestore Native（asia-northeast1, default, 無料枠）
   - Storage バケット: `agentforge-498808-{artifacts,uploads,snapshots,build-source}`
   - Artifact Registry: `agentforge`（docker）／ Cloud Tasks: `worker-queue`
-- **本番デプロイ済み（更新: 2026-07-07）**: Firebase Hosting `agentforge-devops.web.app` + Cloud Run `agentforge-core-api`
+- **本番デプロイ済み（更新: 2026-07-09）**: Firebase Hosting `agentforge-devops.web.app` + Cloud Run `agentforge-core-api`
   - URL: https://agentforge-core-api-217469091476.asia-northeast1.run.app
-  - 最新 revision: `agentforge-core-api-00018-jc9`（100% traffic）
-  - Hosting 最新 release: `sites/agentforge-devops/releases/1783390141966000`
-  - **本リポジトリのコード**を `gcloud run deploy --source` で配置（手順 [DEPLOY.md](DEPLOY.md)）
+  - 最新 revision: `agentforge-core-api-00020-rtd`（100% traffic）
+  - Hosting 最新 release: `sites/agentforge-devops/channels/live/releases/1783582058547000`
+  - **本リポジトリのコード**を Cloud Run + Firebase Hosting に配置（手順 [DEPLOY.md](DEPLOY.md)）
   - `gemini-api-key`（Secret Manager）を `GEMINI_API_KEY` として注入。実行SAに `secretAccessor` / `datastore.user` 付与
   - Firebase Auth: Google provider 有効。承認済みドメインと OAuth redirect URI 設定済み
   - ゲスト入口: `GUEST_ACCESS_ENABLED=true`。任意ユーザー名による名前付きゲスト環境

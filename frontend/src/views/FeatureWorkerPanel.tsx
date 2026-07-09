@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getFeatureWorker,
   sendFeatureWorkerMessage,
   setFeatureWorker,
   type ChatMessage,
 } from "../api";
+
+const AUTO_SCROLL_THRESHOLD = 80;
+
+function isNearBottom(el: HTMLElement | null): boolean {
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= AUTO_SCROLL_THRESHOLD;
+}
 
 /**
  * Standard feature-screen control: an instruction chat to operate the feature's
@@ -27,6 +34,15 @@ export function FeatureWorkerPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+
+  function scrollDown() {
+    requestAnimationFrame(() => ref.current?.scrollTo({ top: ref.current.scrollHeight }));
+  }
+
+  useLayoutEffect(() => {
+    if (shouldAutoScrollRef.current) scrollDown();
+  }, [messages.length, busy]);
 
   useEffect(() => {
     void getFeatureWorker(feature)
@@ -39,10 +55,12 @@ export function FeatureWorkerPanel({
     if (!text || busy) return;
     setBusy(true);
     setError(null);
+    shouldAutoScrollRef.current = true;
     setMessages((m) => [...m, { role: "user", text, created_at: new Date().toISOString() }]);
     setInput("");
     try {
       const res = await sendFeatureWorkerMessage(feature, text);
+      shouldAutoScrollRef.current = isNearBottom(ref.current);
       setMessages((m) => [...m, res.reply]);
       if (res.command) onCommand?.(res.command); // app-kind: run it in the live app
       if ((res.created && res.created.length > 0) || res.data_changed) onChanged?.();
@@ -50,7 +68,6 @@ export function FeatureWorkerPanel({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
-      queueMicrotask(() => ref.current?.scrollTo({ top: ref.current.scrollHeight }));
     }
   }
 

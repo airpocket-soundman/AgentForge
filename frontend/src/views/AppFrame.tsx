@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
+  PROJECT_ID,
   defineFeatureConnector,
   deleteFeatureConnector,
   getAppState,
@@ -56,40 +57,45 @@ function _idbReq<T>(op: IDBRequest<T>): Promise<T> {
     op.onerror = () => reject(op.error);
   });
 }
-async function blobSave(feature: string, name: string, data: unknown): Promise<boolean> {
+function blobKey(projectId: string, feature: string, name: string): string {
+  return `${projectId || "default"}::${feature}::${name}`;
+}
+
+async function blobSave(projectId: string, feature: string, name: string, data: unknown): Promise<boolean> {
   const db = await _idb();
   const st = db.transaction(_IDB_STORE, "readwrite").objectStore(_IDB_STORE);
-  await _idbReq(st.put(data, `${feature}::${name}`));
+  await _idbReq(st.put(data, blobKey(projectId, feature, name)));
   return true;
 }
-async function blobLoad(feature: string, name: string): Promise<unknown> {
+async function blobLoad(projectId: string, feature: string, name: string): Promise<unknown> {
   const db = await _idb();
   const st = db.transaction(_IDB_STORE, "readonly").objectStore(_IDB_STORE);
-  const v = await _idbReq(st.get(`${feature}::${name}`));
+  const v = await _idbReq(st.get(blobKey(projectId, feature, name)));
   return v ?? null;
 }
-async function blobDelete(feature: string, name: string): Promise<boolean> {
+async function blobDelete(projectId: string, feature: string, name: string): Promise<boolean> {
   const db = await _idb();
   const st = db.transaction(_IDB_STORE, "readwrite").objectStore(_IDB_STORE);
-  await _idbReq(st.delete(`${feature}::${name}`));
+  await _idbReq(st.delete(blobKey(projectId, feature, name)));
   return true;
 }
-async function blobList(feature: string): Promise<string[]> {
+async function blobList(projectId: string, feature: string): Promise<string[]> {
   const db = await _idb();
   const st = db.transaction(_IDB_STORE, "readonly").objectStore(_IDB_STORE);
   const keys = (await _idbReq(st.getAllKeys())) as IDBValidKey[];
-  const pre = `${feature}::`;
+  const pre = `${projectId || "default"}::${feature}::`;
   return keys.filter((k) => typeof k === "string" && k.startsWith(pre)).map((k) => (k as string).slice(pre.length));
 }
 
-export async function deleteFeatureBlobs(feature: string): Promise<number> {
+export async function deleteFeatureBlobs(feature: string, projectId = PROJECT_ID): Promise<number> {
   const db = await _idb();
   const st = db.transaction(_IDB_STORE, "readwrite").objectStore(_IDB_STORE);
   const keys = (await _idbReq(st.getAllKeys())) as IDBValidKey[];
-  const pre = `${feature}::`;
+  const pre = `${projectId || "default"}::${feature}::`;
+  const legacyPre = `${feature}::`;
   let count = 0;
   for (const key of keys) {
-    if (typeof key === "string" && key.startsWith(pre)) {
+    if (typeof key === "string" && (key.startsWith(pre) || key.startsWith(legacyPre))) {
       await _idbReq(st.delete(key));
       count += 1;
     }
@@ -165,6 +171,7 @@ export function AppFrame({
   html,
   feature,
   title,
+  projectId = PROJECT_ID,
   live = true,
   command,
   onChatVisible,
@@ -173,6 +180,7 @@ export function AppFrame({
   html: string;
   feature: string;
   title?: string;
+  projectId?: string;
   live?: boolean;
   command?: AgentCommand | null;
   onChatVisible?: (visible: boolean) => void;
@@ -281,18 +289,18 @@ export function AppFrame({
         const opened = window.open(safeUrl, "_blank", "noopener,noreferrer");
         reply({ ok: !!opened, url: safeUrl });
       } else if (d.op === "blob_save") {
-        blobSave(feature, bname, bp.data).then(reply).catch(() => reply(false));
+        blobSave(projectId, feature, bname, bp.data).then(reply).catch(() => reply(false));
       } else if (d.op === "blob_load") {
-        blobLoad(feature, bname).then(reply).catch(() => reply(null));
+        blobLoad(projectId, feature, bname).then(reply).catch(() => reply(null));
       } else if (d.op === "blob_list") {
-        blobList(feature).then(reply).catch(() => reply([]));
+        blobList(projectId, feature).then(reply).catch(() => reply([]));
       } else if (d.op === "blob_delete") {
-        blobDelete(feature, bname).then(reply).catch(() => reply(false));
+        blobDelete(projectId, feature, bname).then(reply).catch(() => reply(false));
       }
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [feature, live, onChatContext, onChatVisible]);
+  }, [feature, live, onChatContext, onChatVisible, projectId]);
 
   return (
     <iframe
