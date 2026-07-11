@@ -31,6 +31,8 @@ services:
     ports:
       - "8000:8080" # host 8000 -> container 8080 (host 8080 is taken by WSL relay)
     environment:
+      # Product shell on top of the reusable AgentForge framework.
+      PRODUCT_ID: sodateru_app
       GOOGLE_CLOUD_PROJECT: agentforge-local-dev
       GOOGLE_CLOUD_REGION: asia-northeast1
       FIRESTORE_EMULATOR_HOST: firestore:8080
@@ -74,6 +76,9 @@ services:
       - "5173:5173"
     environment:
       # Vite dev server proxies /api to the backend service (see vite.config.ts).
+      VITE_PRODUCT_ID: sodateru_app
+      VITE_PRODUCT_NAME: 育てるアプリ
+      VITE_FRAMEWORK_NAME: AgentForge
       VITE_API_PROXY_TARGET: http://backend:8080
     volumes:
       - ./frontend:/app:cached
@@ -90,6 +95,9 @@ services:
     ports:
       - "5174:5174"
     environment:
+      VITE_PRODUCT_ID: sodateru_app
+      VITE_PRODUCT_NAME: 育てるアプリ
+      VITE_FRAMEWORK_NAME: AgentForge
       VITE_API_PROXY_TARGET: http://backend:8080
     volumes:
       - ./frontend:/app:cached

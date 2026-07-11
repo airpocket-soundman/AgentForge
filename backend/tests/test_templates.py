@@ -101,6 +101,12 @@ def test_matcher_returns_none_for_unrelated():
     assert templates.match_template("こんにちは") is None
 
 
+def test_matcher_only_uses_templates_enabled_for_the_active_product(monkeypatch):
+    monkeypatch.setattr(templates, "TEMPLATES", {"calculator": templates.TEMPLATES["calculator"]})
+    assert templates.match_template("電卓を作って") == "calculator"
+    assert templates.match_template("スケジュールを作って") is None
+
+
 def test_paint_template_resizes_canvas_with_corner_handles():
     manifest = templates.get_template("paint")
     html = manifest["html"]

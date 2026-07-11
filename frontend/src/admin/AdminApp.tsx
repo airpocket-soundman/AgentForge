@@ -6,6 +6,7 @@ import type { User } from "firebase/auth";
 import { getMe, type Me } from "../api";
 import { completeRedirectSignIn, isFirebaseConfigured, onAuthChange, signInWithGoogle, signOutUser } from "../firebase";
 import { AdminView } from "../views/AdminView";
+import { productAdminTitle } from "../product";
 
 export function AdminApp() {
   const [user, setUser] = useState<User | null>(null);
@@ -13,6 +14,10 @@ export function AdminApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [meChecked, setMeChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = `${productAdminTitle} — Admin Console`;
+  }, []);
 
   useEffect(() => {
     void completeRedirectSignIn().catch((e) => setError(String(e)));
@@ -31,7 +36,7 @@ export function AdminApp() {
   if (isFirebaseConfigured() && authReady && !user) {
     return (
       <div className="centered">
-        <h1>AgentForge 管理</h1>
+        <h1>{productAdminTitle}</h1>
         <p className="muted">管理者のみ</p>
         <button className="login" onClick={() => void signInWithGoogle().catch((e) => setError(String(e)))}>
           Google でログイン
@@ -58,7 +63,7 @@ export function AdminApp() {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="topbar__brand">AgentForge 管理</div>
+        <div className="topbar__brand">{productAdminTitle}</div>
         <span className="topbar__tag">Admin Console（独立アプリ）</span>
         <span className="spacer" />
         <span className="topbar__user">

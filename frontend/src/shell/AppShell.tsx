@@ -7,6 +7,7 @@ import { GeneratedView } from "../views/GeneratedView";
 import { ByokView } from "../views/ByokView";
 import { StatusView } from "../views/StatusView";
 import { loadUserSettings, UserSettingsView, type UserSettings } from "../views/UserSettingsView";
+import { poweredByLabel, PRODUCT } from "../product";
 
 // Admin is a SEPARATE app (frontend/admin.html), not reachable from here.
 // EVERY feature (incl. task management) is AI-generated and rendered by the
@@ -235,8 +236,8 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
   return (
     <div className={appFullscreen ? "shell shell--app-fullscreen" : "shell"}>
       <header className="topbar">
-        <div className="topbar__brand">AgentForge</div>
-        <span className="topbar__tag">DevOps AI Agent Workbench</span>
+        <div className="topbar__brand">{PRODUCT.displayName}</div>
+        <span className="topbar__tag">{poweredByLabel}</span>
         <span className="spacer" />
         {onShowHome && (
           <button

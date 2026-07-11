@@ -495,6 +495,11 @@ export function getMe(): Promise<Me> {
 export interface PublicConfig {
   guest_access_enabled: boolean;
   auth_required: boolean;
+  product: {
+    id: string;
+    display_name: string;
+    framework_name: string;
+  };
 }
 
 export function getPublicConfig(): Promise<PublicConfig> {

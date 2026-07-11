@@ -8,7 +8,47 @@
 </head>
 <body class="doc">
   <h1>1. 概要</h1>
-  <p class="lead">AgentForge は、<strong>会話するだけで自分専用のアプリを生み・育てられる「自己拡張するスーパーアプリ」</strong>です。裏側では複数の AI ワーカーが設計・実装・検証・レビュー・デプロイ（DevOps）を安全に代行します。</p>
+  <p class="lead"><strong>育てるアプリ</strong>は、会話するだけで自分専用のアプリを生み・育てられる「自己拡張するスーパーアプリ」です。裏側では <strong>AgentForge framework</strong> の複数 AI ワーカーが設計・実装・検証・レビュー・デプロイ（DevOps）を安全に代行します。</p>
+
+  <h2>名称の整理</h2>
+  <table class="tbl">
+    <tr><th>名前</th><th>位置づけ</th><th>主な対象</th></tr>
+    <tr>
+      <td><strong>AgentForge</strong></td>
+      <td>アプリ生成・改修・検証・公開のためのフレームワーク。Orchestrator、Receptor、Tester、Reviewer、Specialist Worker、Harness、Control Plane を含む。</td>
+      <td>開発者、技術説明、将来の別プロダクトへの再利用</td>
+    </tr>
+    <tr>
+      <td><strong>育てるアプリ</strong></td>
+      <td>AgentForge を使って提供するユーザー向けプロダクト。メインチャットとミニアプリを通じて、自分用アプリを育てる体験。</td>
+      <td>一般ユーザー、ホームページ、提出用説明</td>
+    </tr>
+  </table>
+
+  <h2>実装上の分離境界</h2>
+  <table class="tbl">
+    <tr><th>層</th><th>設定入口</th><th>差し替えるもの</th></tr>
+    <tr>
+      <td>Framework</td>
+      <td><code>backend/app/</code> のパイプライン、ワーカー、Harness、Control Plane</td>
+      <td>原則としてプロダクト追加時には変更しない</td>
+    </tr>
+    <tr>
+      <td>Backend Product profile</td>
+      <td><code>backend/app/product.py</code> と <code>PRODUCT_ID</code></td>
+      <td>プロダクト識別子、表示名、デフォルトアプリ構成</td>
+    </tr>
+    <tr>
+      <td>Frontend Product shell</td>
+      <td><code>frontend/src/product.ts</code> と <code>VITE_PRODUCT_*</code></td>
+      <td>表示名、タグライン、タイトル画像、powered-by 表記</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    現時点では同一リポジトリ内の設定境界として分離している。将来別パッケージへ切り出す場合も、Product profile と
+    AgentForge API の契約を境界にでき、パイプライン実装をプロダクト側へ複製しない。
+  </div>
 
   <h2>一言で言うと</h2>
   <p>ユーザーがチャットで「計算機を作って」「タスクの色分けを追加して」と言うだけで、AI ワーカー群が

@@ -1,22 +1,38 @@
-# AgentForge — このアプリの到達点（正本サマリ）
+# AgentForge / 育てるアプリ — 到達点（正本サマリ）
 
 > ワーカー定義・運用ルールの正本は [docs/pages/workers.html](docs/pages/workers.html)、
 > コード規約は [docs/pages/code-conventions.html](docs/pages/code-conventions.html)。
 > 本ファイルは「何を目指すアプリか」を 1 枚に固定したもの。実装・改修の判断はこれに照らす。
 
+## 名称と責務分離
+
+このリポジトリでは、内部基盤名とユーザー向けプロダクト名を分ける。
+
+- **AgentForge**: 初心者でも安全にアプリを作れるようにする、アプリ生成・改修・検証・公開のための
+  **アプリ生成パイプライン / フレームワーク**。Orchestrator を中心に、Receptor、Tester、Reviewer、
+  Specialist Worker、Safety Harness、Agent Harness、Control Plane、Sandbox、Version 管理を含む。
+  将来的に、他プロダクトや他組織でも再利用できる基盤として扱う。
+- **育てるアプリ**: AgentForge を使って提供する、一般ユーザー向けの
+  **アプリ育成プロダクト**。ユーザーはメインチャットや各ミニアプリの Specialist Worker と会話しながら、
+  デフォルトアプリを直し、新しいミニアプリを作り、自分用に育てる。
+
+外向きの画面・説明・タイトルでは「育てるアプリ」を主名にする。技術説明、API、ワーカー定義、開発者向け資料では
+「powered by AgentForge」または「AgentForge framework」として基盤名を残す。
+
 ## 目的
 
 **DevOps の民主化 × AI エージェント。**
 非エンジニアが**メインチャットで話すだけ**で、実際に動くミニアプリを自由に作成・改変できる
-**自己拡張するスーパーアプリ**。設計・コード・検証・レビュー・デプロイという
-エンジニアリングは、複数の AI ワーカーが協業して安全に肩代わりする。
+**自己拡張するスーパーアプリ**を提供する。ユーザー向けには「育てるアプリ」として見せ、
+その裏側の設計・コード・検証・レビュー・デプロイというエンジニアリングは、
+AgentForge framework の複数 AI ワーカーが協業して安全に肩代わりする。
 
 ### ターゲットユーザー
 
 **社内ユーザーではなく、一般の非エンジニア。**
 「自分好みのアプリが欲しいが、ストアで探すのは面倒。単純な計算機や PDF ビューワですら
 広告まみれでうっとうしい。**だったら自分で作って解決したい**」層。
-AgentForge は、その「自分で作る」を会話だけで成立させる。初心者はいきなり白紙から作らなくても、
+育てるアプリは、その「自分で作る」を会話だけで成立させる。初心者はいきなり白紙から作らなくても、
 メモ、スケジュール、タスク管理などのデフォルトアプリを使い始め、UI、項目、操作、機能を
 自分好みに直しながら育てられる。
 
@@ -77,6 +93,18 @@ AgentForge は、その「自分で作る」を会話だけで成立させる。
   `AF.setChatVisible()`）、機能内容・UI・操作ツールはユーザーの言葉どおりに。
 
 ## 基盤
+
+AgentForge は、育てるアプリ専用に閉じない。以下を分離境界として設計する。
+
+- **Framework 層（AgentForge）**: ワーカー定義、パイプライン、Harness、Control Plane、Sandbox、状態保存、
+  生成物規約、レビュー/検証ループ、権限境界。
+- **Product 層（育てるアプリ）**: ホームページ、ロゴ、ユーザー向け文言、デフォルトアプリ構成、ゲスト入口、
+  プロダクト固有の案内文、提出用記事。
+- Product 層は AgentForge の API と規約を使うが、AgentForge は Product 名に依存しない。
+- 将来、別のプロダクトを載せる場合は Product 層の branding/default apps/prompts を差し替え、
+  Framework 層の Orchestrator/Reviewer/Tester/Specialist Worker 契約は再利用する。
+- 実装入口は backend の `app/product.py`（`PRODUCT_ID`）と frontend の `src/product.ts`
+  （`VITE_PRODUCT_*`）。公開設定 API で双方の product ID を照合し、不一致のまま起動しない。
 
 本番 = Cloud Run + Gemini（FLASH=Gemini Flash / PRO=Gemini Pro）。
 開発・デモ = claude CLI ブリッジ（**FLASH=Haiku / PRO=Opus** — 能力帯を本番と揃える）。

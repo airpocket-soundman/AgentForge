@@ -4,6 +4,67 @@ from app.generated_app import features
 from app.tools.web_search import SearchResult
 
 
+def test_specialist_worker_uses_pro_for_reasoning_heavy_requests():
+    assert features._specialist_model_tier("使い方を教えて") == features.ModelTier.FLASH
+    assert (
+        features._specialist_model_tier("予定を入れて、店を調べてメモして")
+        == features.ModelTier.PRO
+    )
+    assert features._specialist_model_tier("予定を追加", direct_state=True) == features.ModelTier.PRO
+
+
+def test_schedule_state_validation_rejects_instruction_shaped_new_title():
+    old_state = {"events": []}
+    bad_state = {
+        "events": [
+            {"id": "e1", "date": "2026-07-13", "title": "予定 出張をいれて", "memo": ""}
+        ]
+    }
+    good_state = {
+        "events": [{"id": "e1", "date": "2026-07-13", "title": "出張", "memo": ""}]
+    }
+
+    assert features._state_contains_invalid_structured_value("schedule", old_state, bad_state)
+    assert not features._state_contains_invalid_structured_value("schedule", old_state, good_state)
+
+
+def test_structured_schedule_plan_is_applied_without_reparsing_request(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(features, "_load_app_state", lambda project_id, feature: {"events": []})
+    monkeypatch.setattr(
+        features,
+        "_save_app_state",
+        lambda _project_id, _feature, next_state: saved.update(state=next_state),
+    )
+    interpretation = {
+        "intent": "content",
+        "operations": [
+            {
+                "op": "create",
+                "target": "schedule_event",
+                "fields": {
+                    "date": "2026-07-13",
+                    "time": "",
+                    "title": "出張",
+                    "memo": "ラーメン候補\n- 店A\n- 店B\n- 店C",
+                },
+            }
+        ],
+    }
+
+    result = features._apply_structured_schedule_plan(
+        "default",
+        "schedule",
+        interpretation,
+        "7月13日の予定に出張をいれて。メモに店を調べて3件メモして",
+    )
+
+    assert result is not None
+    event = saved["state"]["events"][0]
+    assert event["title"] == "出張"
+    assert event["memo"].startswith("ラーメン候補")
+
+
 def test_schedule_worker_updates_single_event_memo_from_flexible_request(monkeypatch):
     saved = {}
     state = {
@@ -175,6 +236,40 @@ def test_schedule_worker_splits_add_event_and_memo_lookup(monkeypatch):
     assert "牛たん通り" in event["memo"]
     assert "伊達の牛たん本舗" in event["memo"]
     assert "ずんだ茶寮" in event["memo"]
+
+
+def test_schedule_worker_extracts_title_from_exact_compound_request(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(features, "_load_app_state", lambda project_id, feature: {"events": []})
+    monkeypatch.setattr(
+        features.web_search_tool,
+        "web_search",
+        lambda query, max_results=5: [
+            SearchResult("仙台駅前ラーメンA", "https://example.com/a", "仙台駅から徒歩圏"),
+            SearchResult("仙台駅前ラーメンB", "https://example.com/b", "地元で人気"),
+            SearchResult("仙台駅前ラーメンC", "https://example.com/c", "夜も営業"),
+        ],
+    )
+    monkeypatch.setattr(
+        features,
+        "_save_app_state",
+        lambda _project_id, _feature, next_state: saved.update(state=next_state),
+    )
+
+    result = features._default_schedule_state_update(
+        "default",
+        "schedule",
+        "7月13日の予定に出張をいれて。メモ欄には仙台駅の近くの人気のラーメン屋を探して3件メモして",
+    )
+
+    assert result is not None
+    event = saved["state"]["events"][0]
+    assert event["date"] == "2026-07-13"
+    assert event["title"] == "出張"
+    assert "予定" not in event["title"]
+    assert "仙台駅前ラーメンA" in event["memo"]
+    assert "仙台駅前ラーメンC" in event["memo"]
+    assert "探して3件メモして" not in event["memo"]
 
 
 def test_schedule_worker_asks_when_memo_target_is_ambiguous(monkeypatch):

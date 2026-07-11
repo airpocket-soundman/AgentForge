@@ -20,6 +20,7 @@ from app.generated_app.features import router as feature_worker_router
 from app.generated_app.generic import router as generic_router
 from app.generated_app.tasks import router as task_router
 from app.orchestrator.router import router as orchestrator_router
+from app.product import active_product
 from app.reception.router import router as reception_router
 
 
@@ -76,7 +77,12 @@ def create_app() -> FastAPI:
 
     @app.get("/")
     def root() -> dict:
-        return {"message": "AgentForge core API is running."}
+        product = active_product()
+        return {
+            "message": "AgentForge core API is running.",
+            "framework": product.framework_name,
+            "product": {"id": product.product_id, "display_name": product.display_name},
+        }
 
     # All app/data routers require an allowlisted user in prod. /health and /
     # stay open for Cloud Run probes; APP_ENV=local keeps development open.

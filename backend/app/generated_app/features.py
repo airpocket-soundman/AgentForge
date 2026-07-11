@@ -205,9 +205,15 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
     from app.control_plane import worker_status
     from app.llm.gateway import ModelTier, model_label
 
-    title = _manifest(body.project_id, feature).get("title") or feature
+    manifest = _manifest(body.project_id, feature)
+    title = manifest.get("title") or feature
+    worker_tier = _specialist_model_tier(
+        body.text,
+        direct_state=_can_direct_state_edit(manifest),
+        has_images=bool(images),
+    )
     worker_status.record_status("Specialist Worker", body.project_id, worker_status.ACTIVE,
-                                model=model_label(ModelTier.FLASH), detail=f"「{title}」を操作中")
+                                model=model_label(worker_tier), detail=f"「{title}」を操作中")
     command: dict | None = None
     try:
         # The `task` feature keeps its deterministic create-tasks operation (content op).
@@ -220,7 +226,7 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
             # design pipeline — structural changes are redirected to the main chat.
             # For app-kind features, returns a `command` for the running app to execute.
             reply_text, changed, command = _respond_content(
-                body.project_id, feature, body.text, history, _manifest(body.project_id, feature),
+                body.project_id, feature, body.text, history, manifest,
                 images=images, user_call_name=body.user_call_name,
                 context_id=ctx, context_label=body.context_label, user_uid=user.uid,
             )
@@ -490,6 +496,27 @@ def _normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKC", text or "")
 
 
+def _specialist_model_tier(
+    text: str,
+    *,
+    direct_state: bool = False,
+    has_images: bool = False,
+) -> ModelTier:
+    """Use the stronger tier when a Specialist Worker must reason before acting."""
+    normalized = _normalize_text(text)
+    if direct_state or has_images or _needs_web_search(normalized):
+        return ModelTier.PRO
+    operation_groups = (
+        ("入れて", "追加", "登録", "作って", "作成"),
+        ("変更", "更新", "移動", "直して", "修正"),
+        ("削除", "消して", "クリア", "初期化"),
+        ("メモ", "本文", "詳細", "追記", "記入"),
+        ("調べ", "探して", "検索", "候補"),
+    )
+    matched_groups = sum(any(word in normalized for word in group) for group in operation_groups)
+    return ModelTier.PRO if matched_groups >= 2 else ModelTier.FLASH
+
+
 def _feature_connectors_context(project_id: str, feature: str, user_uid: str | None) -> str:
     """Summarize app-scoped connectors for the Specialist Worker without secrets."""
     if not user_uid:
@@ -737,6 +764,8 @@ def _respond_state_content(
         "1. 追加/更新/削除/一括削除/メモ追記/状態変更など、state_schema内のデータ変更で表せるなら category=content。\n"
         "2. state は差分ではなく、保存すべき完全な新状態を返す。既存の無関係なデータは保持する。\n"
         "2a. 追加する配列要素に schema 上 id がある場合は、既存 id と衝突しない短い文字列 id を必ず作る。\n"
+        "2b. スケジュールのタイトルには予定名だけを入れる。"
+        "例: '予定に出張を入れて' の title は '出張'。'予定' '入れて' などの依頼語を含めない。\n"
         "3. 新しい画面・新しい項目・UI変更・state_schemaに無いデータ構造追加は category=structure。\n"
         "4. 日付や時刻は正規化する。時刻が15:65のように不自然なら実行せず category=chat で『16:05の意味でよろしいですか？』のように確認する。\n"
         "5. 削除/一括削除は、対象範囲が明示されていれば実行してよい。対象が曖昧なら category=chat で確認する。\n"
@@ -745,7 +774,7 @@ def _respond_state_content(
         "8. 本文/メモ/詳細へ入れる内容は、そのまま転記せず、ユーザーの意図が分かるラベル・箇条書き・短い見出しで整理する。"
         "例:『昼ご飯の予定を入れて。内容は笹かまぼこ』→『予定: 昼ご飯\\n内容: 笹かまぼこ』。\n"
     )
-    data = _safe_json(llm, prompt, images=images)
+    data = _safe_json(llm, prompt, images=images, tier=ModelTier.PRO)
     category = data.get("category")
     reply = str(data.get("reply", "")).strip()
     if category == "structure":
@@ -763,6 +792,8 @@ def _respond_state_content(
     except TypeError:
         return "保存できない形式のデータが含まれていました。別の言い方で指示してください。", [], None
     if _state_contains_unresolved_instruction(original_text + "\n" + text, current_state, new_state):
+        return None
+    if _state_contains_invalid_structured_value(feature, current_state, new_state):
         return None
     _save_app_state(project_id, feature, new_state)
     ops = data.get("ops") if isinstance(data.get("ops"), list) else []
@@ -782,11 +813,11 @@ def _interpret_app_request(
     context_label: str | None = None,
     user_call_name: str | None = None,
     images: list | None = None,
-) -> str:
+) -> dict:
     """Use the LLM as an intent normalizer before applying state/command rules."""
     llm = get_llm()
     if not llm.enabled:
-        return text
+        return {"normalized_request": text, "intent": "content", "operations": []}
     tools = manifest.get("commands") or []
     state_schema = manifest.get("state_schema") or {}
     web_context = _web_search_context(text)
@@ -805,11 +836,17 @@ def _interpret_app_request(
         "JSONのみで出力:\n"
         '{"normalized_request":"<後段に渡す作業指示。1〜6行>",'
         '"intent":"content|structure|chat",'
-        '"operations":[{"op":"create|update|append|delete|query|chat|structure","target":"<対象>","content":"<整理済み本文>"}],'
+        '"operations":[{"op":"create|update|append|delete|query|chat|structure","target":"<対象>",'
+        '"content":"<整理済み本文>","fields":{"date":"YYYY-MM-DD","time":"HH:MMまたは空",'
+        '"title":"<予定名だけ>","memo":"<整理・調査済み本文>"}}],'
         '"reason":"<短く>"}\n\n'
         "ルール:\n"
         "- 元の指示をそのまま転記しない。暗黙の対象、現在開いている文脈、本文、検索/調査の必要性を補う。\n"
         "- 複合命令は操作列に分解する。\n"
+        "- スケジュールの '予定にAを入れて' は、予定名をAとして構造化する。"
+        "title に '予定' '入れて' '追加して' などの依頼語を残さない。\n"
+        "- スケジュール操作は fields に date/time/title/memo を分離する。"
+        "予定追加とメモ調査が一緒なら1つの create にまとめ、memo に調査結果を入れる。\n"
         "- タスク管理で『Aというタスクを追加して。案としてBを書いて』のような依頼は、"
         "タスク名をA、詳細/本文をBとして分ける。依頼文全体を title に入れてはいけない。\n"
         "- 本文/メモ/詳細に入れる内容はラベル・箇条書き・短い見出しで整理する。\n"
@@ -819,12 +856,23 @@ def _interpret_app_request(
         "- Web検索結果が無い場合だけ、『未確認。追加確認が必要』を含めて保存/回答する。\n"
         "- UIや機能追加は intent=structure、純粋な質問は intent=chat。\n"
     )
-    data = _safe_json(llm, prompt, images=images)
+    data = _safe_json(
+        llm,
+        prompt,
+        images=images,
+        tier=_specialist_model_tier(
+            text,
+            direct_state=_can_direct_state_edit(manifest),
+            has_images=bool(images),
+        ),
+    )
     normalized = str(data.get("normalized_request") or "").strip()
-    intent = str(data.get("intent") or "").strip()
-    if not normalized or intent in {"chat", "structure"}:
-        return text
-    return normalized[:2000]
+    operations = data.get("operations") if isinstance(data.get("operations"), list) else []
+    return {
+        "normalized_request": normalized[:2000] or text,
+        "intent": str(data.get("intent") or "content").strip(),
+        "operations": operations[:12],
+    }
 
 
 def _state_contains_unresolved_instruction(user_text: str, old_state, new_state) -> bool:
@@ -865,6 +913,113 @@ def _state_strings(value) -> list[str]:
         for item in value:
             out.extend(_state_strings(item))
     return out
+
+
+def _schedule_title_looks_like_instruction(title: str) -> bool:
+    normalized = _normalize_text(title).strip("。、 ")
+    if not normalized or len(normalized) > 80:
+        return True
+    if normalized in {"予定", "スケジュール", "予定を入れて", "予定を追加"}:
+        return True
+    return bool(
+        re.search(
+            r"(?:を|に)?(?:入れて|いれて|追加して|登録して|作って|作成して|"
+            r"メモして|記入して|書いて)(?:おいて|ください)?$",
+            normalized,
+        )
+    )
+
+
+def _state_contains_invalid_structured_value(feature: str, old_state, new_state) -> bool:
+    """Reject newly generated values that still look like user instructions."""
+    if feature != "schedule" or not isinstance(new_state, dict):
+        return False
+    old_events = old_state.get("events", []) if isinstance(old_state, dict) else []
+    old_by_id = {
+        str(event.get("id")): event
+        for event in old_events
+        if isinstance(event, dict) and event.get("id") is not None
+    }
+    for event in new_state.get("events", []):
+        if not isinstance(event, dict):
+            continue
+        old_event = old_by_id.get(str(event.get("id")))
+        title = str(event.get("title") or "")
+        if old_event is not None and title == str(old_event.get("title") or ""):
+            continue
+        if _schedule_title_looks_like_instruction(title):
+            return True
+    return False
+
+
+def _apply_structured_schedule_plan(
+    project_id: str,
+    feature: str,
+    interpretation: dict,
+    original_text: str,
+) -> tuple[str, list[dict], dict | None] | None:
+    """Validate and apply an LLM-normalized schedule operation without reparsing prose."""
+    if interpretation.get("intent") != "content":
+        return None
+    operations = interpretation.get("operations")
+    if not isinstance(operations, list):
+        return None
+    create = next(
+        (
+            op
+            for op in operations
+            if isinstance(op, dict)
+            and op.get("op") == "create"
+            and any(
+                token in str(op.get("target") or "").lower()
+                for token in ("event", "schedule", "予定", "スケジュール")
+            )
+        ),
+        None,
+    )
+    if not create or not isinstance(create.get("fields"), dict):
+        return None
+    fields = create["fields"]
+    date = str(fields.get("date") or "").strip()
+    time = str(fields.get("time") or "").strip()
+    title = str(fields.get("title") or "").strip()
+    memo = str(fields.get("memo") or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return None
+    try:
+        datetime.strptime(date, "%Y-%m-%d")
+    except ValueError:
+        return None
+    if time and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time):
+        return None
+    if _schedule_title_looks_like_instruction(title):
+        return None
+    memo_normalized = _normalize_text(memo)
+    if any(
+        phrase in memo_normalized
+        for phrase in ("探して", "調べて", "検索して", "メモして", "記入して", "入れておいて")
+    ):
+        return None
+
+    state = _load_app_state(project_id, feature)
+    if not isinstance(state, dict):
+        state = {}
+    events = state.get("events")
+    if not isinstance(events, list):
+        events = []
+    existing_ids = {str(event.get("id")) for event in events if isinstance(event, dict)}
+    event_id = f"e_{uuid.uuid4().hex[:10]}"
+    while event_id in existing_ids:
+        event_id = f"e_{uuid.uuid4().hex[:10]}"
+    event = {"id": event_id, "date": date, "time": time, "title": title, "memo": memo}
+    next_state = {**state, "events": [*events, event]}
+    _save_app_state(project_id, feature, next_state)
+    label = f"{date} {time or '終日'}"
+    return (
+        f"{label} に「{title}」を追加" + ("し、メモも更新しました。" if memo else "しました。"),
+        [{"entity_id": event_id, "op": "create"}] + ([{"entity_id": event_id, "op": "update"}] if memo else []),
+        None,
+    )
 
 
 def _default_state_update(
@@ -2006,10 +2161,11 @@ def _schedule_time_clarification(text: str, require_intent: bool = True) -> str 
 def _parse_schedule_title(text: str) -> str:
     text = _normalize_text(text)
     for pat in (
+        r"(?:予定|スケジュール)に\s*(.+?)\s*を(?:入れて|いれて|追加して|登録して)",
         r"[、,]\s*(.+?)\s*という予定",
-        r"[、,]\s*(.+?)\s*を(?:予定|スケジュール)?(?:に)?(?:入れて|追加して|登録して)",
+        r"[、,]\s*(.+?)\s*を(?:予定|スケジュール)?(?:に)?(?:入れて|いれて|追加して|登録して)",
         r"に\s*(.+?)\s*という予定",
-        r"に\s*(.+?)\s*を(?:入れて|追加して|登録して)",
+        r"に\s*(.+?)\s*を(?:入れて|いれて|追加して|登録して)",
     ):
         m = re.search(pat, text)
         if m:
@@ -2017,7 +2173,7 @@ def _parse_schedule_title(text: str) -> str:
             if title:
                 return title
     title = _clean_schedule_title(_strip_date_time(text))
-    title = re.sub(r"(予定|スケジュール)?(を)?(入れて|追加して|登録して|作って)$", "", title).strip()
+    title = re.sub(r"(予定|スケジュール)?(を)?(入れて|いれて|追加して|登録して|作って)$", "", title).strip()
     return _clean_schedule_title(title)
 
 
@@ -2070,7 +2226,7 @@ def _respond_content(
     # inputSchema). The specialist worker maps the instruction to ONE tool call
     # {name, arguments}; the running app executes it via applyAgentCommand.
     if kind == "app":
-        operation_text = _interpret_app_request(
+        interpretation = _interpret_app_request(
             feature,
             title,
             text,
@@ -2081,6 +2237,16 @@ def _respond_content(
             user_call_name=user_call_name,
             images=images,
         )
+        operation_text = str(interpretation.get("normalized_request") or text)
+        if feature == "schedule":
+            structured_result = _apply_structured_schedule_plan(
+                project_id,
+                feature,
+                interpretation,
+                text,
+            )
+            if structured_result is not None:
+                return structured_result
         state_result = None
         state_attempted = False
         if llm.enabled and _can_direct_state_edit(manifest):
@@ -2091,10 +2257,11 @@ def _respond_content(
             )
             if state_result is not None:
                 return state_result
+        deterministic_text = text if feature == "schedule" else operation_text
         deterministic_state = _default_state_update(
             project_id,
             feature,
-            operation_text,
+            deterministic_text,
             manifest,
             context_id=context_id,
             context_label=context_label,
@@ -2155,7 +2322,12 @@ def _respond_content(
                 "8. category=chat の reply は、分からない点を1つずつ具体的に聞く。"
                 "例:『何日の予定ですか？』『どの予定のメモを変更しますか？』"
             )
-            data = _safe_json(llm, prompt, images=images)
+            data = _safe_json(
+                llm,
+                prompt,
+                images=images,
+                tier=_specialist_model_tier(text + "\n" + operation_text, has_images=bool(images)),
+            )
             category = data.get("category", "chat")
             reply = str(data.get("reply", "")).strip()
             if category == "structure":
@@ -2216,7 +2388,12 @@ def _respond_content(
         '{"category":"content|structure|chat","reply":"<日本語の短い返答>",'
         '"ops":[{"op":"create|update|delete","entity_id":"<update/delete時>","data":{<項目に沿った値>}}]}'
     )
-    data = _safe_json(llm, prompt, images=images)
+    data = _safe_json(
+        llm,
+        prompt,
+        images=images,
+        tier=_specialist_model_tier(text, has_images=bool(images)),
+    )
     category = data.get("category", "chat")
     reply = str(data.get("reply", "")).strip()
     if category == "structure":
@@ -2229,11 +2406,16 @@ def _respond_content(
     return reply or "承知しました。", [], None
 
 
-def _safe_json(llm, prompt: str, images: list | None = None) -> dict:
+def _safe_json(
+    llm,
+    prompt: str,
+    images: list | None = None,
+    tier: ModelTier = ModelTier.FLASH,
+) -> dict:
     """Run the LLM and parse its JSON, tolerating a ```json fence. {} on failure.
     `images` (attachments) are passed for vision (e.g. translating text in a photo)."""
     try:
-        raw = llm.generate(prompt, tier=ModelTier.FLASH, images=images or None).strip()
+        raw = llm.generate(prompt, tier=tier, images=images or None).strip()
         if raw.startswith("```"):
             raw = raw.strip("`").split("\n", 1)[-1]
         return json.loads(raw)

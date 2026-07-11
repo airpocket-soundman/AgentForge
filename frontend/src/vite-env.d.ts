@@ -1,6 +1,11 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_PRODUCT_ID?: string;
+  readonly VITE_PRODUCT_NAME?: string;
+  readonly VITE_FRAMEWORK_NAME?: string;
+  readonly VITE_PRODUCT_TAGLINE?: string;
+  readonly VITE_PRODUCT_HERO_IMAGE?: string;
   readonly VITE_API_PROXY_TARGET?: string;
   readonly VITE_API_BASE?: string;
   readonly VITE_FIREBASE_API_KEY?: string;

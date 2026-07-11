@@ -23,6 +23,7 @@ from app.auth import (
 from app.config import get_settings
 from app.control_plane.registry import _audit
 from app.firestore import get_db
+from app.product import active_product
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -58,9 +59,15 @@ class FeatureFlagsIn(BaseModel):
 def public_config() -> dict:
     """Unauthenticated browser bootstrap settings."""
     s = get_settings()
+    product = active_product()
     return {
         "guest_access_enabled": s.is_local or guest_access_enabled(),
         "auth_required": not s.is_local,
+        "product": {
+            "id": product.product_id,
+            "display_name": product.display_name,
+            "framework_name": product.framework_name,
+        },
     }
 
 

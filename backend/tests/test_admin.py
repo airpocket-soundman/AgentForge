@@ -111,6 +111,11 @@ def test_local_public_config_exposes_guest_entry(monkeypatch):
     data = r.json()
     assert data["auth_required"] is False
     assert data["guest_access_enabled"] is True
+    assert data["product"] == {
+        "id": "sodateru_app",
+        "display_name": "育てるアプリ",
+        "framework_name": "AgentForge",
+    }
     get_settings.cache_clear()
 
 

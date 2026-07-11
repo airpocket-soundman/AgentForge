@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="495" viewBox="0 0 880 495" role="img" aria-label="育てるアプリ タイトルビジュアル">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="0.56" stop-color="#eef2ff"/>
+      <stop offset="1" stop-color="#ecfdf5"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#16a34a"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#1e293b" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect width="880" height="495" fill="url(#bg)"/>
+  <path d="M0 384C126 338 190 414 312 370C438 324 470 198 590 196C711 195 765 302 880 246V495H0Z" fill="#ffffff" opacity="0.72"/>
+  <path d="M650 64C714 79 759 111 787 162C736 142 683 142 630 166C632 126 639 92 650 64Z" fill="#dcfce7" opacity="0.82"/>
+  <path d="M102 382C153 345 202 331 252 340C212 375 163 395 105 400Z" fill="#e0e7ff" opacity="0.92"/>
+
+  <g filter="url(#softShadow)">
+    <rect x="586" y="126" width="178" height="178" rx="42" fill="url(#mark)"/>
+    <path d="M638 239h77" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
+    <path d="M676 244V164" stroke="#fff" stroke-width="12" stroke-linecap="round"/>
+    <path d="M676 191c-23-1-38-13-45-35 24 1 38 13 45 35z" fill="#dcfce7"/>
+    <path d="M676 205c27-2 43-16 51-42-28 2-43 17-51 42z" fill="#fff"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <rect x="106" y="100" width="408" height="270" rx="34" fill="#fff"/>
+    <rect x="136" y="132" width="112" height="18" rx="9" fill="#c7d2fe"/>
+    <rect x="136" y="172" width="318" height="24" rx="12" fill="#eef2ff"/>
+    <rect x="136" y="214" width="248" height="24" rx="12" fill="#eef2ff"/>
+    <rect x="136" y="274" width="146" height="42" rx="12" fill="#4f46e5"/>
+    <rect x="302" y="274" width="126" height="42" rx="12" fill="#dcfce7"/>
+    <circle cx="442" cy="142" r="34" fill="#ecfdf5"/>
+    <path d="M430 144h24" stroke="#16a34a" stroke-width="5" stroke-linecap="round"/>
+    <path d="M442 156V126" stroke="#16a34a" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <text x="104" y="440" fill="#111827" font-family="'Noto Sans JP', 'Yu Gothic', 'Meiryo', sans-serif" font-size="60" font-weight="900" letter-spacing="0">育てるアプリ</text>
+  <text x="110" y="470" fill="#475569" font-family="'Noto Sans JP', 'Yu Gothic', 'Meiryo', sans-serif" font-size="18" font-weight="700" letter-spacing="0">会話で作って、使いながら育てる。</text>
+</svg>

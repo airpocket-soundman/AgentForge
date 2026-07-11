@@ -17,10 +17,11 @@ import {
 import { AppFrame, deleteFeatureBlobs } from "./AppFrame";
 import { AttachButton, AttachmentChips, useAttachments } from "./Attachments";
 import { MdText } from "./Markdown";
+import { PRODUCT } from "../product";
 
 const WELCOME: ChatMessage = {
   role: "assistant",
-  text: "AgentForge へようこそ。追加したい機能を自然言語で伝えてください（例：「お絵描きツールを作って」「タスク管理を追加して」）。\nまず設計案をお見せします → 修正できます → 「これで作って」でコード生成 → プレビュー確認 → 「反映して」で公開、の流れです。",
+  text: `${PRODUCT.displayName}へようこそ。追加したい機能や直したい点を自然言語で伝えてください（例：「お絵描きツールを作って」「タスク管理を追加して」）。\nまず設計案をお見せします → 修正できます → 「これで作って」でコード生成 → プレビュー確認 → 「反映して」で公開、の流れです。`,
   created_at: "",
 };
 const AUTO_SCROLL_THRESHOLD = 80;

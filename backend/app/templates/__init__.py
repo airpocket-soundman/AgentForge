@@ -13,13 +13,19 @@ no embedded chat, applyAgentCommand). A deploy is deterministic (no LLM).
 from __future__ import annotations
 
 from app.models.generated import ViewManifest
+from app.product import active_product
 
 from . import bluesky, calculator, household_budget, memo, paint, retouch, schedule, task_manager, translate
 
-_MODULES = [calculator, task_manager, schedule, memo, household_budget, translate, paint, retouch, bluesky]
+_ALL_MODULES = [calculator, task_manager, schedule, memo, household_budget, translate, paint, retouch, bluesky]
+_ALL_TEMPLATES: dict[str, dict] = {m.MANIFEST["feature"]: m.MANIFEST for m in _ALL_MODULES}
 
 # feature slug -> manifest dict
-TEMPLATES: dict[str, dict] = {m.MANIFEST["feature"]: m.MANIFEST for m in _MODULES}
+TEMPLATES: dict[str, dict] = {
+    key: _ALL_TEMPLATES[key]
+    for key in active_product().default_template_keys
+    if key in _ALL_TEMPLATES
+}
 
 # Keyword → template key. Matched case-insensitively as a substring of the goal.
 # Keep keywords SPECIFIC (e.g. 「電卓」 not 「計算」) to avoid hijacking custom asks.
@@ -52,6 +58,8 @@ def match_template(goal: str) -> str | None:
     """Return the template key whose keywords appear in `goal`, else None."""
     t = (goal or "").lower()
     for key, words in _KEYWORDS.items():
+        if key not in TEMPLATES:
+            continue
         if any(w.lower() in t for w in words):
             return key
     return None

@@ -10,6 +10,9 @@ import {
 } from "./firebase";
 import { clearGuestSession, getGuestSession, getPublicConfig, startGuestSession } from "./api";
 import { AppShell } from "./shell/AppShell";
+import { PRODUCT, productTitleVisualAlt } from "./product";
+
+const LANDING_ROUTES = new Set(["home", "beginner", "features", "boundary", "flow", "architecture", "safety"]);
 
 function LandingNav({
   user,
@@ -28,10 +31,11 @@ function LandingNav({
 }) {
   return (
     <header className="landing-nav">
-      <button className="landing-brand" onClick={() => window.location.hash = "home"}>AgentForge</button>
+      <button className="landing-brand" onClick={() => window.location.hash = "home"}>{PRODUCT.displayName}</button>
       <nav className="landing-links" aria-label="メイン">
         <a href="https://findy.notion.site/devops-ai-agent-hackathon-2026" target="_blank" rel="noreferrer">DevOps × AI Agent</a>
         <a href="#features">特徴</a>
+        <a href="#boundary">境界</a>
         <a href="#flow">Pipeline</a>
         <a href="#architecture">Architecture</a>
         <a href="#implementation">実装</a>
@@ -100,13 +104,13 @@ function LandingPage({
             >
               DevOps × AI Agent
             </a>
-            <div className="landing-kicker">DevOps AI Agent Workbench</div>
-            <h1>会話だけで、自分専用アプリを作って育てる。</h1>
+            <div className="landing-kicker">{PRODUCT.tagline}</div>
+            <h1>{PRODUCT.displayName}</h1>
             <p>
-              AgentForge は、非エンジニアでもメインチャットからミニアプリを作成・改変・公開・巻き戻しできる、
-              自己拡張型の AI ワークベンチです。メモ、スケジュール、タスク管理などのデフォルトアプリから始めて、
+              {PRODUCT.displayName}は、非エンジニアでもメインチャットからミニアプリを作成・改変・公開・巻き戻しできる、
+              自己拡張型の AI アプリです。メモ、スケジュール、タスク管理などのデフォルトアプリから始めて、
               UI や機能を自分好みに育てることも、まったく新しいアプリを作ることもできます。
-              裏側では複数のワーカー、Safety Harness、Agent Harness が、設計から検証、承認、監査までを分担します。
+              裏側では {PRODUCT.frameworkName} 基盤の複数ワーカー、Safety Harness、Agent Harness が、設計から検証、承認、監査までを分担します。
             </p>
             <div className="landing-actions">
               {user ? (
@@ -128,8 +132,8 @@ function LandingPage({
             )}
             {error && <div className="error">{error}</div>}
           </div>
-          <div className="landing-visual" aria-label="AgentForge の画面イメージ">
-            <img src="/agentforge_app_screen.png" alt="AgentForge のアプリ画面構成" />
+          <div className="landing-visual" aria-label={productTitleVisualAlt}>
+            <img src={PRODUCT.heroImage} alt={productTitleVisualAlt} width={880} height={495} />
           </div>
         </section>
 
@@ -143,7 +147,7 @@ function LandingPage({
               AI が下書き、実装、検証を進め、最後に人間が確認して反映します。
             </p>
           </div>
-          <div className="landing-simple-flow" aria-label="AgentForge の基本利用フロー">
+          <div className="landing-simple-flow" aria-label={`${PRODUCT.displayName}の基本利用フロー`}>
             <div className="landing-simple-step landing-simple-step--talk">
               <strong>1. 選ぶ / 話す</strong>
               <span>デフォルトアプリを選ぶか、作りたいものや直したい点をそのまま伝えます。</span>
@@ -158,6 +162,64 @@ function LandingPage({
               <strong>3. 確認して反映</strong>
               <span>プレビューで確認し、「反映して」と承認したものだけが公開されます。</span>
             </div>
+          </div>
+        </section>
+
+        <section className="landing-band" id="boundary">
+          <div className="landing-section-head">
+            <span>Product / Framework Boundary</span>
+            <h2>画面と使い方は「育てるアプリ」、生成と安全性は「AgentForge」</h2>
+            <p>
+              {PRODUCT.displayName}が決めるのは、ユーザーに何を見せ、どのアプリから始め、どう操作してもらうかです。
+              {PRODUCT.frameworkName}が受け持つのは、その依頼からコードを作り、テストし、承認後に公開する処理です。
+              育てるアプリはAgentForgeのAPIを利用する側なので、AgentForgeの生成・検証機能は別のプロダクトにも再利用できます。
+            </p>
+          </div>
+
+          <div className="ownership-map" aria-label={`${PRODUCT.displayName}のユーザー体験と${PRODUCT.frameworkName}のアプリ生成パイプラインを示す図`}>
+            <div className="ownership-side ownership-side--product">
+              <div className="ownership-label">PRODUCT — ユーザー体験</div>
+              <h3>{PRODUCT.displayName}</h3>
+              <p>ユーザーが直接見て、選び、操作する部分です。</p>
+              <dl className="ownership-list">
+                <div><dt>ブランドと入口</dt><dd>名前、ロゴ、ホーム、ゲスト入口</dd></div>
+                <div><dt>使い方</dt><dd>メインチャット、ミニアプリ画面、操作導線</dd></div>
+                <div><dt>最初の機能</dt><dd>デフォルトアプリの種類と組み合わせ</dd></div>
+                <div><dt>プロダクト設定値</dt><dd>表示名、画像、タグライン、既定アプリID</dd></div>
+              </dl>
+            </div>
+
+            <div className="ownership-boundary" aria-label="AgentForge APIを介した境界">
+              <div className="ownership-boundary-line" aria-hidden="true" />
+              <strong>境界</strong>
+              <div className="ownership-exchange ownership-exchange--out">
+                <span>依頼・承認</span><b aria-hidden="true">→</b>
+              </div>
+              <div className="ownership-api">
+                AgentForge API
+                <small>定義と互換性の責任は<br />AgentForge側</small>
+              </div>
+              <div className="ownership-exchange ownership-exchange--back">
+                <b aria-hidden="true">←</b><span>進捗・プレビュー・公開版</span>
+              </div>
+            </div>
+
+            <div className="ownership-side ownership-side--framework">
+              <div className="ownership-label">FRAMEWORK — アプリ生成パイプライン</div>
+              <h3>{PRODUCT.frameworkName}</h3>
+              <p>依頼を動くアプリへ変え、安全に公開する仕組みです。</p>
+              <dl className="ownership-list">
+                <div><dt>理解と生成</dt><dd>Receptor、Orchestrator、コード生成</dd></div>
+                <div><dt>品質と安全性</dt><dd>Tester、Reviewer、Safety Harness、Sandbox</dd></div>
+                <div><dt>公開と履歴</dt><dd>Control Plane、承認、Version、Audit</dd></div>
+                <div><dt>API・契約の定義</dt><dd>request/report、ViewManifest、AF.load/save/api</dd></div>
+              </dl>
+            </div>
+          </div>
+
+          <div className="ownership-profile-note">
+            <b>ProductProfileはどう分かれる？</b>
+            <span><strong>AgentForge</strong>が設定項目の型を定義し、<strong>育てるアプリ</strong>が表示名・画像・デフォルトアプリなどの値を設定します。</span>
           </div>
         </section>
 
@@ -176,7 +238,7 @@ function LandingPage({
             <span>Pipeline</span>
             <h2>自然言語を、検証済みミニアプリへ変換するパイプライン</h2>
             <p>
-              AgentForge は、ユーザーの発話を単発のコード生成に投げるだけではありません。依頼を
+              {PRODUCT.displayName}は、ユーザーの発話を単発のコード生成に投げるだけではありません。依頼を
               <code>task_id</code> 付きの作業単位に変換し、設計、生成、検証、レビュー、プレビュー、公開承認までを
               1本のパイプラインとして管理します。公開前の安全判定は Safety Harness が担い、
               途中経過、失敗理由、リトライ、承認状態は Agent Harness に残し、
@@ -206,7 +268,7 @@ function LandingPage({
             <span>Architecture</span>
             <h2>役割分離されたエージェント構造</h2>
             <p>
-              AgentForge は、1つの AI に全権を渡しません。ユーザーと話す Receptor、設計と生成を担う Orchestrator、
+              {PRODUCT.displayName}は、1つの AI に全権を渡しません。ユーザーと話す Receptor、設計と生成を担う Orchestrator、
               実行検証の Tester、規約判定の Reviewer、公開後のミニアプリを操作する Specialist Worker を分離します。
               その外側で Control Plane、Safety Harness、Agent Harness、Sandbox、Version 管理が副作用を制御します。
             </p>
@@ -242,7 +304,7 @@ function LandingPage({
             <span>Implementation</span>
             <h2>生成物は「画面」だけではなく、操作可能なアプリ契約として作る</h2>
             <p>
-              AgentForge は、自然言語から見た目だけを作るのではなく、公開後に Specialist Worker が継続操作できる
+              {PRODUCT.displayName}は、自然言語から見た目だけを作るのではなく、公開後に Specialist Worker が継続操作できる
               contract まで生成します。HTML、state、commands、Worker prompt、評価ケースを同時に設計し、
               生成されたアプリを「使える画面」から「育てられる道具」にします。
             </p>
@@ -423,7 +485,7 @@ export function PipelineFlowSvg() {
 
 export function ArchitectureFlowSvg() {
   return (
-    <svg className="detail-svg" viewBox="0 0 1180 600" role="img" aria-label="AgentForge アーキテクチャのフロー図">
+    <svg className="detail-svg" viewBox="0 0 1180 600" role="img" aria-label={`${PRODUCT.displayName} アーキテクチャのフロー図`}>
       <defs>
         <marker id="archArrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
           <path d="M0,0 L8,4 L0,8 Z" fill="#596174" />
@@ -665,7 +727,7 @@ function VerticalPipelineFlowSvg() {
 
 function VerticalArchitectureFlowSvg() {
   return (
-    <svg className="detail-svg architecture-svg" viewBox="0 0 900 720" role="img" aria-label="AgentForge アーキテクチャ構造図">
+    <svg className="detail-svg architecture-svg" viewBox="0 0 900 720" role="img" aria-label={`${PRODUCT.displayName} アーキテクチャ構造図`}>
       <defs>
         <marker id="archVArrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto">
           <path d="M0,0 L8,4 L0,8 Z" fill="#596174" />
@@ -805,7 +867,7 @@ function PipelineDetailPage({
           <span>Pipeline Detail</span>
           <h1>ミニアプリが生まれて公開されるまで</h1>
           <p>
-            AgentForge のパイプラインは、自然言語から単発の HTML を出すだけではありません。
+            {PRODUCT.displayName}のパイプラインは、自然言語から単発の HTML を出すだけではありません。
             画面、永続化 state、Specialist Worker 用の操作 API、評価ケース、承認ゲート、監査ログまでを
             1つの生成単位として扱い、非エンジニアが使い続けられるミニアプリへ変換します。
           </p>
@@ -936,7 +998,7 @@ function ArchitectureDetailPage({
           <span>Architecture Detail</span>
           <h1>役割を分けたエージェント構造</h1>
           <p>
-            AgentForge は、1つの AI に全権を渡す構造ではありません。Receptor、Orchestrator、Tester、Reviewer、
+            {PRODUCT.displayName}は、1つの AI に全権を渡す構造ではありません。Receptor、Orchestrator、Tester、Reviewer、
             Specialist Worker を分離し、Control Plane、Agent Harness、Sandbox、Version 管理で副作用を制御します。
             エージェントの判断力と、決定的な公開・保存・巻き戻し API を組み合わせる設計です。
           </p>
@@ -954,7 +1016,7 @@ function ArchitectureDetailPage({
 
         <section className="detail-section">
           <h2>レイヤー構造</h2>
-          <div className="detail-layer-map" aria-label="AgentForge の詳細アーキテクチャ">
+          <div className="detail-layer-map" aria-label={`${PRODUCT.displayName}の詳細アーキテクチャ`}>
             <div>
               <h3>体験層</h3>
               <span>メインチャット</span>
@@ -1067,6 +1129,9 @@ function ArchitectureDetailPage({
 }
 
 export function App() {
+  useEffect(() => {
+    document.title = PRODUCT.displayName;
+  }, []);
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1074,6 +1139,7 @@ export function App() {
   const [guestActive, setGuestActive] = useState(() => Boolean(getGuestSession()));
   const [authRequired, setAuthRequired] = useState(false);
   const [publicReady, setPublicReady] = useState(false);
+  const [productMismatch, setProductMismatch] = useState<string | null>(null);
   const [route, setRoute] = useState(() => window.location.hash.replace(/^#/, ""));
 
   useEffect(() => {
@@ -1102,13 +1168,35 @@ export function App() {
       .then((c) => {
         setGuestEnabled(c.guest_access_enabled);
         setAuthRequired(c.auth_required);
+        if (c.product.id !== PRODUCT.id) {
+          setProductMismatch(
+            `プロダクト設定が一致しません（frontend=${PRODUCT.id}, backend=${c.product.id}）。デプロイ設定を確認してください。`,
+          );
+        }
       })
       .catch(() => setGuestEnabled(false))
       .finally(() => setPublicReady(true));
   }, []);
 
+  useEffect(() => {
+    if (!publicReady || !LANDING_ROUTES.has(route) || route === "home") return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(route)?.scrollIntoView();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [publicReady, route]);
+
   if ((!authReady && isFirebaseConfigured()) || !publicReady) {
     return <div className="centered">読み込み中…</div>;
+  }
+
+  if (productMismatch) {
+    return (
+      <div className="centered">
+        <h1>プロダクト設定エラー</h1>
+        <p className="error">{productMismatch}</p>
+      </div>
+    );
   }
 
   if (authRequired && !isFirebaseConfigured()) {
@@ -1123,9 +1211,8 @@ export function App() {
   }
 
   const noAuthLocal = !isFirebaseConfigured() && !authRequired;
-  const landingRoutes = new Set(["home", "beginner", "features", "flow", "architecture", "safety"]);
   const detailRoutes = new Set(["pipeline-detail", "architecture-detail"]);
-  const isLandingRoute = landingRoutes.has(route);
+  const isLandingRoute = LANDING_ROUTES.has(route);
   const isDetailRoute = detailRoutes.has(route);
   const showHome = isLandingRoute || (isFirebaseConfigured() && authReady && !user && !guestActive && !isDetailRoute) || (noAuthLocal && route !== "app" && !isDetailRoute);
   const openApp = () => {

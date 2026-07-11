@@ -52,7 +52,7 @@
 - 各ワーカーの基本プロンプトには **絶対ルール＋デフォルトルール＋使用 API 仕様マニュアル**を含める。
 - レセプターは**軽い処理のみ**で即応。
 - **権限境界**：ワーカーは自分の権限を増やせない／別ワーカーを勝手に作れない。Orchestrator は Secret/IAM を触らず副作用は Tool Gateway 経由・スキーマ検証。Reviewer は判定のみ。Specialist Worker は担当ミニアプリ内に限定（iframe サンドボックス）。
-- **モデル割当**：FLASH＝Receptor／分類・計画／Reviewer／Tester／Specialist Worker、PRO＝コード生成（HTML/API）。階層は能力帯で揃える＝**FLASH: Gemini Flash↔**Sonnet**（haiku は実用上帯不足のため dev は sonnet）／PRO: Opus↔Gemini Pro（同等最上位）**。**開発・デモも `CLAUDE_PRO_MODEL=opus` を既定**（本番と能力帯を揃え品質担保）。Opus は遅いがタイムアウトは長く（600s）ユーザーが待ち判断。速度優先で一時的に sonnet へ下げるのは任意。
+- **モデル割当**：FLASH＝Receptor／分類・計画／Reviewer／Tester／Specialist Worker の質問・単純操作、PRO＝コード生成（HTML/API）と Specialist Worker の Web 調査・複合操作・文脈推論・直接 state 編集。階層は能力帯で揃える＝**FLASH: Gemini Flash↔**Sonnet**（haiku は実用上帯不足のため dev は sonnet）／PRO: Opus↔Gemini Pro（同等最上位）**。**開発・デモも `CLAUDE_PRO_MODEL=opus` を既定**（本番と能力帯を揃え品質担保）。Opus は遅いがタイムアウトは長く（600s）ユーザーが待ち判断。速度優先で一時的に sonnet へ下げるのは任意。
 - **プロバイダ（環境別）**：**開発・デモ＝Codex CLI セッション**（ホストブリッジ、Gemini コスト節約）、**本番（Cloud Run）＝Gemini**。ID は `CLAUDE_*_MODEL` / `GEMINI_*_MODEL` で切替。
 
 その他の運用ドキュメント: [ENVIRONMENT.md](ENVIRONMENT.md)（環境・テスト実行）, [DEPLOY.md](DEPLOY.md)（デプロイ）, [MIGRATION.md](MIGRATION.md)（現行コードを本仕様へ寄せる実装移行計画・フェーズ別チェックリスト）。

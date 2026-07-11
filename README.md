@@ -1,10 +1,20 @@
-# AgentForge
+# AgentForge / 育てるアプリ
 
-自然言語でアプリを育てると、裏で AI エージェント群が DevOps（設計→実装→デプロイ→承認→巻き戻し）を回す **DevOps AI Agent Workbench**。
+**AgentForge** は、初心者でも安全にアプリを作れるようにするアプリ生成パイプライン / フレームワークです。
+Orchestrator を中心に、Receptor、Tester、Reviewer、Specialist Worker、Safety Harness、Agent Harness、
+Control Plane を組み合わせ、自然言語の依頼を設計→実装→検証→レビュー→プレビュー→承認公開へ流します。
+
+**育てるアプリ** は、この AgentForge framework を使ったユーザー向けプロダクトです。
+メインチャットや各アプリの専門ワーカーと会話しながら、デフォルトアプリを直したり、新しいミニアプリを作ったりして、
+自分用に育てていく体験を提供します。
+
+実装上も境界を分けています。バックエンドのプロダクト定義は `backend/app/product.py`、フロントの表示定義は
+`frontend/src/product.ts` が入口です。AgentForge のパイプライン本体はプロダクト名を参照せず、プロダクト側が
+表示名、タイトル画像、タグライン、デフォルトアプリ構成を選びます。
 
 DevOps × AI Agent Hackathon 2026 提出作品（提出締切 **2026-07-10**）。
 
-- 目的・全体像: [HANDOFF.md](HANDOFF.md)
+- 目的・全体像: [VISION.md](VISION.md), [HANDOFF.md](HANDOFF.md)
 - 生きた仕様（正準）: [IMPLEMENTATION_GUIDE.md](IMPLEMENTATION_GUIDE.md)
 - 進捗: [PROGRESS.md](PROGRESS.md)
 - 開発環境の正式記録: [ENVIRONMENT.md](ENVIRONMENT.md)
@@ -83,6 +93,7 @@ cd frontend && npm run build
 backend/        FastAPI core API（modular monolith）
   app/
     main.py         app factory（health + ルータ束ね）
+    product.py      Product profile（表示情報・デフォルトアプリ束）
     config.py       環境変数ベース設定
     firestore.py    Firestore クライアント（emulator 対応）
     agents/         組み込みAIワーカーの基本指示（*.md・リポジトリ管理）＋ローダー
@@ -98,6 +109,7 @@ backend/        FastAPI core API（modular monolith）
   Dockerfile        本番（Cloud Run）
   Dockerfile.dev    ローカル開発（reload）
 frontend/       React + Vite + TypeScript（Firebase Hosting 配信予定）
+  src/product.ts    Product shell の表示設定（VITE_PRODUCT_* で上書き可能）
 .devcontainer/  Dev Container 定義
 docs/           説明サイト（SVG 図解）
 docker-compose.dev.yml   ローカル開発スタック
