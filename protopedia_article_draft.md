@@ -48,20 +48,21 @@ AgentForge は、ユーザーが触るフロントエンド、ミニアプリ生
 
 投稿用画像はすべて PNG 形式で `protopedia_assets/` に保存しています。
 
-- フロントエンド: React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット（複数セッションの作成・命名・切替に対応）、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。
-- バックエンド: FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、Connector Bridge、承認・巻き戻しAPIを提供。会話履歴は閾値を超えると決定的に要約へ畳み込み（コンパクト化）、長期利用でも肥大化しない。
-- AI ワーカー: Receptor / Orchestrator / Tester / Reviewer / Specialist Worker。役割ごとに文脈を分け、MCP 的な request/report（plan / build / edit / verify / review / operate / investigate）で非同期に連携。メッセージ追記は Firestore トランザクションで並行実行に耐える。
-- 意図分類: キーワードの固定ルールに頼らず、LLM がセッションの会話文脈と機能一覧を読んで「作成 / 改修 / 調査 / 会話」を判定する。機能名の表記ゆれやタイプミスも一覧に照らして解決し、原文は改変せず補足のみ追加する。
-- パイプライン: ユーザー発話を `task_id` 付きの作業単位に変換し、設計、生成、検証、レビュー、プレビュー、公開承認までを一連の流れとして扱う。修正指示、検証 NG、停滞時はそれぞれ明示的な戻り先を持つ。コード改修を伴わない依頼は investigate（調査）として扱い、保存状態や接続設定を事実ベースで確認して報告する。
+- フロントエンド: React + Vite。トップページ、Pipeline 詳細、Architecture 詳細、メインチャット（複数セッションの作成・命名・切替に対応）、ミニアプリ表示領域、アプリチャット、ステータスモニター、変更履歴を提供。左メニューではアプリの並べ替え、フォルダ化・取り出し、名称変更ができる。アプリ改修を依頼すると新しいメインチャットセッションへ遷移し、対象アプリだけを完了まで操作不可にして重複依頼を防ぐ。
+- バックエンド: FastAPI。Receptor、Orchestrator、Control Plane、生成ミニアプリ実行API、Connector Bridge、承認・巻き戻し・完全削除APIを提供。会話履歴は閾値を超えると決定的に要約へ畳み込み（コンパクト化）し、長期利用でも肥大化しない。アプリ削除時は、表示定義だけでなく状態、Blob、接続設定・secret、アプリチャット、Workerコンテキスト、版履歴など、そのアプリに属するデータをまとめて削除する。
+- AI ワーカー: Receptor / Orchestrator / Tester / Reviewer / Specialist Worker。役割ごとに文脈と権限を分け、MCP 的な request/report（plan / build / edit / verify / review / operate / investigate）で非同期に連携する。メッセージ追記は Firestore トランザクションで並行実行に耐える。ユーザーへの会話は Receptor / Specialist Worker が受け持ち、制作チームの raw trace をそのまま転記せず、依頼に対する進捗と結果へ要約して返す。
+- 依頼理解と構造化: Receptor と Specialist Worker は、LLMで会話文脈と機能一覧を読み、依頼の目的、対象アプリ、必要な情報、実行内容を構造化してから処理する。固定キーワードだけに頼らず「新規作成 / 改修 / 調査 / 会話 / アプリ内操作」を判定し、機能名の表記ゆれやタイプミスも一覧に照らして解決する。タスク追加ではタスク名と詳細を分離し、補足の余地があればAIが提案を加えるなど、依頼の種類に応じて自然に具体化する。
+- Specialist Worker の実行判断: 担当アプリ内の追加・更新・検索・削除などは、構造化した引数で `commands[]`、`state_schema`、アプリAPIを操作してその場で結果を返す。新機能や画面構造の変更など担当権限を超える依頼は、自分でコードを書き換えず「アプリ制作・改修パイプラインへエスカレーション」する。エスカレーション時は依頼専用の新しいメインチャットセッションを作り、依頼原文と構造化結果をReceptorからOrchestratorへ引き継ぐ。
+- パイプライン: ユーザー発話を `task_id` 付きの作業単位に変換し、依頼確認、設計承認、生成、Tester検証、Reviewer審査、Safety Harness判定、プレビュー、公開承認までを一連の流れとして扱う。修正指示、検証NG、レビューNG、停滞時はそれぞれ明示的な戻り先を持つ。同一アプリの改修はロックし、他のアプリは利用可能なままにする。コード改修を伴わない依頼は investigate（調査）として扱い、保存状態や接続設定を事実ベースで確認して報告する。
 - 生成 contract: 自己完結 HTML、`state_schema`、`commands[]`、`window.applyAgentCommand(name,args)`、Worker prompt、`worker_eval_cases`、危険操作方針、版メタデータを同時に設計する。
-- Safety Harness: Tester / Reviewer の結果、禁止 API、外部リソース、Worker 契約、stub 生成物の有無を統合して、通過した候補だけを preview / publish に進める公開前安全ゲート。
-- Agent Harness: `pipeline_runs` にワーカーの判断、進捗、生成物メタ、Tester/Reviewer/Safety Harness 結果、リトライ、承認を記録。一般ユーザーには raw trace を見せず、進捗・失敗理由・承認前サマリーに変換して表示。
-- LLM: 本番は Gemini API（FLASH=Gemini Flash / PRO=Gemini Pro）。開発・デモでは Claude Code CLI ブリッジを使い、同じワーカー構造・同じ能力帯でコストを抑えて検証。
+- Safety Harness: Tester / Reviewer の結果、禁止 API、外部リソース、Worker 契約、stub 生成物の有無を統合し、通過した候補だけを preview に進める公開前安全ゲート。NGの指摘は次の生成へ必ず引き継ぎ、3回までは自動再試行する。なお通らない場合は、ユーザーが「さらに3回試す」か「停止する」かを選び、継続するたびに同じ単位で改善を重ねる。
+- Agent Harness: `pipeline_runs` にワーカーの判断、進捗、生成物メタ、Tester / Reviewer / Safety Harnessの結果、指摘の引き継ぎ、リトライ、承認を記録する。一般ユーザーには raw trace を見せず、進捗・失敗理由・次の判断・承認前サマリーに変換して表示する。
+- LLM: 本番は Gemini API（FLASH=Gemini Flash / PRO=Gemini Pro）。開発・デモでは Codex CLI セッションをホストブリッジ経由で使い、同じワーカー構造と能力帯で検証する。
 - 実行基盤: Cloud Run 上でアプリ本体を実行。Firebase Hosting / Auth、Firestore を組み合わせ、会話、ワーカー状態、生成ミニアプリ、承認、監査ログ、アプリ状態を保存。
 - 安全境界: 生成ミニアプリは sandbox iframe 内で実行し、直接の外部通信・cookie・localStorage を禁止。保存は AF.load / AF.save 経由でサーバ側に限定。外部リンクはユーザーのクリック操作に応じたシェル経由（AF.openExternal）でのみ開く。
 - Connector Bridge: 外部サービス連携（例: Bluesky/AT Protocol）は、ミニアプリが `AF.defineConnector` で feature 単位の接続を登録し、登録済み action だけを `AF.api` で呼ぶ。URL・トークン・パスワードはバックエンドが管理し、保存済み secret は query/body テンプレートでサーバ側だけで差し込む（生成 HTML の state には残さない）。宛先は登録した base_url の同一オリジンに限定し、任意ホストへのプロキシ化（SSRF）を防ぐ。
-- DevOps 制御: 生成物はすぐ公開せず、Tester、Reviewer、Safety Harness のゲートを通したうえでプレビュー登録。ユーザーが「反映して」と承認したときだけ active 化し、公開ごとのスナップショットから即時巻き戻しできる。
-- Specialist Worker Eval: 生成時に `worker_eval_cases`、`clarification_policy`、`dangerous_action_policy` を作り、各ミニアプリの専門ワーカーが「削除」「一括操作」「異常値」「曖昧な対象」「担当外の構造変更」などを誤判断しにくいようにする。
+- DevOps 制御: 生成物はすぐ公開せず、Tester、Reviewer、Safety Harness のゲートを通したうえでプレビュー登録する。ユーザーが「反映して」と承認したときだけ active 化し、公開ごとのスナップショットから即時巻き戻しできる。改修完了・失敗・停止時には対象アプリのロックを確実に解除する。
+- Specialist Worker Eval: 生成時に `worker_eval_cases`、`clarification_policy`、`dangerous_action_policy` を作る。各ミニアプリの専門ワーカーが、依頼を理解・構造化したうえで「削除」「一括操作」「異常値」「曖昧な対象」「担当外の構造変更」を判断できるかを検証し、担当外の改修は制作パイプラインへ正しくエスカレーションさせる。
 
 ## 開発素材
 
