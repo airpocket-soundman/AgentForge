@@ -103,8 +103,10 @@ export async function deleteFeatureBlobs(feature: string, projectId = PROJECT_ID
   return count;
 }
 
-// A generated app runs in a SANDBOXED iframe (allow-scripts only: opaque origin,
-// no access to our app/auth/Firestore, no localStorage, no network). We inject a
+// A generated app runs in a SANDBOXED iframe (scripts + user-initiated downloads;
+// opaque origin, no access to our app/auth/Firestore, no localStorage, no network).
+// `allow-downloads` permits an explicit PNG/file export button but does not grant
+// navigation, popups, forms, same-origin access, or network access. We inject a
 // tiny `AF` bridge so apps can persist their whole-state blob over postMessage:
 //   const s = await AF.load();  await AF.save(s);
 // `live=false` (chat preview) keeps persistence in-memory only.
@@ -307,7 +309,7 @@ export function AppFrame({
       ref={frameRef}
       className="gen-app-frame"
       title={title ?? feature}
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-downloads"
       srcDoc={html ? withPrelude(html) : ""}
     />
   );

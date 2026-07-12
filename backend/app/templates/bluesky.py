@@ -28,6 +28,10 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
 .text{white-space:pre-wrap;word-break:break-word;line-height:1.55;font-size:14.5px}.embed{margin-top:8px;border-top:1px solid var(--line);padding-top:8px;color:var(--mut);font-size:12px;line-height:1.45}
 .imgs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:10px}.imgs img{width:100%;max-height:280px;object-fit:cover;border-radius:7px;border:1px solid var(--line);background:var(--soft)}
 .missingimg{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--line);border-radius:7px;background:var(--soft);color:var(--mut);font-size:12px;text-align:center;padding:8px}
+.composer-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:18px;background:rgba(25,30,50,.36)}.composer-backdrop[hidden]{display:none}
+.composer{width:min(560px,100%);background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 18px 48px rgba(30,34,60,.24)}
+.composer-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.composer-head h3{margin:0;font-size:16px}.composer-close{background:#fff;color:var(--mut);border:1px solid var(--line);padding:6px 9px}
+.composer textarea{width:100%;min-height:150px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:11px;color:var(--ink);font:inherit;line-height:1.5}.composer-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}.composer-count{font-size:12px;color:var(--mut)}.composer-count.over{color:var(--bad);font-weight:800}.composer-status{min-height:20px;margin-top:8px;font-size:12.5px;color:var(--mut)}.composer-status.bad{color:var(--bad)}
 .links{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.linkbtn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#fff;color:var(--brand);border:1px solid var(--line);padding:7px 9px;font-size:12px}
 .empty{border:1px dashed var(--line);border-radius:8px;padding:24px;text-align:center;color:var(--mut);background:#fff}.pill{display:inline-flex;align-items:center;gap:5px;background:var(--soft);color:#0a65c5;border-radius:999px;padding:4px 8px;font-size:12px}
 @media(max-width:760px){.app{grid-template-columns:1fr;padding:10px}.topbar{align-items:flex-start;flex-direction:column}.searchbox input{width:150px}}
@@ -45,11 +49,19 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
   <main>
     <div class="topbar">
       <h2>投稿</h2>
-      <div class="topactions"><button id="home" class="homebtn" type="button">Home</button><div class="searchbox"><span>@</span><input id="accountSearch" placeholder="handle.bsky.social"></div><span class="pill" id="savedBadge">未接続</span></div>
+      <div class="topactions"><button id="composeOpen" type="button">書き込み</button><button id="home" class="homebtn" type="button">Home</button><div class="searchbox"><span>@</span><input id="accountSearch" placeholder="handle.bsky.social"></div><span class="pill" id="savedBadge">未接続</span></div>
     </div>
     <div class="feed" id="feed"><div class="empty">アカウントとApp Passwordを入力すると自動で読み込みます。</div></div>
     <div class="status" id="feedStatus"></div>
   </main>
+</div>
+<div class="composer-backdrop" id="composerBackdrop" hidden>
+  <section class="composer" role="dialog" aria-modal="true" aria-labelledby="composerTitle">
+    <div class="composer-head"><h3 id="composerTitle">Blueskyへ書き込み</h3><button id="composerClose" class="composer-close" type="button" aria-label="閉じる">✕</button></div>
+    <textarea id="composerText" maxlength="300" placeholder="いまどうしてる？"></textarea>
+    <div class="composer-foot"><span class="composer-count" id="composerCount">0 / 300</span><div class="actions"><button id="composerCancel" class="secondary" type="button">キャンセル</button><button id="composerSubmit" type="button" disabled>投稿する</button></div></div>
+    <div class="composer-status" id="composerStatus" role="status"></div>
+  </section>
 </div>
 <script>
 (function(){
@@ -73,6 +85,7 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
     });
   }
   function setStatus(id,msg,bad){var el=$(id);setText(el,msg);el.className=bad?"status bad":"status";}
+  function setComposerStatus(msg,bad){var el=$("composerStatus");setText(el,msg);el.className=bad?"composer-status bad":"composer-status";}
   function syncFromInputs(){
     state.identifier=normalizeIdentifier($("identifier").value);
   }
@@ -246,6 +259,9 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
     var storedBlob=await AF.loadBlob(name);
     if(storedBlob){
       var im=document.createElement("img");im.src=storedBlob;im.alt=alt||"Bluesky image";if(cls)im.className=cls;container.appendChild(im);
+    }else{
+      var miss=document.createElement("div");miss.className="missingimg";
+      setText(miss,"画像データがこの端末にありません。再読み込みすると取得を試みます。");container.appendChild(miss);
     }
   }
   async function renderStoredImage(container,pic){
@@ -317,7 +333,7 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
         var links=document.createElement("div");links.className="links";
         linkList.forEach(function(url){
           var b=document.createElement("button");b.type="button";b.className="linkbtn";
-          setText(b,url);
+          setText(b,linkLabel(url));
           b.title=url;
           b.onclick=function(){openExternal(url);};
           links.appendChild(b);
@@ -332,6 +348,30 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
   function openExternal(url){
     if(!/^https?:\/\//i.test(String(url||"")))return;
     AF.openExternal(url);
+  }
+  function linkLabel(url){
+    try{var u=new URL(String(url||""));return (u.hostname||"外部リンク")+" の詳細を見る";}catch(_){return "外部リンクの詳細を見る";}
+  }
+  function composerLength(){return Array.from($("composerText").value||"").length;}
+  function updateComposer(){
+    var n=composerLength(),count=$("composerCount"),submit=$("composerSubmit");
+    setText(count,n+" / 300");count.className=n>300?"composer-count over":"composer-count";
+    submit.disabled=!state.sessionReady||n<1||n>300;
+  }
+  function openComposer(){
+    $("composerBackdrop").hidden=false;setComposerStatus(state.sessionReady?"":"先にApp Passwordで接続してください。",!state.sessionReady);
+    updateComposer();setTimeout(function(){$("composerText").focus();},0);
+  }
+  function closeComposer(){$("composerBackdrop").hidden=true;setComposerStatus("",false);}
+  async function submitPost(){
+    var text=$("composerText").value.trim();if(!state.sessionReady){setComposerStatus("先にApp Passwordで接続してください。",true);return;}
+    if(!text||Array.from(text).length>300){updateComposer();return;}
+    $("composerSubmit").disabled=true;setComposerStatus("投稿しています…",false);
+    try{
+      await AF.api("bluesky.create_post",{repo:state.currentDid,text:text,createdAt:new Date().toISOString()});
+      $("composerText").value="";updateComposer();setComposerStatus("投稿しました。",false);
+      setTimeout(function(){$("composerBackdrop").hidden=true;showHome();},450);
+    }catch(e){setComposerStatus("投稿に失敗しました: "+(e&&e.message?e.message:e),true);updateComposer();}
   }
   function showAuthor(handle){
     clearTimeout(feedTimer);
@@ -399,6 +439,7 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
         timeline:{method:"GET",path:"/xrpc/app.bsky.feed.getTimeline",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor"}},
         author_feed:{method:"GET",path:"/xrpc/app.bsky.feed.getAuthorFeed",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor",actor:"$params.actor"}},
         profile:{method:"GET",path:"/xrpc/app.bsky.actor.getProfile",side_effect:"read",query_template:{actor:"$params.actor"}},
+        create_post:{method:"POST",path:"/xrpc/com.atproto.repo.createRecord",side_effect:"medium",body_template:{repo:"$params.repo",collection:"app.bsky.feed.post",record:{"$type":"app.bsky.feed.post",text:"$params.text",createdAt:"$params.createdAt"}}},
         follow:{method:"POST",path:"/xrpc/com.atproto.repo.createRecord",side_effect:"medium",body_template:{repo:"$params.repo",collection:"app.bsky.graph.follow",record:{"$type":"app.bsky.graph.follow",subject:"$params.subject",createdAt:"$params.createdAt"}}},
         unfollow:{method:"POST",path:"/xrpc/com.atproto.repo.deleteRecord",side_effect:"medium",body_template:{repo:"$params.repo",collection:"app.bsky.graph.follow",rkey:"$params.rkey"}}
       }
@@ -497,6 +538,10 @@ button:disabled{opacity:.55;cursor:default}.actions{display:flex;gap:8px;flex-wr
   }
   window.addEventListener("scroll",maybeLoadMore,{passive:true});
   $("home").onclick=showHome;
+  $("composeOpen").onclick=openComposer;$("composerClose").onclick=closeComposer;$("composerCancel").onclick=closeComposer;$("composerSubmit").onclick=submitPost;
+  $("composerText").addEventListener("input",updateComposer);
+  $("composerBackdrop").addEventListener("click",function(e){if(e.target===$("composerBackdrop"))closeComposer();});
+  document.addEventListener("keydown",function(e){if(e.key==="Escape"&&!$("composerBackdrop").hidden)closeComposer();});
   $("identifier").addEventListener("input",function(){syncFromInputs();save();scheduleConnect();});
   $("appPassword").addEventListener("input",scheduleConnect);
   $("accountSearch").addEventListener("input",function(){clearTimeout(feedTimer);feedTimer=setTimeout(searchAccount,500);});

@@ -38,9 +38,13 @@ function isNearBottom(el: HTMLElement | null): boolean {
 export function ChatView({
   onFeatureActivated,
   onFeatureDisabled,
+  requestedContext,
+  onAppPipelineFinished,
 }: {
   onFeatureActivated: (feature: string) => void;
   onFeatureDisabled: (feature: string) => void;
+  requestedContext?: string | null;
+  onAppPipelineFinished?: (contextId: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME]);
   const [input, setInput] = useState("");
@@ -68,6 +72,13 @@ export function ChatView({
   const chatContextRef = useRef(chatContext);
   chatContextRef.current = chatContext;
 
+  useEffect(() => {
+    if (!requestedContext || requestedContext === chatContextRef.current) return;
+    localStorage.setItem("af_main_chat_context", requestedContext);
+    chatContextRef.current = requestedContext;
+    setChatContext(requestedContext);
+  }, [requestedContext]);
+
   function scrollDown() {
     requestAnimationFrame(() => listRef.current?.scrollTo({ top: listRef.current.scrollHeight }));
   }
@@ -91,12 +102,15 @@ export function ChatView({
       setMode(s.mode);
       setNeedsRegeneration(!!s.needs_regeneration);
       setPendingFeature(s.pending_feature);
+      if (ctx.startsWith("app_") && !s.building && s.stage === "idle") {
+        onAppPipelineFinished?.(ctx);
+      }
       // Fetch the candidate app the moment code is built (create OR edit), in the
       // SAME call that flips the stage — avoids a one-shot race that left the
       // preview blank. Keep any existing preview if a transient fetch fails.
       if (s.stage === "built") {
         try {
-          const c = await getCandidate();
+          const c = await getCandidate(undefined, ctx);
           if (c) setPreview(c);
         } catch {
           /* keep current preview; the poll will retry */
@@ -208,7 +222,7 @@ export function ChatView({
   }
 
   async function clearContext() {
-    if (!window.confirm("この session を削除しますか？")) return;
+    if (!window.confirm("この会話履歴だけを削除しますか？\nミニアプリ本体とアプリ内データは削除されません。")) return;
     await deleteMainChatContext(chatContext);
     const next = "default";
     setChatContext(next);
@@ -251,9 +265,16 @@ export function ChatView({
             </option>
           ))}
         </select>
-        <button type="button" className="secondary" onClick={() => void createContext()}>new session</button>
-        <button type="button" className="secondary" onClick={() => void editSessionName()}>session name edit</button>
-        <button type="button" className="danger" onClick={() => void clearContext()}>session delete</button>
+        <button type="button" className="secondary" onClick={() => void createContext()}>新しい会話</button>
+        <button type="button" className="secondary" onClick={() => void editSessionName()}>会話名を変更</button>
+        <button
+          type="button"
+          className="danger"
+          title="会話履歴だけを削除します。ミニアプリと保存データは削除されません。"
+          onClick={() => void clearContext()}
+        >
+          会話だけ削除（アプリは残る）
+        </button>
       </div>
       <div className="chat" ref={listRef}>
         {messages.map((m, i) => (
@@ -314,13 +335,13 @@ export function ChatView({
         <div className="approval">
           <span>
             {needsRegeneration
-              ? "未通過の生成物は公開できません。同じ設計で再生成するか、修正内容をメッセージで指示してください。"
+              ? "レビュー未通過です。指摘はすべて保存されています。さらに3回自動修正を続けるか、ここでやめるか選んでください。"
               : "この設計案で進めますか？修正があればメッセージで指示してください。"}
           </span>
           <div className="approval__actions">
             <button className="rollback" onClick={() => void send("キャンセル")}>やめる</button>
             <button onClick={() => void send("これで作って")}>
-              {needsRegeneration ? "同じ設計で再生成" : "これで作って（コード生成）"}
+              {needsRegeneration ? "さらに3回トライ" : "これで作って（コード生成）"}
             </button>
           </div>
         </div>
@@ -349,7 +370,7 @@ export function ChatView({
             placeholder={
               stage === "plan"
                 ? needsRegeneration
-                  ? "修正を入力…（例：指摘の表示方法を変えて）。同じ設計なら「同じ設計で再生成」"
+                  ? "追加の修正指示を入力できます。指摘を引き継いで続ける場合は「さらに3回トライ」"
                   : "修正を入力…（例：色を増やして / 保存も付けて）。OKなら「これで作って」"
                 : "追加したい機能を入力…（画像やファイルも貼り付け・ドロップ・＋で添付）"
             }

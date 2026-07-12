@@ -246,6 +246,7 @@ _RESET_COLLECTIONS = [
     "app_entities",
     "app_state",
     "feature_chats",
+    "app_connectors",
 ]
 
 

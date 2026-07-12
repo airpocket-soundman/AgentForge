@@ -83,6 +83,30 @@ def test_flow_record_needs_regeneration_defaults_false_and_resets():
     flow = service._flow_record({"stage": "plan", "goal": "g", "plan": {}})
     assert flow["needs_regeneration"] is False
     assert flow["gate_feedbacks"] == []
+
+
+def test_app_pipeline_context_is_stable_and_feature_scoped():
+    assert service.app_pipeline_context("bluesky") == "app_bluesky"
+    assert service.app_pipeline_context("task-manager") == "app_task-manager"
+
+
+def test_each_specialist_handoff_gets_a_new_main_chat_session():
+    first = service.new_app_pipeline_context("bluesky")
+    second = service.new_app_pipeline_context("bluesky")
+    assert first.startswith("app_bluesky_")
+    assert second.startswith("app_bluesky_")
+    assert first != second
+
+
+def test_app_publish_button_phrase_is_approval():
+    assert service.is_plan_ok("反映して")
+
+
+def test_pinned_app_conversation_does_not_follow_active_main_context(monkeypatch):
+    monkeypatch.setattr(service, "active_main_context", lambda _project_id: "main_other")
+    with service.pinned_conversation("p1", service.app_pipeline_context("bluesky")):
+        assert service.conversation_id_for("p1") == "conv_p1__app_bluesky"
+    assert service.conversation_id_for("p1") == "conv_p1__main_other"
     # Set explicitly only by the gate-failed codegen path.
     flow = service._flow_record({"stage": "plan", "needs_regeneration": True, "gate_feedbacks": ["[規約] x"]})
     assert flow["needs_regeneration"] is True
@@ -98,6 +122,22 @@ def test_gate_feedback_history_deduplicates_and_combines():
     assert "[過去の未通過フィードバック]" in combined
     assert "[動作] y" in combined
     assert "[安全] z" in combined
+
+
+def test_review_gate_runs_three_automatic_retries_per_batch():
+    assert service._GATE_AUTO_RETRIES == 3
+    assert service._GATE_MAX_ATTEMPTS == 4
+
+
+def test_review_feedback_history_is_not_discarded_between_batches():
+    feedbacks: list[str] = []
+    for i in range(12):
+        feedbacks = service._merge_gate_feedbacks(feedbacks, f"[review] finding {i}")
+    assert len(feedbacks) == 12
+    assert feedbacks[0] == "[review] finding 0"
+    assert feedbacks[-1] == "[review] finding 11"
+    combined = service._combined_gate_feedback(feedbacks)
+    assert combined is not None and "finding 0" in combined and "finding 11" in combined
 
 
 def test_resolve_feature_delete_accepts_slug_without_scope(monkeypatch):

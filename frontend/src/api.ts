@@ -106,8 +106,11 @@ export interface ConversationState {
   context_id?: string;
   messages: ChatMessage[];
   building: boolean;
-  // What the worker is doing now while building: "planning" | "revising" | "codegen" | "editing".
-  phase?: string | null;
+    // What the worker is doing now while building: "planning" | "revising" | "codegen" | "editing".
+    phase?: string | null;
+    // One app-facing Orchestrator update. Main-chat history must not be copied into app chat.
+    progress_message?: string | null;
+    progress_updated_at?: string | null;
   // Flow: "idle" | "confirm" (restated, awaiting OK) | "plan" | "built".
   stage: "idle" | "confirm" | "plan" | "built";
   mode: "create" | "edit"; // at "built": new feature vs editing an existing one
@@ -447,6 +450,7 @@ export function sendFeatureWorkerMessage(
   created: { task_id: string; title: string }[];
   data_changed?: boolean;
   command?: { name: string; arguments?: Record<string, unknown> } | null; // MCP-style tool call
+  pipeline_context_id?: string | null;
 }> {
   return request(`/api/app/features/${encodeURIComponent(feature)}/worker/messages`, {
     method: "POST",
@@ -606,9 +610,10 @@ export function getPreview(feature: string, projectId = PROJECT_ID): Promise<Vie
 
 // The app awaiting publish (new or edited) — preview source for the chat (works
 // for edits too, where the live manifest is still the old one).
-export async function getCandidate(projectId = PROJECT_ID): Promise<ViewManifest | null> {
+export async function getCandidate(projectId = PROJECT_ID, contextId?: string): Promise<ViewManifest | null> {
+  const suffix = contextId ? `?context_id=${encodeURIComponent(contextId)}` : "";
   const r = await request<{ manifest: ViewManifest | null }>(
-    `/api/reception/candidate/${encodeURIComponent(projectId)}`,
+    `/api/reception/candidate/${encodeURIComponent(projectId)}${suffix}`,
   );
   return r.manifest ?? null;
 }

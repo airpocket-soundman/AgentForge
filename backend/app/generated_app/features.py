@@ -17,6 +17,7 @@ feature (feature_states.{feature}_worker = false).
 from __future__ import annotations
 
 import json
+import contextvars
 import re
 import unicodedata
 import uuid
@@ -39,6 +40,9 @@ router = APIRouter(prefix="/api/app/features", tags=["generated-app:feature-work
 _VIEWS = "generated_views"
 _STATE = "app_state"
 _APP_CONNECTORS = "app_connectors"
+_LAST_PIPELINE_CONTEXT: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "feature_worker_pipeline_context", default=None
+)
 _DEFAULT_CONTEXT = "default"
 _FEATURE_CHAT_KEEP_RECENT = 70
 
@@ -166,6 +170,7 @@ def get_worker(
 
 @router.post("/{feature}/worker/messages")
 def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser = Depends(current_user)) -> dict:
+    _LAST_PIPELINE_CONTEXT.set(None)
     require_project_access(user, body.project_id)
     require_feature_active(body.project_id, feature)
     if not _worker_enabled(body.project_id, feature):
@@ -197,6 +202,7 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
             "created": [],
             "data_changed": data_changed,
             "command": None,
+            "pipeline_context_id": _LAST_PIPELINE_CONTEXT.get(),
         }
 
     # Show the Specialist Worker as ACTIVE in the status monitor while it works,
@@ -240,13 +246,23 @@ def post_worker_message(feature: str, body: FeatureWorkerIn, user: CurrentUser =
     report = _work_report(command, changed)
     msgs = [user_msg] + ([report] if report else []) + [reply]
     _append(body.project_id, feature, ctx, body.context_label, *msgs)
+    from app.reception import service as reception
+    pipeline_context = _LAST_PIPELINE_CONTEXT.get()
+    status_context = pipeline_context or reception.app_pipeline_context(feature)
+    with reception.pinned_conversation(body.project_id, status_context):
+        app_build = reception.current_build(body.project_id)
+        app_flow = reception.get_flow(body.project_id)
+        pipeline_active = app_build.get("status") == "designing" or app_flow.get("stage") in {
+            "confirm", "plan", "built"
+        }
     return {
         "reply": reply.model_dump(mode="json"),
-        "building": False,
+        "building": pipeline_active,
         "context_id": ctx,
         "created": changed,
         "data_changed": bool(changed),
         "command": command,  # app-kind: {name, args} for the live app to apply
+        "pipeline_context_id": pipeline_context,
     }
 
 
@@ -387,13 +403,31 @@ def _route_to_main(
     from app.reception import service as reception
 
     try:
-        res = reception.handle_request(
-            project_id,
-            text,
-            hint_feature=feature,
-            user_call_name=user_call_name,
-            restrict_feature=feature,
-        )
+        if reception.feature_pipeline_active(project_id, feature):
+            return f"「{title}」の改修はすでに進行中です。メインチャットで進捗、反映、または中止を行ってください。"
+        # Every handoff gets a fresh conversation. Reusing one app-wide thread
+        # buried new requests in old progress and made the transition ambiguous.
+        pipeline_context = reception.new_app_pipeline_context(feature)
+        _LAST_PIPELINE_CONTEXT.set(pipeline_context)
+        reception.set_active_main_context(project_id, pipeline_context, f"{title} 改修")
+        with reception.pinned_conversation(project_id, pipeline_context):
+            build = reception.current_build(project_id)
+            flow = reception.get_flow(project_id)
+            if build.get("status") == "designing":
+                return f"「{title}」の改修はすでに制作チームが進めています。メインチャットで進捗をご確認ください。"
+            if flow.get("stage") in ("confirm", "plan", "built"):
+                return f"「{title}」には確認または反映待ちの改修があります。メインチャットで続行または中止してください。"
+            reception.append_message(
+                reception.conversation_id_for(project_id),
+                ChatMessage(role="user", text=f"【{title}からの改修依頼】\n{text}"),
+            )
+            res = reception.handle_request(
+                project_id,
+                text,
+                hint_feature=feature,
+                user_call_name=user_call_name,
+                restrict_feature=feature,
+            )
         action = res.get("action")
         if action == "out_of_scope":
             return (
@@ -413,7 +447,9 @@ def _route_to_main(
     return _STRUCTURE_REDIRECT.format(title=title)
 
 
-def _handle_shared_pipeline_control(project_id: str, feature: str, text: str) -> tuple[str, bool, bool] | None:
+def _handle_shared_pipeline_control_in_context(
+    project_id: str, feature: str, text: str
+) -> tuple[str, bool, bool] | None:
     """Let the app chat continue a Receptor/Orchestrator flow for this feature.
 
     Returns (reply, building, data_changed). This keeps confirmation, publish, and
@@ -470,6 +506,16 @@ def _handle_shared_pipeline_control(project_id: str, feature: str, text: str) ->
             reception.clear_flow(project_id)
             return "公開対象が見つかりませんでした。もう一度このアプリチャットから依頼してください。", False, False
     return None
+
+
+def _handle_shared_pipeline_control(
+    project_id: str, feature: str, text: str
+) -> tuple[str, bool, bool] | None:
+    """Continue this app's pipeline in the same app-owned conversation."""
+    from app.reception import service as reception
+
+    with reception.pinned_conversation(project_id, reception.app_pipeline_context(feature)):
+        return _handle_shared_pipeline_control_in_context(project_id, feature, text)
 
 
 def _tool_names(manifest: dict) -> set[str]:
@@ -838,7 +884,8 @@ def _interpret_app_request(
         '"intent":"content|structure|chat",'
         '"operations":[{"op":"create|update|append|delete|query|chat|structure","target":"<対象>",'
         '"content":"<整理済み本文>","fields":{"date":"YYYY-MM-DD","time":"HH:MMまたは空",'
-        '"title":"<予定名だけ>","memo":"<整理・調査済み本文>"}}],'
+        '"title":"<対象名だけ>","memo":"<整理・調査済み本文>",'
+        '"detail_html":"<見出し・本文・箇条書きで構造化したHTML>"}}],'
         '"reason":"<短く>"}\n\n'
         "ルール:\n"
         "- 元の指示をそのまま転記しない。暗黙の対象、現在開いている文脈、本文、検索/調査の必要性を補う。\n"
@@ -849,6 +896,11 @@ def _interpret_app_request(
         "予定追加とメモ調査が一緒なら1つの create にまとめ、memo に調査結果を入れる。\n"
         "- タスク管理で『Aというタスクを追加して。案としてBを書いて』のような依頼は、"
         "タスク名をA、詳細/本文をBとして分ける。依頼文全体を title に入れてはいけない。\n"
+        "- タスク管理では依頼全体から追加意図を判断し、意味上のタスク名だけを title、"
+        "説明・背景・目的・条件・メモ・案など実行内容に関する部分を detail_html に分離する。"
+        "ユーザーが『タスク名』『詳細』という語を使っていなくても意味から抽出する。"
+        "詳細は元の要点を保って内容に合う見出し・段落・箇条書きで構造化し、役立つ提案や不足観点を補える場合は"
+        "『提案』『補足』『確認事項』などとして加える。推測を確定事項にせず、依頼語は保存本文に残さない。\n"
         "- 本文/メモ/詳細に入れる内容はラベル・箇条書き・短い見出しで整理する。\n"
         "- 『調べて/探して/検索して』があり、上に [リアルタイムWeb検索結果] がある場合は、"
         "その検索結果を先に読んで、候補名・要点・確認事項を含む保存本文まで作る。"
@@ -1584,6 +1636,7 @@ def _parse_task_add_request(text: str) -> dict | None:
 def _clean_task_title(text: str) -> str:
     title = _normalize_text(text)
     title = re.sub(r"^(?:タスク|やること|todo|to-do)(?:に|へ|を)?", "", title, flags=re.I)
+    title = re.sub(r"(?:を)?(?:タスク|やること|todo|to-do)(?:に|へ)?$", "", title, flags=re.I)
     title = re.sub(r"(?:という|といいう|と言う)$", "", title).strip()
     title = title.strip(" 「」『』\"'。 、,")
     return title[:120]
@@ -1597,13 +1650,18 @@ def _task_detail_html_from_instruction(text: str) -> str:
     if said_content:
         c = said_content.group(1).strip(" 。、")
         return f"<h2>内容</h2><p>{_html_escape_text(c)}</p>" if c else ""
-    c = re.sub(r"(?:書いて|書くいて|記入して|入れて|追記して|追加して)(?:おいて|ください)?$", "", c).strip(" 。、")
+    c = re.sub(
+        r"(?:書いて|書くいて|記入して|記載して|載せて|入れて|追記して|追加して)(?:おいて|ください)?$",
+        "",
+        c,
+    ).strip(" 。、")
     c = re.sub(r"(?:という)?(?:内容|本文|詳細|メモ)(?:を)?$", "", c).strip(" 。、")
     c = re.sub(r"(?:を|に|へ)$", "", c).strip(" 。、")
     if not c:
         return ""
     label = "詳細"
     for pat, candidate in (
+        (r"^アイデア案(?:として|は|を|:|：)?\s*(.+)", "アイデア案"),
         (r"^案(?:として|は|を|:|：)?\s*(.+)", "案"),
         (r"^内容(?:は|を|:|：)?\s*(.+)", "内容"),
         (r"^詳細(?:に|へ|は|を|:|：)?\s*(.+)", "詳細"),
@@ -1620,6 +1678,29 @@ def _task_detail_html_from_instruction(text: str) -> str:
     if len(items) >= 2:
         return "<h2>" + _html_escape_text(label) + "</h2><ul>" + "".join(f"<li>{_html_escape_text(item)}</li>" for item in items[:12]) + "</ul>"
     return f"<h2>{_html_escape_text(label)}</h2><p>{_html_escape_text(c)}</p>"
+
+
+def _task_detail_needs_repair(detail_html: object, original_text: str) -> bool:
+    """Detect task details that still look like an unprocessed user instruction."""
+    raw = _normalize_text(str(detail_html or "")).strip()
+    if not raw:
+        return True
+    plain = re.sub(r"<[^>]+>", " ", raw)
+    plain = " ".join(plain.split())
+    instruction_markers = (
+        "書いておいて",
+        "記載しておいて",
+        "記入しておいて",
+        "入れておいて",
+        "追加しておいて",
+        "というタスク",
+    )
+    if any(marker in plain for marker in instruction_markers):
+        return True
+    original = _normalize_text(original_text)
+    if len(plain) >= 20 and plain in original:
+        return True
+    return not any(tag in raw.lower() for tag in ("<h2", "<h3", "<p", "<ul", "<ol"))
 
 
 def _html_escape_text(text: str) -> str:
@@ -1817,7 +1898,7 @@ def _task_command_override(command: dict, original_text: str) -> tuple[str, dict
         if parsed.get("detail_html"):
             next_args["detail_html"] = parsed["detail_html"]
         return f"「{parsed['title']}」を追加します。", {"name": "add_task", "arguments": next_args}
-    if parsed.get("detail_html") and not args.get("detail_html"):
+    if parsed.get("detail_html") and _task_detail_needs_repair(args.get("detail_html"), original_text):
         next_args = dict(args)
         next_args["title"] = parsed["title"]
         next_args["detail_html"] = parsed["detail_html"]
@@ -2316,6 +2397,10 @@ def _respond_content(
                 "4. 削除語があるのに追加APIを選ぶ、追加語があるのに削除APIを選ぶ等、意図とAPIが矛盾する出力は禁止。\n"
                 "5. 翻訳・要約・抽出・本文/メモ/詳細更新など、ツールの引数に生成テキストが必要な場合は、"
                 "そのまま転記せず、ラベル・箇条書き・短い見出しで整理した本文を arguments に入れる。\n"
+                "5a. タスク追加が含まれる依頼では、依頼全体を title にせず、意味上のタスク名だけを抽出する。"
+                "詳細に相当する説明・背景・目的・条件・メモ・案があれば detail_html へ分離し、内容に合う構造へ整える。"
+                "ユーザーに役立つ提案や不足観点を補える場合は『提案』『補足』『確認事項』として詳細を強化してよい。"
+                "ただし推測は提案として示し、事実として捏造しない。『書いておいて』『記載して』等の依頼語は残さない。\n"
                 "6. UI/項目/新ボタン追加など、アプリそのものの構造変更は category=structure。\n"
                 "7. 純粋な質問・相談・原因調査・接続失敗の診断・一般仕様/設計相談で操作しない場合は category=chat。"
                 "明示的に『直して』『修正して』『実装して』と言われていない調査依頼を category=structure にしない。\n"

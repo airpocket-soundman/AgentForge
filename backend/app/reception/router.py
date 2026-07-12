@@ -89,10 +89,14 @@ def rename_context(
 
 
 @router.get("/candidate/{project_id}")
-def get_candidate(project_id: str, user: CurrentUser = Depends(current_user)) -> dict:
+def get_candidate(
+    project_id: str,
+    context_id: str | None = None,
+    user: CurrentUser = Depends(current_user),
+) -> dict:
     """The generated app awaiting publish (new or edited), for the chat preview."""
     require_project_access(user, project_id)
-    return {"manifest": service.get_candidate(project_id)}
+    return {"manifest": service.get_candidate(project_id, context_id)}
 
 
 @router.post("/messages", response_model=ReceptionReply)
@@ -309,12 +313,27 @@ def post_message(body: MessageIn, user: CurrentUser = Depends(current_user)) -> 
                     "少し待ってから「これで作って」と送ってください。"
                 )
             else:
-                service.start_codegen(
-                    body.project_id,
-                    flow["goal"],
-                    flow["plan"],
-                    gate_feedbacks=flow.get("gate_feedbacks") or [],
-                )
+                retry_kind = (flow.get("plan") or {}).get("retry_kind")
+                if retry_kind == "edit":
+                    service.start_edit(
+                        body.project_id,
+                        flow["feature"],
+                        flow["goal"],
+                        gate_feedbacks=flow.get("gate_feedbacks") or [],
+                    )
+                elif retry_kind == "candidate_revision":
+                    service.start_candidate_revision(
+                        body.project_id,
+                        flow["goal"],
+                        gate_feedbacks=flow.get("gate_feedbacks") or [],
+                    )
+                else:
+                    service.start_codegen(
+                        body.project_id,
+                        flow["goal"],
+                        flow["plan"],
+                        gate_feedbacks=flow.get("gate_feedbacks") or [],
+                    )
                 building = True
                 reply_text = (
                     "プランを承認しました。AIワーカーがコードを生成します。\n"

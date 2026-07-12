@@ -47,9 +47,11 @@ function isNearBottom(el: HTMLElement | null): boolean {
 export function GeneratedView({
   feature,
   onEdited,
+  onBuildStarted,
 }: {
   feature: string;
   onEdited?: () => void;
+  onBuildStarted?: (feature: string, contextId: string) => void;
 }) {
   const [manifest, setManifest] = useState<ViewManifest | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,13 +115,16 @@ export function GeneratedView({
   }
 
   const building = conv?.building ?? false;
+  const pipelineContext = `app_${feature}`;
   // The shared pipeline produced a change for THIS feature, awaiting 反映.
   const showPreview =
     conv?.stage === "built" && conv?.pending_feature === feature && !!candidate?.html;
   const showSharedProgress = conv?.active_feature === feature && (building || showPreview);
-  const sharedProgressMessages = showSharedProgress
-    ? (conv?.messages ?? []).filter((m) => (m.text || "").trim()).slice(-10)
-    : [];
+  const bridgeMessage = showSharedProgress
+    ? showPreview
+      ? "制作チームから変更候補が届きました。プレビューを確認し、反映するか修正内容を伝えてください。"
+      : conv?.progress_message?.trim() || "制作チームがこのアプリの変更を進めています…"
+    : null;
   const appPaneHidden = chatVisible && appRatio === 0;
   const chatPaneHidden = !chatVisible || appRatio === 1;
   const appPaneBasis = chatVisible ? (chatPaneHidden ? "100%" : `${appRatio * 100}%`) : "100%";
@@ -130,16 +135,19 @@ export function GeneratedView({
 
   useLayoutEffect(() => {
     if (shouldAutoScrollRef.current) scrollDown();
-  }, [worker?.messages.length, sharedProgressMessages.length, building, showPreview]);
+  }, [worker?.messages.length, bridgeMessage, showPreview]);
 
   async function loadAll() {
     try {
-      const [w, c] = await Promise.all([getFeatureWorker(feature, undefined, chatContext.id), getConversationState()]);
+      const [w, c] = await Promise.all([
+        getFeatureWorker(feature, undefined, chatContext.id),
+        getConversationState(undefined, pipelineContext),
+      ]);
       shouldAutoScrollRef.current = isNearBottom(threadRef.current);
       setWorker(w);
       setConv(c);
       if (c.stage === "built" && c.pending_feature === feature) {
-        getCandidate().then(setCandidate).catch(() => setCandidate(null));
+        getCandidate(undefined, pipelineContext).then(setCandidate).catch(() => setCandidate(null));
       } else {
         setCandidate(null);
       }
@@ -233,6 +241,7 @@ export function GeneratedView({
         chatContext.id,
         chatContext.label,
       );
+      if (res.building) onBuildStarted?.(feature, res.pipeline_context_id || pipelineContext);
       // mini-app: dispatch the specialist worker's MCP-style tool call to the app.
       if (res.command?.name) {
         setCommand({ name: res.command.name, args: res.command.arguments, nonce: ++cmdNonce.current });
@@ -371,14 +380,6 @@ export function GeneratedView({
                   <div className="chat-preview fw-preview">
                     <div className="chat-preview__label">プレビュー（変更候補・未反映）</div>
                     <AppFrame html={candidate!.html!} feature={feature} projectId={PROJECT_ID} title={candidate!.title} live={false} />
-                    <div className="fw-actions">
-                      <button onClick={() => void publish()} disabled={acting}>
-                        🚀 反映（更新）
-                      </button>
-                      <button className="rollback" onClick={() => void cancel()} disabled={acting}>
-                        やめる
-                      </button>
-                    </div>
                   </div>
                 )}
 
@@ -390,22 +391,22 @@ export function GeneratedView({
                     )}
                   </div>
                 ))}
-                {sharedProgressMessages.length > 0 && (
+                {bridgeMessage && (
                   <div className="fw-progress">
-                    <div className="chat-preview__label">制作進捗</div>
-                    {sharedProgressMessages.map((m, i) => (
-                      <div key={`${m.created_at || ""}-${i}`} className={`bubble bubble--${m.role}`}>
-                        <MdText text={m.text} />
-                        {m.svg && (
-                          <img className="bubble-svg" alt="画面イメージ" src={`data:image/svg+xml;utf8,${encodeURIComponent(m.svg)}`} />
-                        )}
+                    <div className="chat-preview__label">制作チームからの連絡</div>
+                    <div className={`bubble bubble--assistant${building ? " bubble--pending" : ""}`}>
+                      <MdText text={bridgeMessage} />
+                    </div>
+                    {showPreview && (
+                      <div className="fw-actions">
+                        <button onClick={() => void publish()} disabled={acting}>
+                          🚀 反映（更新）
+                        </button>
+                        <button className="rollback" onClick={() => void cancel()} disabled={acting}>
+                          やめる
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-                {building && (
-                  <div className="bubble bubble--assistant bubble--pending">
-                    🤖 指示を反映しています…
+                    )}
                   </div>
                 )}
                 {error && <div className="error">{error}</div>}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
-import { clearGuestSession, getFeatureStates, getMe, resetAll, rollbackFeature, setProjectId, stopAllWorkers, type Me } from "../api";
+import { activateMainChatContext, clearGuestSession, getConversationState, getFeatureStates, getMe, resetAll, rollbackFeature, setProjectId, stopAllWorkers, type Me } from "../api";
 import { isFirebaseConfigured, signOutUser } from "../firebase";
 import { ChatView } from "../views/ChatView";
 import { GeneratedView } from "../views/GeneratedView";
@@ -8,6 +8,7 @@ import { ByokView } from "../views/ByokView";
 import { StatusView } from "../views/StatusView";
 import { loadUserSettings, UserSettingsView, type UserSettings } from "../views/UserSettingsView";
 import { poweredByLabel, PRODUCT } from "../product";
+import { FeatureSidebar } from "./FeatureSidebar";
 
 // Admin is a SEPARATE app (frontend/admin.html), not reachable from here.
 // EVERY feature (incl. task management) is AI-generated and rendered by the
@@ -29,6 +30,14 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
   const [userSettingsOpen, setUserSettingsOpen] = useState(false);
   const [identityReady, setIdentityReady] = useState(false);
   const [appFullscreen, setAppFullscreen] = useState(false);
+  const [requestedChatContext, setRequestedChatContext] = useState<string | null>(null);
+  const [lockedFeatures, setLockedFeatures] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem("af_locked_features") || "[]") as string[]);
+    } catch {
+      return new Set();
+    }
+  });
   const [restorePos, setRestorePos] = useState<{ x: number; y: number }>(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem("af_restore_pos") || "null") as { x?: number; y?: number } | null;
@@ -159,6 +168,26 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
     }
   }
 
+  useEffect(() => {
+    if (lockedFeatures.size === 0) return;
+    const syncLocks = async () => {
+      const finished: string[] = [];
+      await Promise.all([...lockedFeatures].map(async (feature) => {
+        try {
+          const contextId = localStorage.getItem(`af_locked_pipeline:${feature}`) || `app_${feature}`;
+          const state = await getConversationState(undefined, contextId);
+          if (!state.building && state.stage === "idle") finished.push(feature);
+        } catch {
+          /* keep locked until the next successful status check */
+        }
+      }));
+      finished.forEach((feature) => setFeatureLocked(feature, false));
+    };
+    void syncLocks();
+    const id = window.setInterval(() => void syncLocks(), 3000);
+    return () => window.clearInterval(id);
+  }, [lockedFeatures]);
+
   if (denied) {
     return (
       <div className="centered">
@@ -181,7 +210,28 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
   const iconOf = (_f: string) => "🧩";
 
   function goFeature(f: string) {
+    if (lockedFeatures.has(f)) return;
     setView({ kind: "feature", key: f });
+  }
+
+  function setFeatureLocked(feature: string, locked: boolean) {
+    setLockedFeatures((current) => {
+      const next = new Set(current);
+      if (locked) next.add(feature); else next.delete(feature);
+      if (!locked) localStorage.removeItem(`af_locked_pipeline:${feature}`);
+      localStorage.setItem("af_locked_features", JSON.stringify([...next]));
+      return next;
+    });
+  }
+
+  async function openAppPipeline(feature: string, contextId: string) {
+    setFeatureLocked(feature, true);
+    localStorage.setItem(`af_locked_pipeline:${feature}`, contextId);
+    localStorage.setItem("af_main_chat_context", contextId);
+    setRequestedChatContext(contextId);
+    setAppFullscreen(false);
+    setView({ kind: "chat" });
+    await activateMainChatContext(contextId).catch(() => {});
   }
 
   function onFeatureActivated(feature: string) {
@@ -222,7 +272,6 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
 
   const currentFeature = view.kind === "feature" ? view.key : null;
   const mainTheme = currentFeature ? themeOf(currentFeature) : "default";
-  const navActive = (f: string) => view.kind === "feature" && view.key === f;
   const isLocalDev = !isFirebaseConfigured();
   const canReset = import.meta.env.DEV || Boolean(me?.is_admin);
   const canFullscreenApp = view.kind === "feature";
@@ -360,11 +409,15 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
           >
             💬 メインチャット
           </button>
-          {activeFeatures.map((f) => (
-            <button key={f} className={navActive(f) ? "navitem navitem--active" : "navitem"} onClick={() => goFeature(f)}>
-              {iconOf(f)} {titleOf(f)}
-            </button>
-          ))}
+          <FeatureSidebar
+            projectId={me?.project_id || "default"}
+            features={activeFeatures}
+            titleOf={titleOf}
+            iconOf={iconOf}
+            activeFeature={currentFeature}
+            onOpen={goFeature}
+            lockedFeatures={lockedFeatures}
+          />
           {activeFeatures.length === 0 && (
             <div className="sidebar__hint">
               メインチャットで「タスク管理を追加して」→「反映して」で機能が増えます。
@@ -394,12 +447,26 @@ export function AppShell({ user, onShowHome }: { user: User | null; onShowHome?:
               background design keeps polling and the conversation is never lost when
               you switch to a feature / API設定 and come back. */}
           <div className={view.kind === "chat" ? "main-pane" : "main-pane main-pane--hidden"}>
-            <ChatView onFeatureActivated={onFeatureActivated} onFeatureDisabled={onFeatureDisabled} />
+            <ChatView
+              onFeatureActivated={onFeatureActivated}
+              onFeatureDisabled={onFeatureDisabled}
+              requestedContext={requestedChatContext}
+              onAppPipelineFinished={(contextId) => {
+                const feature = [...lockedFeatures].find(
+                  (item) => localStorage.getItem(`af_locked_pipeline:${item}`) === contextId,
+                );
+                if (feature) setFeatureLocked(feature, false);
+              }}
+            />
           </div>
           {view.kind === "feature" && (
             // After an in-place worker edit, refresh the sidebar (title/theme may
             // change) but STAY on the feature screen — the worker chat lives here.
-            <GeneratedView feature={view.key} onEdited={() => void loadStates()} />
+            <GeneratedView
+              feature={view.key}
+              onEdited={() => void loadStates()}
+              onBuildStarted={(feature, contextId) => void openAppPipeline(feature, contextId)}
+            />
           )}
           {view.kind === "byok" && <ByokView onBack={() => setView(prevView)} />}
           {view.kind === "status" && <StatusView onBack={() => setView(prevView)} />}

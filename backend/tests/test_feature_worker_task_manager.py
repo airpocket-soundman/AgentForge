@@ -70,6 +70,60 @@ def test_task_default_command_splits_compound_add_request():
     assert "AgentForge" in command["arguments"]["detail_html"]
 
 
+def test_task_add_separates_title_and_detail_and_removes_instruction_words():
+    text = (
+        "Hackathonのアイデアだし、というタスクを追加して。"
+        "アイデア案として、エージェントがアプリを作ってくれるスーパーアプリ、を記載しておいて"
+    )
+
+    parsed = features._parse_task_add_request(text)
+
+    assert parsed is not None
+    assert parsed["title"] == "Hackathonのアイデアだし"
+    detail = parsed["detail_html"]
+    assert detail.startswith("<h2>アイデア案</h2>")
+    assert "エージェントがアプリを作ってくれるスーパーアプリ" in detail
+    assert "記載しておいて" not in detail
+
+
+def test_task_command_override_repairs_unstructured_llm_detail():
+    manifest = templates.get_template("task_manager")
+    text = (
+        "Hackathonのアイデアだし、というタスクを追加して。"
+        "アイデア案として、エージェントがアプリを作ってくれるスーパーアプリ、を記載しておいて"
+    )
+    bad_command = {
+        "name": "add_task",
+        "arguments": {
+            "title": "Hackathonのアイデアだし",
+            "detail_html": "<h2>詳細</h2><p>アイデア案として、エージェントがアプリを作ってくれるスーパーアプリ、を記載しておいて</p>",
+        },
+    }
+
+    result = features._command_override("task_manager", bad_command, text, manifest)
+
+    assert result is not None
+    _reply, command = result
+    detail = command["arguments"]["detail_html"]
+    assert detail.startswith("<h2>アイデア案</h2>")
+    assert "記載しておいて" not in detail
+
+
+def test_task_add_general_case_separates_conditions_from_title():
+    text = (
+        "リリース準備をタスクに追加して。"
+        "詳細には金曜までにテスト結果を確認し、問題があれば担当者へ連絡すると書いて"
+    )
+
+    parsed = features._parse_task_add_request(text)
+
+    assert parsed is not None
+    assert parsed["title"] == "リリース準備"
+    assert "金曜までにテスト結果を確認" in parsed["detail_html"]
+    assert "担当者へ連絡" in parsed["detail_html"]
+    assert "追加して" not in parsed["title"]
+
+
 def test_task_detail_context_updates_open_task_detail_instead_of_creating_task(monkeypatch):
     saved = {}
     state = {

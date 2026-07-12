@@ -30,10 +30,13 @@ def test_each_template_is_a_valid_app_manifest():
 
 def test_each_template_passes_static_reviewer_and_safety_checks():
     from app.safety_harness.service import inspect_manifest
+    from app.workers.tester import _static_checks
     from app.workers.reviewer import _static_findings
 
     for key in EXPECTED:
         manifest = templates.get_template(key)
+        _tester_checks, tester_errors = _static_checks(manifest)
+        assert tester_errors == []
         assert _static_findings(manifest) == []
         _checks, findings = inspect_manifest(manifest)
         assert findings == []
@@ -146,6 +149,14 @@ def test_bluesky_template_keeps_connector_secrets_and_clear_persistence():
     assert 'timeline:{method:"GET",path:"/xrpc/app.bsky.feed.getTimeline",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor"}}' in html
     assert 'author_feed:{method:"GET",path:"/xrpc/app.bsky.feed.getAuthorFeed",side_effect:"read",query_template:{limit:"$params.limit",cursor:"$params.cursor",actor:"$params.actor"}}' in html
     assert 'profile:{method:"GET",path:"/xrpc/app.bsky.actor.getProfile",side_effect:"read",query_template:{actor:"$params.actor"}}' in html
+    assert 'create_post:{method:"POST",path:"/xrpc/com.atproto.repo.createRecord",side_effect:"medium"' in html
+    assert 'collection:"app.bsky.feed.post"' in html
+    assert 'id="composeOpen"' in html
+    assert 'id="composerBackdrop"' in html
+    assert 'AF.api("bluesky.create_post"' in html
+    assert "画像データがこの端末にありません" in html
+    assert "setText(b,url)" not in html
+    assert "linkLabel(url)" in html
     assert 'follow:{method:"POST",path:"/xrpc/com.atproto.repo.createRecord",side_effect:"medium"' in html
     assert 'unfollow:{method:"POST",path:"/xrpc/com.atproto.repo.deleteRecord",side_effect:"medium"' in html
     assert 'record:{"$type":"app.bsky.graph.follow",subject:"$params.subject",createdAt:"$params.createdAt"}' in html

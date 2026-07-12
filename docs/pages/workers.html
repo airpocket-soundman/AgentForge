@@ -297,8 +297,10 @@
   <p><strong>(a) 品質ループ（Tester／Reviewer 差し戻し）</strong> ― 時間ではなく品質の繰り返し。</p>
   <ul>
     <li><strong>Tester が動作 NG</strong>、または <strong>Reviewer が規約・設計不適合</strong>なら <code>needs_revision</code> を返し、Orchestrator が作り直す（まず差分修正）。</li>
-    <li><strong>自動での再生成は連続 2 回まで。</strong>それでも不適合なら、指摘を添えて<strong>ユーザーに返す</strong>
-      —— 続行（再試行／指示を変えて再依頼）するかはユーザーが決める。<strong>自動では破棄しない</strong>し、
+    <li><strong>初回検証が不適合なら、レビュー指摘を引き継いで自動修正・再検証を 3 回行う。</strong>
+      それでも不適合なら、累積した Tester／Reviewer／Safety の指摘を保持したまま、
+      <strong>「さらに 3 回トライ」または「やめる」</strong>をユーザーに確認する。
+      続行時は同じ指摘履歴を次の 3 回へ必ず渡し、この選択を繰り返せる。<strong>自動では破棄しない</strong>し、
       未通過のまま公開もしない（トークン暴走を防ぎつつ、止める判断は常にユーザー）。</li>
   </ul>
 

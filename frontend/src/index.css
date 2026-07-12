@@ -1669,6 +1669,16 @@ button { font: inherit; }
 .navitem:hover { background: #e9eaf6; }
 .navitem--active { background: #4a4ae0; color: #fff; }
 .sidebar__hint { margin-top: 12px; padding: 10px; font-size: 12px; color: #8a8aa0; line-height: 1.6; }
+.feature-tree { display: flex; flex: 1 1 auto; flex-direction: column; gap: 3px; min-height: 120px; padding-bottom: 28px; }
+.feature-tree__app { cursor: grab; text-align: left; }
+.feature-tree__app--locked,
+.feature-tree__app--locked:disabled { cursor: not-allowed; opacity: .46; filter: grayscale(1); }
+.feature-tree__app:active, .feature-tree__folder:active { cursor: grabbing; }
+.feature-tree__folder { border-radius: 9px; }
+.feature-tree__folder-button { display: flex; align-items: center; justify-content: space-between; width: 100%; cursor: grab; }
+.feature-tree__count { min-width: 20px; padding: 1px 6px; border-radius: 10px; background: rgba(120,120,150,.12); font-size: 10px; text-align: center; }
+.feature-tree__children { display: flex; flex-direction: column; gap: 3px; margin: 3px 0 4px 14px; padding-left: 7px; border-left: 1px solid rgba(120,120,150,.24); }
+.feature-tree__children .navitem { width: calc(100% - 2px); }
 
 /* ---- Main area (carries data-theme; descendants below use --gv-* tokens) ---- */
 .main { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
@@ -2161,10 +2171,11 @@ button { font: inherit; }
    regenerate → preview → 反映. */
 .feature-worker { flex: 1 1 0; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .feature-worker__off { flex: 0 0 auto; }
-.fw-scroll { flex: 1 1 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
+.fw-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px; }
 .fw-preview .fw-actions { display: flex; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--gv-border); background: var(--gv-surface); }
 .fw-progress { border: 1px solid var(--gv-border); border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
 .fw-progress .bubble { margin-left: 8px; margin-right: 8px; }
+.fw-progress .fw-actions { padding: 0 8px; }
 .fw-actions button { padding: 8px 14px; border: 0; border-radius: 9px; background: var(--gv-accent, #6366f1); color: #fff; cursor: pointer; }
 .fw-actions button.rollback { background: transparent; color: var(--gv-muted); border: 1px solid var(--gv-border-strong); }
 .fw-actions button:disabled { opacity: .5; cursor: not-allowed; }

@@ -1,9 +1,17 @@
 """Pure-logic tests for 巻き戻し (version rollback). No Firestore needed."""
-from app.control_plane.approvals import plan_rollback
+from app.control_plane.approvals import _PURGED_FEATURE_QUERY_COLLECTIONS, plan_rollback
 
 
 def _v(seq, title):
     return {"seq": seq, "manifest": {"title": title, "feature": "counter"}, "action": "publish"}
+
+
+def test_explicit_app_delete_includes_connector_credentials():
+    assert set(_PURGED_FEATURE_QUERY_COLLECTIONS) == {
+        "feature_chats",
+        "app_entities",
+        "app_connectors",
+    }
 
 
 def test_rollback_none_when_empty():

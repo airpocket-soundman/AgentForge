@@ -18,6 +18,9 @@ from app.control_plane.registry import _audit
 from app.firestore import get_db
 
 
+_PURGED_FEATURE_QUERY_COLLECTIONS = ("feature_chats", "app_entities", "app_connectors")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -279,6 +282,27 @@ def _delete_stream(query) -> int:
     return count
 
 
+def _delete_filtered(collection_ref, predicate) -> int:
+    """Delete documents selected in Python (avoids Firestore `in` limits/indexes)."""
+    db = get_db()
+    count = 0
+    batch = db.batch()
+    pending = 0
+    for doc in collection_ref.stream():
+        if not predicate(doc.to_dict() or {}):
+            continue
+        batch.delete(doc.reference)
+        count += 1
+        pending += 1
+        if pending >= 400:
+            batch.commit()
+            batch = db.batch()
+            pending = 0
+    if pending:
+        batch.commit()
+    return count
+
+
 def _purge_feature_data(project_id: str, feature: str) -> dict[str, int]:
     """Delete all app-scoped data for an explicit feature deletion.
 
@@ -295,15 +319,87 @@ def _purge_feature_data(project_id: str, feature: str) -> dict[str, int]:
             ref.delete()
         deleted[collection] = 1 if existed else 0
 
-    deleted["feature_chats"] = _delete_stream(
-        db.collection("feature_chats")
-        .where(filter=FieldFilter("project_id", "==", project_id))
-        .where(filter=FieldFilter("feature", "==", feature))
+    # app_connectors is intentionally included: those documents contain the
+    # app's secrets (password/token/header). Deleting only app_state would leave
+    # credentials reusable when the same feature slug is recreated.
+    for collection in _PURGED_FEATURE_QUERY_COLLECTIONS:
+        deleted[collection] = _delete_filtered(
+            db.collection(collection)
+            .where(filter=FieldFilter("project_id", "==", project_id)),
+            lambda data: data.get("feature") == feature,
+        )
+
+    # Remove the app-owned Receptor/Orchestrator conversation. Main-chat history
+    # remains an audit trail, but this private pipeline state (candidate/build)
+    # must not be picked up by a newly-created app with the same slug.
+    app_context_prefix = f"conv_{project_id}__app_{feature}"
+    deleted["app_pipeline_conversation"] = _delete_filtered(
+        db.collection("conversations"),
+        lambda data: (
+            str(data.get("project_id") or "") == project_id
+            and str(data.get("context_id") or "").startswith(f"app_{feature}")
+        ),
     )
-    deleted["app_entities"] = _delete_stream(
-        db.collection("app_entities")
+    # Backward compatibility for older app pipeline docs without base fields.
+    legacy_ref = db.collection("conversations").document(app_context_prefix)
+    if legacy_ref.get().exists:
+        legacy_ref.delete()
+        deleted["app_pipeline_conversation"] += 1
+
+    # Purge build artifacts that can otherwise reconnect a recreated feature to
+    # an old approval or generated API/view registry entry.
+    task_docs = list(
+        db.collection("task_runs")
         .where(filter=FieldFilter("project_id", "==", project_id))
         .where(filter=FieldFilter("feature", "==", feature))
+        .stream()
+    )
+    task_ids = {doc.id for doc in task_docs}
+    deleted["task_runs"] = 0
+    for doc in task_docs:
+        doc.reference.delete()
+        deleted["task_runs"] += 1
+
+    for collection in ("work_plans",):
+        count = 0
+        for task_id in task_ids:
+            ref = db.collection(collection).document(task_id)
+            if ref.get().exists:
+                ref.delete()
+                count += 1
+        deleted[collection] = count
+
+    for collection, field in (
+        ("approval_requests", "task_id"),
+        ("api_registry", "created_by_task"),
+        ("ui_view_registry", "created_by_task"),
+    ):
+        deleted[collection] = 0
+        if task_ids:
+            deleted[collection] = _delete_filtered(
+                db.collection(collection), lambda data, f=field: data.get(f) in task_ids
+            )
+
+    run_ids: set[str] = set()
+
+    def _is_feature_run(data: dict) -> bool:
+        matched = data.get("project_id") == project_id and data.get("feature") == feature
+        if matched and data.get("run_id"):
+            run_ids.add(str(data["run_id"]))
+        return matched
+
+    deleted["pipeline_runs"] = _delete_filtered(
+        db.collection("pipeline_runs"),
+        _is_feature_run,
+    )
+    correlated_ids = task_ids | {run_id for run_id in run_ids if run_id}
+    deleted["worker_messages"] = _delete_filtered(
+        db.collection("worker_messages"),
+        lambda data: data.get("project_id") == project_id and data.get("task_id") in correlated_ids,
+    )
+    deleted["safety_checks"] = _delete_filtered(
+        db.collection("safety_checks"),
+        lambda data: data.get("project_id") == project_id and data.get("feature") == feature,
     )
 
     # Legacy fixed task API data. Generated default task_manager uses app_state,

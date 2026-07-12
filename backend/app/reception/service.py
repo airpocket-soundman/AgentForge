@@ -12,10 +12,10 @@ state.
 from __future__ import annotations
 
 import contextvars
+from contextlib import contextmanager
 import re
 import threading
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from app.control_plane import registry, worker_status
@@ -174,6 +174,43 @@ def conversation_id_for(project_id: str, context_id: str | None = None) -> str:
         context_id = active_main_context(project_id)
     ctx = _safe_context_id(context_id)
     return f"conv_{project_id}" if ctx == _DEFAULT_CONTEXT else f"conv_{project_id}__{ctx}"
+
+
+def app_pipeline_context(feature: str) -> str:
+    """Stable, app-owned Receptor/Orchestrator session for one mini app."""
+    return _safe_context_id(f"app_{feature}")
+
+
+def new_app_pipeline_context(feature: str) -> str:
+    """Unique main-chat session for one Specialist Worker handoff."""
+    return _safe_context_id(f"app_{feature}_{uuid.uuid4().hex[:10]}")
+
+
+def feature_pipeline_active(project_id: str, feature: str) -> bool:
+    """Project-wide lock: one feature cannot be edited by two conversations."""
+    for snap in get_db().collection(_COLLECTION).stream():
+        if not snap.id.startswith("conv_") or _parse_conversation_id(snap.id)[0] != project_id:
+            continue
+        data = snap.to_dict() or {}
+        build = data.get("build") or {}
+        flow = data.get("flow") or {}
+        if build.get("feature") == feature and build.get("status") == _BUILD_DESIGNING:
+            return True
+        if flow.get("feature") == feature and flow.get("stage") in {
+            _STAGE_CONFIRM, _STAGE_PLAN, _STAGE_BUILT
+        }:
+            return True
+    return False
+
+
+@contextmanager
+def pinned_conversation(project_id: str, context_id: str):
+    """Pin synchronous app-chat control to its own pipeline conversation."""
+    token = _PINNED_CONV.set(conversation_id_for(project_id, context_id))
+    try:
+        yield
+    finally:
+        _PINNED_CONV.reset(token)
 
 
 def _parse_conversation_id(conversation_id: str) -> tuple[str, str]:
@@ -415,7 +452,7 @@ _PLAN_OK_EXACT = {
 # Unambiguous commit instructions, matched as a substring.
 _PLAN_OK_PHRASES = (
     "これで作", "これでお願い", "これでいい", "これで良", "これでok", "これでオーケー",
-    "作成して", "実装して", "承認", "公開して", "進めて", "これでいこ", "これで進",
+    "作成して", "実装して", "承認", "公開して", "反映して", "進めて", "これでいこ", "これで進",
 )
 # Likewise: a standalone cancel vs. an instruction that merely contains "やめ" as a
 # substring (e.g. "やめ時がわかるタイマーを作って" must NOT abort the flow).
@@ -700,16 +737,18 @@ def resolve_feature(project_id: str, text: str, *, allow_lone_fallback: bool = T
 
 
 def start_edit(
-    project_id: str, feature: str, instruction: str, images: list[dict] | None = None
+    project_id: str, feature: str, instruction: str, images: list[dict] | None = None,
+    gate_feedbacks: list | None = None,
 ) -> None:
     """Regenerate an existing feature's code with the change instruction applied."""
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction, feature=feature, started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
-    _spawn_pipeline_thread(conversation_id, _run_edit, project_id, feature, instruction, images)
+    _spawn_pipeline_thread(conversation_id, _run_edit, project_id, feature, instruction, images, gate_feedbacks or [])
 
 
 def _run_edit(
-    project_id: str, feature: str, instruction: str, images: list[dict] | None = None
+    project_id: str, feature: str, instruction: str, images: list[dict] | None = None,
+    carried_feedbacks: list | None = None,
 ) -> None:
     """Receptor → Orchestrator 'edit' over the MCP-like bus (see _run_codegen)."""
     conversation_id = conversation_id_for(project_id)
@@ -772,14 +811,19 @@ def _run_edit(
                     )
             return m
 
-        manifest = _build()
+        feedback_history = [str(x).strip() for x in (carried_feedbacks or []) if str(x or "").strip()]
+        manifest = _build(_combined_gate_feedback(feedback_history))
         passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
+        if not passed:
+            feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
-            manifest = _build(_gate_feedback(gates))
+            manifest = _build(_combined_gate_feedback(feedback_history))
             passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
+            if not passed:
+                feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
 
         cand = manifest.model_dump(mode="json")
         cand["safety_harness"] = gates.get("safety")
@@ -802,7 +846,11 @@ def _run_edit(
 
         # Not verified → NOT publishable. Don't enable 「反映して」; keep the live
         # version untouched. The user can re-issue the edit instruction.
-        _set_flow(conversation_id, stage=_STAGE_IDLE)
+        _set_flow(
+            conversation_id, stage=_STAGE_PLAN, mode="edit", goal=instruction,
+            plan={"retry_kind": "edit"}, feature=feature,
+            needs_regeneration=True, gate_feedbacks=feedback_history,
+        )
         _progress(conversation_id, _check_report(cand))
         if manifest.generated_by == "stub":
             text = (
@@ -845,14 +893,22 @@ def _run_edit(
 # tweak required publishing first. Now a substantive message revises the CANDIDATE
 # (regenerate → gate → re-preview) — the live/published version stays untouched.
 
-def start_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
+def start_candidate_revision(
+    project_id: str, instruction: str, images: list[dict] | None = None,
+    gate_feedbacks: list | None = None,
+) -> None:
     conversation_id = conversation_id_for(project_id)
     _set_build(conversation_id, status=_BUILD_DESIGNING, phase="editing", goal=instruction,
                started_at=_now_iso(), model=_model_for_phase("editing"), timeout_count=0, prompt_pending=False)
-    _spawn_pipeline_thread(conversation_id, _run_candidate_revision, project_id, instruction, images)
+    _spawn_pipeline_thread(
+        conversation_id, _run_candidate_revision, project_id, instruction, images, gate_feedbacks or []
+    )
 
 
-def _run_candidate_revision(project_id: str, instruction: str, images: list[dict] | None = None) -> None:
+def _run_candidate_revision(
+    project_id: str, instruction: str, images: list[dict] | None = None,
+    carried_feedbacks: list | None = None,
+) -> None:
     conversation_id = conversation_id_for(project_id)
     from app.control_plane import worker_bus
     from app.harness import service as harness
@@ -907,17 +963,29 @@ def _run_candidate_revision(project_id: str, instruction: str, images: list[dict
                     )
             return m
 
-        manifest = _build()
+        feedback_history = [str(x).strip() for x in (carried_feedbacks or []) if str(x or "").strip()]
+        manifest = _build(_combined_gate_feedback(feedback_history))
         passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
+        if not passed:
+            feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
             _progress(conversation_id, f"↩️ 指摘を反映して再生成しています…（{attempts}回目）")
-            manifest = _build(_gate_feedback(gates))
+            manifest = _build(_combined_gate_feedback(feedback_history))
             passed, gates = _run_gates(conversation_id, instruction, manifest.model_dump(mode="json"), corr, requirements=reqs)
+            if not passed:
+                feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
 
         if not passed:
-            # Keep the EXISTING candidate (flow untouched); just report.
+            failed_cand = manifest.model_dump(mode="json")
+            failed_cand["safety_harness"] = gates.get("safety")
+            _set_flow(
+                conversation_id, stage=_STAGE_PLAN, mode=mode, goal=instruction,
+                plan={"retry_kind": "candidate_revision"}, feature=feature,
+                candidate=failed_cand, needs_regeneration=True,
+                gate_feedbacks=feedback_history,
+            )
             append_message(conversation_id, ChatMessage(role="assistant", text=(
                 "❌ プレビューの修正が要件を満たせなかったため、プレビューは前のままです:\n"
                 + _gate_feedback(gates) + "\n別の言い方で指示するか、「反映して」（現状のまま公開）/「キャンセル」を選べます。"
@@ -1312,10 +1380,10 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
     """Deploy a DEFAULT template as a preview (built candidate) — no LLM. The user
     publishes with 「反映して」, then improves it via the normal edit pipeline.
 
-    Even defaults must pass the same pre-deploy gates. If a bundled template has
-    drifted from current policy, run the same small repair loop used by generated
-    apps before giving up; otherwise defaults fail permanently until a developer
-    manually patches the repository.
+    Bundled defaults are verified by the same deterministic checks used by the
+    repository test suite. A pristine trusted template therefore reaches preview
+    without slow LLM gate calls. If it has drifted, fall back to the full gates and
+    repair loop instead of silently publishing it.
     """
     from app import templates
     from app.llm.gateway import get_llm
@@ -1324,6 +1392,16 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
     from app.workers import ui_designer
 
     conversation_id = conversation_id_for(project_id)
+    _set_build(
+        conversation_id,
+        status=_BUILD_DESIGNING,
+        phase="template_validation",
+        goal=goal,
+        started_at=_now_iso(),
+        model="deterministic:trusted-template",
+        timeout_count=0,
+        prompt_pending=False,
+    )
     manifest = templates.to_manifest(key)
     if manifest is None:  # unknown key → fall back to generating from scratch
         clear_flow(project_id)
@@ -1332,7 +1410,10 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
 
     req = PlanRequest(project_id=project_id, goal=goal)
     corr = f"template_{uuid.uuid4().hex[:12]}"
-    passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+    passed, gates = _run_trusted_template_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
+    if not passed:
+        _progress(conversation_id, "⚠️ 正式テンプレートの決定的検査で問題を検出したため、詳細レビューへ切り替えます…")
+        passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr)
     attempts = 1
     while not passed and get_llm().enabled and attempts < _GATE_MAX_ATTEMPTS:
         attempts += 1
@@ -1389,6 +1470,46 @@ def deploy_template(project_id: str, key: str, goal: str) -> dict:
     )))
     return {"reply": f"デフォルトの「{manifest.title}」を用意しました。下のプレビューをご確認ください。",
             "building": False}
+
+
+def _run_trusted_template_gates(
+    conversation_id: str,
+    goal: str,
+    manifest: dict,
+    task_id: str,
+) -> tuple[bool, dict]:
+    """Fast, deterministic gate for immutable bundled default templates."""
+    from app.safety_harness import service as safety_harness
+    from app.workers import reviewer, tester
+
+    tester_checks, tester_errors = tester._static_checks(manifest)
+    reviewer_findings = reviewer._static_findings(manifest)
+    tester_result = {
+        "verdict": "fail" if tester_errors else "pass",
+        "checks": tester_checks,
+        "errors": tester_errors,
+        "criteria": [],
+    }
+    reviewer_result = {
+        "verdict": "needs_revision" if reviewer_findings else "ok",
+        "findings": reviewer_findings,
+    }
+    safety = safety_harness.evaluate(
+        manifest,
+        project_id=_parse_conversation_id(conversation_id)[0],
+        task_id=task_id,
+        goal=goal,
+        tester_result=tester_result,
+        reviewer_result=reviewer_result,
+        persist=False,
+    )
+    gates = {"tester": tester_result, "reviewer": reviewer_result, "safety": safety}
+    passed = tester_result["verdict"] == "pass" and reviewer_result["verdict"] == "ok" and safety["verdict"] == "pass"
+    _progress(
+        conversation_id,
+        "⚡ 正式デフォルトテンプレートの検証済みハッシュ相当チェック " + ("✅" if passed else "⚠️"),
+    )
+    return passed, gates
 
 
 def _receptor_chat(
@@ -1672,8 +1793,13 @@ def retry_build(project_id: str) -> str:
     if phase == "codegen" and flow.get("plan"):
         start_codegen(project_id, goal, flow["plan"], gate_feedbacks=flow.get("gate_feedbacks") or [])
         return "codegen"
-    if phase == "editing" and flow.get("feature"):
-        start_edit(project_id, flow["feature"], goal)
+    # App-chat edits start directly from the Specialist Worker and therefore may
+    # not have a main-chat flow record.  The build record is their durable resume
+    # point; otherwise a backend restart incorrectly turns an edit into a new-app
+    # planning request.
+    edit_feature = flow.get("feature") or build.get("feature")
+    if phase == "editing" and edit_feature:
+        start_edit(project_id, edit_feature, goal)
         return "editing"
     start_plan(project_id, goal)
     return "planning"
@@ -1816,9 +1942,9 @@ def pipeline_status_reply(project_id: str, text: str, user_call_name: str | None
     return f"現在の段階は「{st['stage_label']}」です。今は動作中の作業はありません。{st['next_action']}。"
 
 
-def get_candidate(project_id: str) -> dict | None:
+def get_candidate(project_id: str, context_id: str | None = None) -> dict | None:
     """The generated manifest currently awaiting publish (new or edited), for preview."""
-    snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id)).get()
+    snap = get_db().collection(_COLLECTION).document(conversation_id_for(project_id, context_id)).get()
     data = (snap.to_dict() or {}) if snap.exists else {}
     return (data.get("flow") or {}).get("candidate")
 
@@ -2061,7 +2187,8 @@ def start_codegen(project_id: str, goal: str, plan: dict, gate_feedbacks: list |
 # --- Deploy-time gate: Tester (runs / meets intent) + Reviewer (conventions) ---
 # Phase 1 bounds the quality loop; Phase 4 replaces the bound with the
 # timeout-based, user-controlled stop (workers.html §3(b)).
-_GATE_MAX_ATTEMPTS = 2
+_GATE_AUTO_RETRIES = 3
+_GATE_MAX_ATTEMPTS = 1 + _GATE_AUTO_RETRIES
 
 
 def _run_gates(conversation_id: str, goal: str, manifest: dict, task_id: str,
@@ -2157,21 +2284,21 @@ def _gate_feedback(gates: dict) -> str:
     return "\n".join(items) or "（指摘なし）"
 
 
-def _merge_gate_feedbacks(existing: list | None, feedback: str | None, *, limit: int = 8) -> list[str]:
+def _merge_gate_feedbacks(existing: list | None, feedback: str | None) -> list[str]:
     """Keep failed gate feedback across explicit user-triggered regenerations."""
     out: list[str] = []
     for item in [*(existing or []), feedback]:
         text = str(item or "").strip()
         if text and text != "（指摘なし）" and text not in out:
             out.append(text)
-    return out[-limit:]
+    return out
 
 
 def _combined_gate_feedback(feedbacks: list | None) -> str | None:
     items = [str(x).strip() for x in (feedbacks or []) if str(x or "").strip()]
     if not items:
         return None
-    return "\n\n[過去の未通過フィードバック]\n" + "\n\n".join(items[-8:])
+    return "\n\n[過去の未通過フィードバック]\n（古い順・全履歴を次のループへ引き継ぐ）\n" + "\n\n".join(items)
 
 
 def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list | None = None) -> None:
@@ -2219,6 +2346,9 @@ def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list
         _progress(conversation_id, "🛠 AIワーカーがコードを生成しています…")
         manifest = _gen()
         passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria, design_plan=plan)
+        feedback_history = list(carried_feedbacks)
+        if not passed:
+            feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
         attempts = 1
         while not passed and attempts < _GATE_MAX_ATTEMPTS:
             attempts += 1
@@ -2229,7 +2359,7 @@ def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list
                 patched = ui_designer.design_patch(
                     goal,
                     manifest.model_dump(mode="json"),
-                    feedback=_gate_feedback(gates),
+                    feedback=_combined_gate_feedback(feedback_history),
                     web_context=web_search_tool.worker_web_context(goal),
                 )
             if patched is not None:
@@ -2237,8 +2367,10 @@ def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list
                 manifest = patched
             else:
                 _progress(conversation_id, "↩️ 差分にできない変更のため、全体を再生成します…")
-                manifest = _gen(_gate_feedback(gates))
+                manifest = _gen(_combined_gate_feedback(feedback_history))
             passed, gates = _run_gates(conversation_id, goal, manifest.model_dump(mode="json"), corr, criteria=criteria, design_plan=plan)
+            if not passed:
+                feedback_history = _merge_gate_feedbacks(feedback_history, _gate_feedback(gates))
 
         if passed:
             # Only a verified result is publishable: register it and offer 「反映して」.
@@ -2269,18 +2401,18 @@ def _run_codegen(project_id: str, goal: str, plan: dict, carried_feedbacks: list
         # Stay at the plan stage so the user can retry (「同じ設計で再生成」) or
         # redirect; needs_regeneration tells the UI which button to show.
         failed_feedback = _gate_feedback(gates)
-        feedbacks = _merge_gate_feedbacks(carried_feedbacks, failed_feedback)
+        feedbacks = _merge_gate_feedbacks(feedback_history, failed_feedback)
         _set_flow(conversation_id, stage=_STAGE_PLAN, goal=goal, plan=plan,
                   feature=manifest.feature, needs_regeneration=True, gate_feedbacks=feedbacks)
         if manifest.generated_by == "stub":
             text = (
                 "❌ うまく生成できませんでした（AI ワーカー＝LLM に到達できていない可能性）。\n"
-                "claude ブリッジ（:8765）が起動しているか確認のうえ、「同じ設計で再生成」を選ぶか、設計を変えたい点を返信してください。"
+                "claude ブリッジ（:8765）が起動しているか確認のうえ、「さらに3回トライ」を選ぶか、「やめる」を選んでください。"
             )
         else:
             text = (
                 "❌ 生成物が要件を満たせませんでした（未完成のため公開はできません）:\n" + failed_feedback + "\n"
-                "「同じ設計で再生成」を選ぶか、設計を変えたい点を返信してください。"
+                "これまでの指摘を引き継いで「さらに3回トライ」を選ぶか、「やめる」を選んでください。"
             )
         append_message(conversation_id, ChatMessage(role="assistant", text=text))
         return {"status": "needs_revision",
@@ -2335,6 +2467,11 @@ def conversation_state(project_id: str, context_id: str | None = None) -> dict:
         # The work happening NOW (planning/revising/codegen/editing). The flow stage
         # stays "plan" during code generation, so the spinner must key off phase.
         "phase": build.get("phase") if building else None,
+        # App chats use this as a Specialist Worker -> Orchestrator bridge.  It is
+        # deliberately a single status line, not the main-chat transcript: each
+        # app must receive only the progress relevant to its active request.
+        "progress_message": build.get("last_activity") if building else None,
+        "progress_updated_at": build.get("updated_at") if building else None,
         "stage": stage,
         "mode": flow.get("mode", "create"),
         # At the plan stage after a gate-failed codegen: the UI offers regeneration

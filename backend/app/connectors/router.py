@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, current_user
 from app.control_plane.registry import _audit
+from app.control_plane.approvals import require_feature_active
 from app.firestore import get_db
 
 router = APIRouter(prefix="/api/connectors", tags=["connectors"])
@@ -219,6 +220,7 @@ def _connector_response(*, connector_id: str, action_id: str, data: Any) -> dict
 def define_connector(body: ConnectorDefineIn, user: CurrentUser = Depends(current_user)) -> dict:
     feature = _safe_id(body.feature, "feature")
     project_id = _safe_id(body.project_id, "project_id")
+    require_feature_active(project_id, feature)
     connector_id = _safe_id(body.connector_id, "connector_id")
     if not body.actions:
         raise HTTPException(status_code=400, detail="actions を1件以上定義してください")
@@ -268,6 +270,7 @@ def list_feature_connectors(
 ) -> dict:
     feature = _safe_id(feature, "feature")
     project_id = _safe_id(project_id, "project_id")
+    require_feature_active(project_id, feature)
     docs = get_db().collection(_APP_CONNECTORS).where("uid", "==", user.uid).stream()
     items = []
     for doc in docs:
@@ -287,6 +290,7 @@ def delete_connector(
     connector_id = _safe_id(connector_id, "connector_id")
     feature = _safe_id(feature, "feature")
     project_id = _safe_id(project_id, "project_id")
+    require_feature_active(project_id, feature)
     _connector_doc(user, project_id, feature, connector_id).delete()
     _audit("connectors.deleted", f"connector:{feature}:{connector_id}", {"feature": feature, "connector_id": connector_id})
     return {"ok": True}
@@ -311,6 +315,7 @@ def invoke(body: ConnectorInvokeIn, user: CurrentUser = Depends(current_user)) -
     connector_id, action_id = _split_action_name(body.name)
     feature = _safe_id(body.feature, "feature")
     project_id = _safe_id(body.project_id, "project_id")
+    require_feature_active(project_id, feature)
     snap = _connector_doc(user, project_id, feature, connector_id).get()
     if not snap.exists:
         raise HTTPException(status_code=404, detail="connector not found")
